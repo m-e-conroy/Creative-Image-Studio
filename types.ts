@@ -3,6 +3,8 @@
 export enum EditMode {
   MASK = 'mask',
   SKETCH = 'sketch',
+  OUTPAINT = 'outpaint',
+  CROP = 'crop',
 }
 
 export interface ImageStyle {

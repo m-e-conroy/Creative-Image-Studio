@@ -72,6 +72,30 @@ export async function editImage(
   return result;
 }
 
+export async function describeImage(
+  base64ImageData: string,
+  mimeType: string
+): Promise<string> {
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.5-flash',
+    contents: {
+      parts: [
+        {
+          inlineData: {
+            data: base64ImageData,
+            mimeType: mimeType,
+          },
+        },
+        {
+          text: 'Describe this image in detail. The description should be suitable to be used as a prompt for an AI image generation model. Focus on the subject, foreground, background, style, and composition. Do not include any preamble or explanation, only the prompt description.',
+        },
+      ],
+    },
+  });
+
+  return response.text.trim();
+}
+
 export async function rewritePrompt(prompt: string, part: PromptPart): Promise<string> {
     if (!prompt.trim()) {
       return prompt;
@@ -94,4 +118,23 @@ export async function rewritePrompt(prompt: string, part: PromptPart): Promise<s
     });
 
     return response.text.trim().replace(/^"|"$/g, ''); // Trim quotes if model adds them
-  }
+}
+
+export async function generateRandomPrompt(part: PromptPart | 'edit'): Promise<string> {
+    const instructionMap: Record<PromptPart | 'edit', string> = {
+        subject: "You are a creative idea generator for an AI image model. Generate a short, interesting, and visually rich subject for an image. Be imaginative. Provide only the subject description, with no preamble or explanation.",
+        background: "You are a creative idea generator for an AI image model. Generate a short, evocative description of a background or setting for an image. Provide only the background description, with no preamble or explanation.",
+        foreground: "You are a creative idea generator for an AI image model. Generate a short, interesting detail for the foreground of an image. It should complement a main subject. Provide only the foreground description, with no preamble or explanation.",
+        edit: "You are a creative idea generator for an AI image editing model. Generate a short, creative instruction for editing an existing image. For example, 'make the sky a galaxy' or 'add a small, sleeping fox in the corner'. Provide only the editing instruction, with no preamble or explanation."
+    };
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: `Generate a random prompt for an image's ${part}.`,
+        config: {
+            systemInstruction: instructionMap[part],
+        },
+    });
+
+    return response.text.trim().replace(/^"|"$/g, ''); // Trim quotes if model adds them
+}

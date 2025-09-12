@@ -1,11 +1,34 @@
 import React from 'react';
 
 export const LogoIcon: React.FC = () => (
-    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-brand-primary">
-        <path d="M12 2L2 7V17L12 22L22 17V7L12 2Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"/>
-        <path d="M2 7L12 12M12 22V12M22 7L12 12M17 4.5L7 9.5" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"/>
+    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+            <linearGradient id="paintGradient" x1="50%" y1="0%" x2="50%" y2="100%">
+                {/* Solar Strand */}
+                <stop offset="0%" stopColor="#ffc72c" />
+                {/* Solar Strand (Red) */}
+                <stop offset="100%" stopColor="#e56a54" />
+            </linearGradient>
+        </defs>
+
+        {/* Camera Body using Harriman Blue */}
+        <path d="M20 6H16L14.5 4H9.5L8 6H4C2.9 6 2 6.9 2 8V18C2 19.1 2.9 20 4 20H20C21.1 20 22 19.1 22 18V8C22 6.9 21.1 6 20 6Z" fill="#002f56"/>
+
+        {/* Shutter button using Victor E. Blue */}
+        <circle cx="18.5" cy="8.5" r="1.5" fill="#2f9fd0"/>
+
+        {/* Brush Ferrule (metal part of brush) as lens housing using Baird Point and Putnam Gray */}
+        <circle cx="12" cy="13" r="4.5" fill="#e4e4e4"/>
+        <circle cx="12" cy="13" r="4" stroke="#666666" strokeWidth="1.5" fill="none"/>
+
+        {/* Paintbrush Bristles forming the lens */}
+        <path d="M12 9.5 C14 11, 14.5 13, 12 16.5 C9.5 13, 10 11, 12 9.5 Z" fill="url(#paintGradient)"/>
+
+        {/* A small drip to emphasize the paint aspect */}
+        <path d="M12 16.5 C 11.5 17.5, 12.5 17.5, 12 18.5 C 11.5 17.5, 12 16.5, 12 16.5 Z" fill="#e56a54"/>
     </svg>
 );
+
 
 export const GenerateIcon: React.FC = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -66,5 +89,67 @@ export const FilterIcon: React.FC = () => (
 export const RewriteIcon: React.FC = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
         <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+    </svg>
+);
+
+export const RandomIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+        <path d="M10 3.5a1.5 1.5 0 011.5 1.5v.5h.5a1.5 1.5 0 011.5 1.5v.5h.5a1.5 1.5 0 011.5 1.5v4a1.5 1.5 0 01-1.5 1.5h-.5v.5a1.5 1.5 0 01-1.5 1.5h-.5v.5a1.5 1.5 0 01-1.5 1.5h-4a1.5 1.5 0 01-1.5-1.5v-.5h-.5a1.5 1.5 0 01-1.5-1.5v-.5h-.5a1.5 1.5 0 01-1.5-1.5v-4a1.5 1.5 0 011.5-1.5h.5v-.5a1.5 1.5 0 011.5-1.5h.5v-.5A1.5 1.5 0 0110 3.5zm-3.5 8a1 1 0 100-2 1 1 0 000 2zM15 10a1 1 0 10-2 0 1 1 0 002 0zm-5 5a1 1 0 100-2 1 1 0 000 2zM10 5a1 1 0 100 2 1 1 0 000-2zM5 10a1 1 0 10-2 0 1 1 0 002 0z" />
+    </svg>
+);
+
+
+export const SunIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+    </svg>
+);
+
+export const MoonIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+    </svg>
+);
+
+export const UploadIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+    </svg>
+);
+
+export const OutpaintIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4h4m12 4V4h-4M4 16v4h4m12-4v4h-4" />
+    </svg>
+);
+
+export const ArrowUpIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+    </svg>
+);
+
+export const ArrowDownIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+    </svg>
+);
+
+export const ArrowLeftIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+    </svg>
+);
+
+export const ArrowRightIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+    </svg>
+);
+
+export const CropIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0l3-3-3-3" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12H3" />
     </svg>
 );

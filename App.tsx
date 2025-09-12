@@ -1,12 +1,13 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { ControlPanel } from './components/ControlPanel';
 import { ImageCanvas } from './components/ImageCanvas';
-import { generateImage, editImage, rewritePrompt } from './services/geminiService';
+import { generateImage, editImage, rewritePrompt, generateRandomPrompt, describeImage } from './services/geminiService';
 import { ImageCanvasMethods } from './components/ImageCanvas';
 import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule } from './types';
 import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES } from './constants';
 import { LogoIcon } from './components/Icons';
 import { ImageGallery } from './components/ImageGallery';
+import { ThemeSwitcher } from './components/ThemeSwitcher';
 
 type Tab = 'generate' | 'edit' | 'filters';
 
@@ -35,8 +36,12 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>('generate');
   const [activeFilter, setActiveFilter] = useState<Filter>(FILTERS[0]);
   const [rewritingPrompt, setRewritingPrompt] = useState<PromptPart | null>(null);
+  const [randomizingPrompt, setRandomizingPrompt] = useState<PromptPart | 'edit' | null>(null);
+  const [cropRectActive, setCropRectActive] = useState<boolean>(false);
+
 
   const canvasRef = useRef<ImageCanvasMethods>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleGenerate = useCallback(async () => {
     if (!prompt.subject) {
@@ -99,6 +104,69 @@ const App: React.FC = () => {
     }
   }, [prompt]);
 
+  const handleRandomPrompt = useCallback(async (part: PromptPart | 'edit') => {
+    setRandomizingPrompt(part);
+    setError(null);
+    try {
+      const randomText = await generateRandomPrompt(part);
+      if (part === 'edit') {
+        setEditPrompt(randomText);
+      } else {
+        setPrompt(prev => ({ ...prev, [part]: randomText }));
+      }
+    } catch (e) {
+      console.error(e);
+      setError(`Failed to generate a random ${part} prompt. Please try again.`);
+    } finally {
+      setRandomizingPrompt(null);
+    }
+  }, []);
+
+  const handleImageUpload = useCallback(async (file: File) => {
+    setError(null);
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const imageUrl = e.target?.result as string;
+      if (!imageUrl) return;
+
+      setMainImage(imageUrl);
+      setOriginalImage(imageUrl);
+      setGeneratedImages([]);
+      setActiveTab('edit');
+      setIsLoading(true);
+      setLoadingMessage('Analyzing your image...');
+
+      try {
+        const [meta, data] = imageUrl.split(',');
+        const mimeType = meta.split(';')[0].split(':')[1];
+        const description = await describeImage(data, mimeType);
+        setEditPrompt(description);
+      } catch (err) {
+        console.error(err);
+        setError('Failed to analyze the image. Please provide your own edit prompt.');
+        setEditPrompt('');
+      } finally {
+        setIsLoading(false);
+        setLoadingMessage('');
+      }
+    };
+    reader.readAsDataURL(file);
+  }, []);
+
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      handleImageUpload(file);
+    }
+    if (event.target) {
+      event.target.value = '';
+    }
+  };
+
   const handlePromptChange = (part: PromptPart, value: string) => {
     setPrompt(prev => ({ ...prev, [part]: value }));
   };
@@ -142,9 +210,63 @@ const App: React.FC = () => {
     }
   }, [editPrompt]);
 
+  const handleOutpaint = useCallback(async (direction: 'up' | 'down' | 'left' | 'right') => {
+    if (!canvasRef.current) return;
+    
+    setIsLoading(true);
+    setLoadingMessage('Expanding the scene...');
+    setError(null);
+    
+    try {
+      const { data, mimeType } = canvasRef.current.getExpandedCanvasData(direction);
+      const outpaintPrompt = "photorealistically expand the image to fill the transparent space, continuing the scene seamlessly.";
+      const result = await editImage(data, mimeType, outpaintPrompt);
+      
+      if (result.image) {
+        const imageUrl = `data:${mimeType};base64,${result.image}`;
+        setMainImage(imageUrl);
+        setOriginalImage(imageUrl); // So we can expand from the new image
+      } else {
+         setError(result.text || 'The model could not expand the image. Please try again.');
+      }
+    } catch (e) {
+      console.error(e);
+      setError('Failed to expand image. Please try again.');
+    } finally {
+      setIsLoading(false);
+      setLoadingMessage('');
+    }
+  }, []);
+
+  const handleCrop = useCallback(async () => {
+    if (!canvasRef.current || !cropRectActive) return;
+
+    setIsLoading(true);
+    setLoadingMessage('Cropping image...');
+    setError(null);
+
+    try {
+      const croppedDataUrl = canvasRef.current.applyCrop();
+      if (croppedDataUrl) {
+        setMainImage(croppedDataUrl);
+        setOriginalImage(croppedDataUrl);
+      } else {
+        throw new Error("Cropping failed to return image data.");
+      }
+    } catch (e) {
+      console.error(e);
+      setError('Failed to crop image.');
+    } finally {
+      setIsLoading(false);
+      setLoadingMessage('');
+      setCropRectActive(false);
+    }
+  }, [cropRectActive]);
+
   const clearCanvas = useCallback(() => {
     if (canvasRef.current) {
       canvasRef.current.clearDrawing();
+      canvasRef.current.clearCropSelection();
     }
   }, []);
 
@@ -154,6 +276,7 @@ const App: React.FC = () => {
     setActiveFilter(FILTERS[0]);
     if (canvasRef.current) {
       canvasRef.current.clearDrawing();
+      canvasRef.current.clearCropSelection();
     }
   }, [originalImage]);
 
@@ -171,79 +294,100 @@ const App: React.FC = () => {
   }, []);
 
   return (
-    <div className="min-h-screen bg-base-100 flex flex-col md:flex-row font-sans">
-      <header className="md:hidden flex items-center justify-center p-4 bg-base-200 border-b border-base-300">
-          <div className="flex items-center space-x-2">
-            <LogoIcon />
-            <h1 className="text-xl font-bold text-text-primary">Creative Image Studio</h1>
-          </div>
-      </header>
-      <aside className="w-full md:w-[400px] lg:w-[450px] bg-base-200 p-6 flex-shrink-0 flex flex-col space-y-6 max-h-screen overflow-y-auto">
-        <div className="hidden md:flex items-center space-x-3">
-            <LogoIcon />
-            <h1 className="text-2xl font-bold text-text-primary">Creative Image Studio</h1>
-        </div>
-        <ControlPanel
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          prompt={prompt}
-          onPromptChange={handlePromptChange}
-          onRewritePrompt={handleRewritePrompt}
-          rewritingPrompt={rewritingPrompt}
-          editPrompt={editPrompt}
-          setEditPrompt={setEditPrompt}
-          style={style}
-          setStyle={setStyle}
-          lighting={lighting}
-          setLighting={setLighting}
-          composition={composition}
-          setComposition={setComposition}
-          aspectRatio={aspectRatio}
-          setAspectRatio={setAspectRatio}
-          numImages={numImages}
-          setNumImages={setNumImages}
-          onGenerate={handleGenerate}
-          onEdit={handleEdit}
-          isLoading={isLoading}
-          hasImage={!!mainImage}
-          editMode={editMode}
-          setEditMode={setEditMode}
-          brushSize={brushSize}
-          setBrushSize={setBrushSize}
-          brushColor={brushColor}
-          setBrushColor={setBrushColor}
-          onClear={clearCanvas}
-          onReset={resetImage}
-          activeFilter={activeFilter}
-          setActiveFilter={setActiveFilter}
-        />
-        {error && (
-            <div className="bg-red-500/20 border border-red-500 text-red-300 p-3 rounded-md text-sm">
-                <p className="font-semibold">Error</p>
-                <p>{error}</p>
+    <>
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        accept="image/png, image/jpeg, image/webp"
+        className="hidden"
+      />
+      <div className="min-h-screen bg-base-100 flex flex-col md:flex-row font-sans">
+        <header className="md:hidden flex items-center justify-between p-4 bg-base-200 border-b border-base-300">
+            <div className="flex items-center space-x-2">
+              <LogoIcon />
+              <h1 className="text-xl font-bold text-text-primary">Creative Image Studio</h1>
             </div>
-        )}
-      </aside>
-      <main className="flex-1 flex items-center justify-center p-6 bg-base-100/50">
-        <div className="w-full h-full max-w-[800px] max-h-[800px] flex items-center justify-center">
-          {generatedImages.length > 0 ? (
-            <ImageGallery images={generatedImages} onSelectImage={handleSelectImage} />
-          ) : (
-            <ImageCanvas
-              ref={canvasRef}
-              imageSrc={mainImage}
-              isLoading={isLoading}
-              loadingMessage={loadingMessage}
-              editMode={editMode}
-              brushSize={brushSize}
-              brushColor={brushColor}
-              activeFilter={activeFilter.value}
-              onDownload={handleDownload}
-            />
+            <ThemeSwitcher />
+        </header>
+        <aside className="w-full md:w-[400px] lg:w-[450px] bg-base-200 p-6 flex-shrink-0 flex flex-col space-y-6 max-h-screen overflow-y-auto">
+          <div className="hidden md:flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <LogoIcon />
+                <h1 className="text-2xl font-bold text-text-primary">Creative Image Studio</h1>
+              </div>
+              <ThemeSwitcher />
+          </div>
+          <ControlPanel
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            prompt={prompt}
+            onPromptChange={handlePromptChange}
+            onRewritePrompt={handleRewritePrompt}
+            rewritingPrompt={rewritingPrompt}
+            onRandomPrompt={handleRandomPrompt}
+            randomizingPrompt={randomizingPrompt}
+            editPrompt={editPrompt}
+            setEditPrompt={setEditPrompt}
+            style={style}
+            setStyle={setStyle}
+            lighting={lighting}
+            setLighting={setLighting}
+            composition={composition}
+            setComposition={setComposition}
+            aspectRatio={aspectRatio}
+            setAspectRatio={setAspectRatio}
+            numImages={numImages}
+            setNumImages={setNumImages}
+            onGenerate={handleGenerate}
+            onEdit={handleEdit}
+            onOutpaint={handleOutpaint}
+            onCrop={handleCrop}
+            cropRectActive={cropRectActive}
+            onUploadClick={handleUploadClick}
+            isLoading={isLoading}
+            hasImage={!!mainImage}
+            editMode={editMode}
+            setEditMode={setEditMode}
+            brushSize={brushSize}
+            setBrushSize={setBrushSize}
+            brushColor={brushColor}
+            setBrushColor={setBrushColor}
+            onClear={clearCanvas}
+            onReset={resetImage}
+            activeFilter={activeFilter}
+            setActiveFilter={setActiveFilter}
+          />
+          {error && (
+              <div className="bg-red-500/20 border border-red-500 text-red-300 p-3 rounded-md text-sm">
+                  <p className="font-semibold">Error</p>
+                  <p>{error}</p>
+              </div>
           )}
-        </div>
-      </main>
-    </div>
+        </aside>
+        <main className="flex-1 flex items-center justify-center p-6 bg-base-100/50">
+          <div className="w-full h-full max-w-[800px] max-h-[800px] flex items-center justify-center">
+            {generatedImages.length > 0 ? (
+              <ImageGallery images={generatedImages} onSelectImage={handleSelectImage} />
+            ) : (
+              <ImageCanvas
+                ref={canvasRef}
+                imageSrc={mainImage}
+                isLoading={isLoading}
+                loadingMessage={loadingMessage}
+                editMode={editMode}
+                brushSize={brushSize}
+                brushColor={brushColor}
+                activeFilter={activeFilter.value}
+                onDownload={handleDownload}
+                onUploadClick={handleUploadClick}
+                setCropRectActive={setCropRectActive}
+              />
+            )}
+          </div>
+        </main>
+      </div>
+    </>
   );
 };
 
