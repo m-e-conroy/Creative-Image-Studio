@@ -1,0 +1,250 @@
+import React, { useState, useRef, useCallback } from 'react';
+import { ControlPanel } from './components/ControlPanel';
+import { ImageCanvas } from './components/ImageCanvas';
+import { generateImage, editImage, rewritePrompt } from './services/geminiService';
+import { ImageCanvasMethods } from './components/ImageCanvas';
+import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule } from './types';
+import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES } from './constants';
+import { LogoIcon } from './components/Icons';
+import { ImageGallery } from './components/ImageGallery';
+
+type Tab = 'generate' | 'edit' | 'filters';
+
+const App: React.FC = () => {
+  const [prompt, setPrompt] = useState<PromptState>({ subject: '', background: '', foreground: '' });
+  const [editPrompt, setEditPrompt] = useState<string>('');
+  const [style, setStyle] = useState<ImageStyle>(INITIAL_STYLES[0]);
+  const [lighting, setLighting] = useState<LightingStyle>(LIGHTING_STYLES[0]);
+  const [composition, setComposition] = useState<CompositionRule>(COMPOSITION_RULES[0]);
+
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [loadingMessage, setLoadingMessage] = useState<string>('');
+  const [error, setError] = useState<string | null>(null);
+  
+  const [mainImage, setMainImage] = useState<string | null>(null);
+  const [originalImage, setOriginalImage] = useState<string | null>(null);
+  const [generatedImages, setGeneratedImages] = useState<string[]>([]);
+
+  const [aspectRatio, setAspectRatio] = useState<string>(SUPPORTED_ASPECT_RATIOS[0].value);
+  const [numImages, setNumImages] = useState<number>(1);
+  
+  const [editMode, setEditMode] = useState<EditMode>(EditMode.MASK);
+  const [brushSize, setBrushSize] = useState<number>(40);
+  const [brushColor, setBrushColor] = useState<string>('#FFFFFF');
+  
+  const [activeTab, setActiveTab] = useState<Tab>('generate');
+  const [activeFilter, setActiveFilter] = useState<Filter>(FILTERS[0]);
+  const [rewritingPrompt, setRewritingPrompt] = useState<PromptPart | null>(null);
+
+  const canvasRef = useRef<ImageCanvasMethods>(null);
+
+  const handleGenerate = useCallback(async () => {
+    if (!prompt.subject) {
+      setError('Please enter a subject to generate an image.');
+      return;
+    }
+    setIsLoading(true);
+    setLoadingMessage('Generating your masterpiece(s)...');
+    setError(null);
+    setMainImage(null);
+    setOriginalImage(null);
+    setGeneratedImages([]);
+    setActiveTab('generate');
+
+    try {
+      const promptParts = [
+        prompt.subject,
+        prompt.foreground,
+        prompt.background ? `background of ${prompt.background}` : '',
+        style.prompt,
+        lighting.prompt,
+        composition.prompt
+      ].filter(Boolean); // Filter out empty strings
+      
+      const combinedPrompt = promptParts.join(', ');
+
+      const imageB64s = await generateImage(combinedPrompt, { aspectRatio, numberOfImages: numImages });
+      if (imageB64s.length === 1) {
+        const imageUrl = `data:image/jpeg;base64,${imageB64s[0]}`;
+        setMainImage(imageUrl);
+        setOriginalImage(imageUrl);
+        setActiveTab('edit');
+      } else {
+        const imageUrls = imageB64s.map(b64 => `data:image/jpeg;base64,${b64}`);
+        setGeneratedImages(imageUrls);
+      }
+    } catch (e) {
+      console.error(e);
+      setError('Failed to generate image. Please try again.');
+    } finally {
+      setIsLoading(false);
+      setLoadingMessage('');
+    }
+  }, [prompt, style, aspectRatio, numImages, lighting, composition]);
+
+  const handleRewritePrompt = useCallback(async (part: PromptPart) => {
+    const currentPrompt = prompt[part];
+    if (!currentPrompt.trim()) return;
+
+    setRewritingPrompt(part);
+    setError(null);
+    try {
+      const rewritten = await rewritePrompt(currentPrompt, part);
+      setPrompt(prev => ({ ...prev, [part]: rewritten }));
+    } catch (e) {
+      console.error(e);
+      setError(`Failed to enhance the ${part} prompt. Please try again.`);
+    } finally {
+      setRewritingPrompt(null);
+    }
+  }, [prompt]);
+
+  const handlePromptChange = (part: PromptPart, value: string) => {
+    setPrompt(prev => ({ ...prev, [part]: value }));
+  };
+
+  const handleSelectImage = useCallback((imageUrl: string) => {
+    setMainImage(imageUrl);
+    setOriginalImage(imageUrl);
+    setGeneratedImages([]);
+    setActiveTab('edit');
+  }, []);
+
+  const handleEdit = useCallback(async () => {
+    if (!editPrompt || !canvasRef.current) {
+      setError('Please enter an editing prompt.');
+      return;
+    }
+    
+    setIsLoading(true);
+    setLoadingMessage('Applying creative edits...');
+    setError(null);
+    
+    try {
+      const { data, mimeType } = canvasRef.current.getCanvasData();
+      const result = await editImage(data, mimeType, editPrompt);
+      
+      if (result.image) {
+        const imageUrl = `data:${mimeType};base64,${result.image}`;
+        setMainImage(imageUrl);
+        if (canvasRef.current) {
+          canvasRef.current.clearDrawing();
+        }
+      } else {
+         setError(result.text || 'The model did not return an image. Try a different prompt.');
+      }
+    } catch (e) {
+      console.error(e);
+      setError('Failed to edit image. Please try again.');
+    } finally {
+      setIsLoading(false);
+      setLoadingMessage('');
+    }
+  }, [editPrompt]);
+
+  const clearCanvas = useCallback(() => {
+    if (canvasRef.current) {
+      canvasRef.current.clearDrawing();
+    }
+  }, []);
+
+  const resetImage = useCallback(() => {
+    setMainImage(originalImage);
+    setEditPrompt('');
+    setActiveFilter(FILTERS[0]);
+    if (canvasRef.current) {
+      canvasRef.current.clearDrawing();
+    }
+  }, [originalImage]);
+
+  const handleDownload = useCallback(() => {
+    if (!canvasRef.current) return;
+    const dataUrl = canvasRef.current.getCanvasAsDataURL();
+    if (dataUrl) {
+      const link = document.createElement('a');
+      link.href = dataUrl;
+      link.download = `creative-studio-image-${Date.now()}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  }, []);
+
+  return (
+    <div className="min-h-screen bg-base-100 flex flex-col md:flex-row font-sans">
+      <header className="md:hidden flex items-center justify-center p-4 bg-base-200 border-b border-base-300">
+          <div className="flex items-center space-x-2">
+            <LogoIcon />
+            <h1 className="text-xl font-bold text-text-primary">Creative Image Studio</h1>
+          </div>
+      </header>
+      <aside className="w-full md:w-[400px] lg:w-[450px] bg-base-200 p-6 flex-shrink-0 flex flex-col space-y-6 max-h-screen overflow-y-auto">
+        <div className="hidden md:flex items-center space-x-3">
+            <LogoIcon />
+            <h1 className="text-2xl font-bold text-text-primary">Creative Image Studio</h1>
+        </div>
+        <ControlPanel
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          prompt={prompt}
+          onPromptChange={handlePromptChange}
+          onRewritePrompt={handleRewritePrompt}
+          rewritingPrompt={rewritingPrompt}
+          editPrompt={editPrompt}
+          setEditPrompt={setEditPrompt}
+          style={style}
+          setStyle={setStyle}
+          lighting={lighting}
+          setLighting={setLighting}
+          composition={composition}
+          setComposition={setComposition}
+          aspectRatio={aspectRatio}
+          setAspectRatio={setAspectRatio}
+          numImages={numImages}
+          setNumImages={setNumImages}
+          onGenerate={handleGenerate}
+          onEdit={handleEdit}
+          isLoading={isLoading}
+          hasImage={!!mainImage}
+          editMode={editMode}
+          setEditMode={setEditMode}
+          brushSize={brushSize}
+          setBrushSize={setBrushSize}
+          brushColor={brushColor}
+          setBrushColor={setBrushColor}
+          onClear={clearCanvas}
+          onReset={resetImage}
+          activeFilter={activeFilter}
+          setActiveFilter={setActiveFilter}
+        />
+        {error && (
+            <div className="bg-red-500/20 border border-red-500 text-red-300 p-3 rounded-md text-sm">
+                <p className="font-semibold">Error</p>
+                <p>{error}</p>
+            </div>
+        )}
+      </aside>
+      <main className="flex-1 flex items-center justify-center p-6 bg-base-100/50">
+        <div className="w-full h-full max-w-[800px] max-h-[800px] flex items-center justify-center">
+          {generatedImages.length > 0 ? (
+            <ImageGallery images={generatedImages} onSelectImage={handleSelectImage} />
+          ) : (
+            <ImageCanvas
+              ref={canvasRef}
+              imageSrc={mainImage}
+              isLoading={isLoading}
+              loadingMessage={loadingMessage}
+              editMode={editMode}
+              brushSize={brushSize}
+              brushColor={brushColor}
+              activeFilter={activeFilter.value}
+              onDownload={handleDownload}
+            />
+          )}
+        </div>
+      </main>
+    </div>
+  );
+};
+
+export default App;

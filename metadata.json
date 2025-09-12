@@ -1,0 +1,5 @@
+{
+  "name": "Creative Image Studio",
+  "description": "An AI-powered application to generate and edit images in various artistic styles. Users can generate images from text prompts and then perform creative edits by either masking areas for regeneration or sketching new elements directly onto the canvas.",
+  "requestFramePermissions": []
+}
