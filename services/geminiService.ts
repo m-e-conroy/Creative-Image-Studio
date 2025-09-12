@@ -1,4 +1,4 @@
-import { GoogleGenAI, Modality } from "@google/genai";
+import { GoogleGenAI, Modality, Type } from "@google/genai";
 import { PromptPart } from "../types";
 
 if (!process.env.API_KEY) {
@@ -7,10 +7,35 @@ if (!process.env.API_KEY) {
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
+/**
+ * A wrapper for all API calls to handle errors gracefully.
+ * It catches specific GoogleGenAI errors and re-throws them with user-friendly messages.
+ */
+async function handleApiCall<T>(apiCall: () => Promise<T>): Promise<T> {
+  try {
+    return await apiCall();
+  } catch (e: unknown) {
+    console.error("Gemini API Error:", e);
+    if (e && typeof e === 'object' && 'message' in e && typeof e.message === 'string') {
+      // Check for specific error statuses from the API response message
+      if (e.message.includes('429') || e.message.toUpperCase().includes('RESOURCE_EXHAUSTED')) {
+        throw new Error("You've exceeded your current API quota. Please check your plan and billing details, or try again in a few minutes.");
+      }
+      if (e.message.includes('500') || e.message.toUpperCase().includes('INTERNAL')) {
+        throw new Error("The AI service is currently experiencing issues. Please try again later.");
+      }
+    }
+    // For other errors, throw a more generic message but still indicate it's an API issue.
+    throw new Error("An unexpected error occurred while communicating with the AI service.");
+  }
+}
+
+
 export async function generateImage(
   prompt: string,
   config: { aspectRatio: string; numberOfImages: number }
 ): Promise<string[]> {
+  return handleApiCall(async () => {
     const response = await ai.models.generateImages({
         model: 'imagen-4.0-generate-001',
         prompt: prompt,
@@ -26,6 +51,7 @@ export async function generateImage(
     }
     
     throw new Error("Image generation failed, no images returned.");
+  });
 }
 
 export async function editImage(
@@ -33,67 +59,71 @@ export async function editImage(
   mimeType: string,
   prompt: string
 ): Promise<{ text?: string; image?: string }> {
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash-image-preview',
-    contents: {
-      parts: [
-        {
-          inlineData: {
-            data: base64ImageData,
-            mimeType: mimeType,
+  return handleApiCall(async () => {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image-preview',
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              data: base64ImageData,
+              mimeType: mimeType,
+            },
           },
-        },
-        {
-          text: prompt,
-        },
-      ],
-    },
-    config: {
-      responseModalities: [Modality.IMAGE, Modality.TEXT],
-    },
-  });
-  
-  const result: { text?: string; image?: string } = {};
+          {
+            text: prompt,
+          },
+        ],
+      },
+      config: {
+        responseModalities: [Modality.IMAGE, Modality.TEXT],
+      },
+    });
+    
+    const result: { text?: string; image?: string } = {};
 
-  if (response.candidates && response.candidates.length > 0) {
-      for (const part of response.candidates[0].content.parts) {
-        if (part.text) {
-          result.text = part.text;
-        } else if (part.inlineData) {
-          result.image = part.inlineData.data;
+    if (response.candidates && response.candidates.length > 0) {
+        for (const part of response.candidates[0].content.parts) {
+          if (part.text) {
+            result.text = part.text;
+          } else if (part.inlineData) {
+            result.image = part.inlineData.data;
+          }
         }
-      }
-  }
+    }
 
-  if(!result.image) {
-      console.warn("Model response did not contain an image part.", response);
-  }
+    if(!result.image) {
+        console.warn("Model response did not contain an image part.", response);
+    }
 
-  return result;
+    return result;
+  });
 }
 
 export async function describeImage(
   base64ImageData: string,
   mimeType: string
 ): Promise<string> {
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
-    contents: {
-      parts: [
-        {
-          inlineData: {
-            data: base64ImageData,
-            mimeType: mimeType,
+  return handleApiCall(async () => {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              data: base64ImageData,
+              mimeType: mimeType,
+            },
           },
-        },
-        {
-          text: 'Describe this image in detail. The description should be suitable to be used as a prompt for an AI image generation model. Focus on the subject, foreground, background, style, and composition. Do not include any preamble or explanation, only the prompt description.',
-        },
-      ],
-    },
-  });
+          {
+            text: 'Describe this image in detail. The description should be suitable to be used as a prompt for an AI image generation model. Focus on the subject, background, style, and composition. Do not include any preamble or explanation, only the prompt description.',
+          },
+        ],
+      },
+    });
 
-  return response.text.trim();
+    return response.text.trim();
+  });
 }
 
 export async function rewritePrompt(prompt: string, part: PromptPart): Promise<string> {
@@ -101,40 +131,75 @@ export async function rewritePrompt(prompt: string, part: PromptPart): Promise<s
       return prompt;
     }
 
-    const instructionMap: Record<PromptPart, string> = {
-      subject: "You are an expert prompt engineer for generative AI image models. Your task is to rewrite the user's description of a subject to be more vivid, descriptive, and detailed. Focus on enhancing the subject's appearance, characteristics, actions, and emotions, while keeping the core concept intact. Only return the rewritten prompt, with no preamble or explanation.",
-      background: "You are an expert prompt engineer for generative AI image models. Your task is to rewrite the user's description of a background to create a rich and immersive environment. Focus on describing the setting, atmosphere, lighting, and surrounding elements in greater detail. Keep the core idea of the background intact. Only return the rewritten prompt, with no preamble or explanation.",
-      foreground: "You are an expert prompt engineer for generative AI image models. Your task is to rewrite the user's description of a foreground to add detail and depth to the scene. Focus on enhancing the objects, characters, or elements closest to the viewer. Keep the core idea of the foreground intact. Only return the rewritten prompt, with no preamble or explanation.",
-    };
+    return handleApiCall(async () => {
+        const instructionMap: Record<PromptPart, string> = {
+          subject: "You are an expert prompt engineer for generative AI image models. Your task is to rewrite the user's description of a subject to be more vivid, descriptive, and detailed. Focus on enhancing the subject's appearance, characteristics, actions, and emotions, while keeping the core concept intact. Only return the rewritten prompt, with no preamble or explanation.",
+          background: "You are an expert prompt engineer for generative AI image models. Your task is to rewrite the user's description of a background to create a rich and immersive environment. Focus on describing the setting, atmosphere, lighting, and surrounding elements in greater detail. Keep the core idea of the background intact. Only return the rewritten prompt, with no preamble or explanation.",
+        };
 
-    const systemInstruction = instructionMap[part];
+        const systemInstruction = instructionMap[part];
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: `Rewrite this prompt for an image's ${part}: "${prompt}"`,
-      config: {
-        systemInstruction,
-      },
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: `Rewrite this prompt for an image's ${part}: "${prompt}"`,
+          config: {
+            systemInstruction,
+          },
+        });
+
+        return response.text.trim().replace(/^"|"$/g, ''); // Trim quotes if model adds them
     });
+}
 
-    return response.text.trim().replace(/^"|"$/g, ''); // Trim quotes if model adds them
+export async function getPromptSuggestions(prompt: string, part: PromptPart): Promise<string[]> {
+    return handleApiCall(async () => {
+        const systemInstruction = `You are a creative assistant for an AI image generator. The user is writing a prompt for the '${part}' of their image. Based on their input, provide 3 short, inspiring phrases or questions to help them add more detail. The suggestions should be additive. For example, if the user types 'a dog', you could suggest ['wearing a tiny hat', 'on a skateboard', 'in the style of Van Gogh']. Return the suggestions as a JSON array of strings.`;
+        
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: `The user has typed: "${prompt}"`,
+            config: {
+                systemInstruction,
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.STRING,
+                    },
+                },
+            },
+        });
+        
+        try {
+            const jsonText = response.text.trim();
+            const suggestions = JSON.parse(jsonText);
+            if (Array.isArray(suggestions) && suggestions.every(s => typeof s === 'string')) {
+                return suggestions;
+            }
+            return [];
+        } catch (e) {
+            console.error("Failed to parse suggestions JSON:", e);
+            return [];
+        }
+    });
 }
 
 export async function generateRandomPrompt(part: PromptPart | 'edit'): Promise<string> {
-    const instructionMap: Record<PromptPart | 'edit', string> = {
-        subject: "You are a creative idea generator for an AI image model. Generate a short, interesting, and visually rich subject for an image. Be imaginative. Provide only the subject description, with no preamble or explanation.",
-        background: "You are a creative idea generator for an AI image model. Generate a short, evocative description of a background or setting for an image. Provide only the background description, with no preamble or explanation.",
-        foreground: "You are a creative idea generator for an AI image model. Generate a short, interesting detail for the foreground of an image. It should complement a main subject. Provide only the foreground description, with no preamble or explanation.",
-        edit: "You are a creative idea generator for an AI image editing model. Generate a short, creative instruction for editing an existing image. For example, 'make the sky a galaxy' or 'add a small, sleeping fox in the corner'. Provide only the editing instruction, with no preamble or explanation."
-    };
+    return handleApiCall(async () => {
+        const instructionMap: Record<PromptPart | 'edit', string> = {
+            subject: "You are a creative idea generator for an AI image model. Generate a short, interesting, and visually rich subject for an image. Be imaginative. Provide only the subject description, with no preamble or explanation.",
+            background: "You are a creative idea generator for an AI image model. Generate a short, evocative description of a background or setting for an image. Provide only the background description, with no preamble or explanation.",
+            edit: "You are a creative idea generator for an AI image editing model. Generate a short, creative instruction for editing an existing image. For example, 'make the sky a galaxy' or 'add a small, sleeping fox in the corner'. Provide only the editing instruction, with no preamble or explanation."
+        };
 
-    const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: `Generate a random prompt for an image's ${part}.`,
-        config: {
-            systemInstruction: instructionMap[part],
-        },
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: `Generate a random prompt for an image's ${part}.`,
+            config: {
+                systemInstruction: instructionMap[part],
+            },
+        });
+
+        return response.text.trim().replace(/^"|"$/g, ''); // Trim quotes if model adds them
     });
-
-    return response.text.trim().replace(/^"|"$/g, ''); // Trim quotes if model adds them
 }

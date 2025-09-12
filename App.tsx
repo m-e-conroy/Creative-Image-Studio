@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { ControlPanel } from './components/ControlPanel';
 import { ImageCanvas } from './components/ImageCanvas';
-import { generateImage, editImage, rewritePrompt, generateRandomPrompt, describeImage } from './services/geminiService';
+import { generateImage, editImage, rewritePrompt, generateRandomPrompt, describeImage, getPromptSuggestions } from './services/geminiService';
 import { ImageCanvasMethods } from './components/ImageCanvas';
 import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule } from './types';
 import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES } from './constants';
@@ -12,7 +12,7 @@ import { ThemeSwitcher } from './components/ThemeSwitcher';
 type Tab = 'generate' | 'edit' | 'filters';
 
 const App: React.FC = () => {
-  const [prompt, setPrompt] = useState<PromptState>({ subject: '', background: '', foreground: '' });
+  const [prompt, setPrompt] = useState<PromptState>({ subject: '', background: '' });
   const [editPrompt, setEditPrompt] = useState<string>('');
   const [style, setStyle] = useState<ImageStyle>(INITIAL_STYLES[0]);
   const [lighting, setLighting] = useState<LightingStyle>(LIGHTING_STYLES[0]);
@@ -39,6 +39,9 @@ const App: React.FC = () => {
   const [randomizingPrompt, setRandomizingPrompt] = useState<PromptPart | 'edit' | null>(null);
   const [cropRectActive, setCropRectActive] = useState<boolean>(false);
 
+  const [subjectSuggestions, setSubjectSuggestions] = useState<string[]>([]);
+  const [backgroundSuggestions, setBackgroundSuggestions] = useState<string[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState<PromptPart | null>(null);
 
   const canvasRef = useRef<ImageCanvasMethods>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -59,7 +62,6 @@ const App: React.FC = () => {
     try {
       const promptParts = [
         prompt.subject,
-        prompt.foreground,
         prompt.background ? `background of ${prompt.background}` : '',
         style.prompt,
         lighting.prompt,
@@ -78,9 +80,9 @@ const App: React.FC = () => {
         const imageUrls = imageB64s.map(b64 => `data:image/jpeg;base64,${b64}`);
         setGeneratedImages(imageUrls);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      setError('Failed to generate image. Please try again.');
+      setError(e.message || 'Failed to generate image. Please try again.');
     } finally {
       setIsLoading(false);
       setLoadingMessage('');
@@ -96,13 +98,34 @@ const App: React.FC = () => {
     try {
       const rewritten = await rewritePrompt(currentPrompt, part);
       setPrompt(prev => ({ ...prev, [part]: rewritten }));
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      setError(`Failed to enhance the ${part} prompt. Please try again.`);
+      setError(e.message || `Failed to enhance the ${part} prompt. Please try again.`);
     } finally {
       setRewritingPrompt(null);
     }
   }, [prompt]);
+  
+  const handleGetSuggestions = useCallback(async (part: PromptPart, value: string) => {
+      if (!value.trim() || value.length < 4) {
+          if (part === 'subject') setSubjectSuggestions([]);
+          else setBackgroundSuggestions([]);
+          return;
+      }
+      setSuggestionsLoading(part);
+      try {
+          const suggestions = await getPromptSuggestions(value, part);
+          if (part === 'subject') setSubjectSuggestions(suggestions);
+          else setBackgroundSuggestions(suggestions);
+      } catch (e: any) {
+          console.error("Failed to get suggestions", e);
+          setError(e.message || "Failed to fetch prompt suggestions.");
+          if (part === 'subject') setSubjectSuggestions([]);
+          else setBackgroundSuggestions([]);
+      } finally {
+          setSuggestionsLoading(null);
+      }
+  }, []);
 
   const handleRandomPrompt = useCallback(async (part: PromptPart | 'edit') => {
     setRandomizingPrompt(part);
@@ -114,9 +137,9 @@ const App: React.FC = () => {
       } else {
         setPrompt(prev => ({ ...prev, [part]: randomText }));
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      setError(`Failed to generate a random ${part} prompt. Please try again.`);
+      setError(e.message || `Failed to generate a random ${part} prompt. Please try again.`);
     } finally {
       setRandomizingPrompt(null);
     }
@@ -141,9 +164,9 @@ const App: React.FC = () => {
         const mimeType = meta.split(';')[0].split(':')[1];
         const description = await describeImage(data, mimeType);
         setEditPrompt(description);
-      } catch (err) {
-        console.error(err);
-        setError('Failed to analyze the image. Please provide your own edit prompt.');
+      } catch (e: any) {
+        console.error(e);
+        setError(e.message || 'Failed to analyze the image. Please provide your own edit prompt.');
         setEditPrompt('');
       } finally {
         setIsLoading(false);
@@ -201,9 +224,9 @@ const App: React.FC = () => {
       } else {
          setError(result.text || 'The model did not return an image. Try a different prompt.');
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      setError('Failed to edit image. Please try again.');
+      setError(e.message || 'Failed to edit image. Please try again.');
     } finally {
       setIsLoading(false);
       setLoadingMessage('');
@@ -229,9 +252,9 @@ const App: React.FC = () => {
       } else {
          setError(result.text || 'The model could not expand the image. Please try again.');
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      setError('Failed to expand image. Please try again.');
+      setError(e.message || 'Failed to expand image. Please try again.');
     } finally {
       setIsLoading(false);
       setLoadingMessage('');
@@ -253,9 +276,9 @@ const App: React.FC = () => {
       } else {
         throw new Error("Cropping failed to return image data.");
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      setError('Failed to crop image.');
+      setError(e.message || 'Failed to crop image.');
     } finally {
       setIsLoading(false);
       setLoadingMessage('');
@@ -327,6 +350,10 @@ const App: React.FC = () => {
             rewritingPrompt={rewritingPrompt}
             onRandomPrompt={handleRandomPrompt}
             randomizingPrompt={randomizingPrompt}
+            onGetSuggestions={handleGetSuggestions}
+            subjectSuggestions={subjectSuggestions}
+            backgroundSuggestions={backgroundSuggestions}
+            suggestionsLoading={suggestionsLoading}
             editPrompt={editPrompt}
             setEditPrompt={setEditPrompt}
             style={style}

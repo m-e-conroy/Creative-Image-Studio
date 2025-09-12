@@ -153,3 +153,10 @@ export const CropIcon: React.FC = () => (
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12H3" />
     </svg>
 );
+
+export const IdeaIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+        <path d="M11 3a1 1 0 100 2h.01a1 1 0 100-2H11zM10 3a1 1 0 011 1v1h-2V4a1 1 0 011-1zM5 9a1 1 0 011-1h2a1 1 0 011 1v1a1 1 0 01-1 1H6a1 1 0 01-1-1V9z" />
+        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM4 10a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1z" clipRule="evenodd" />
+    </svg>
+);

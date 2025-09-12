@@ -32,7 +32,6 @@ export type AspectRatioValue = '1:1' | '4:3' | '3:4' | '16:9' | '9:16';
 export interface PromptState {
   subject: string;
   background: string;
-  foreground: string;
 }
 
 export type PromptPart = keyof PromptState;

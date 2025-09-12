@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule } from '../types';
 import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES } from '../constants';
-import { BrushIcon, ClearIcon, DrawIcon, EditIcon, GenerateIcon, MaskIcon, ResetIcon, FilterIcon, RewriteIcon, RandomIcon, UploadIcon, OutpaintIcon, ArrowUpIcon, ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon, CropIcon } from './Icons';
+import { BrushIcon, ClearIcon, DrawIcon, EditIcon, GenerateIcon, MaskIcon, ResetIcon, FilterIcon, RewriteIcon, RandomIcon, UploadIcon, OutpaintIcon, ArrowUpIcon, ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon, CropIcon, IdeaIcon } from './Icons';
 
 type Tab = 'generate' | 'edit' | 'filters';
 
@@ -14,6 +14,10 @@ interface ControlPanelProps {
   rewritingPrompt: PromptPart | null;
   onRandomPrompt: (part: PromptPart | 'edit') => void;
   randomizingPrompt: PromptPart | 'edit' | null;
+  onGetSuggestions: (part: PromptPart, value: string) => void;
+  subjectSuggestions: string[];
+  backgroundSuggestions: string[];
+  suggestionsLoading: PromptPart | null;
   editPrompt: string;
   setEditPrompt: (value: string) => void;
   style: ImageStyle;
@@ -46,6 +50,20 @@ interface ControlPanelProps {
   setActiveFilter: (filter: Filter) => void;
 }
 
+const useDebounce = <T,>(value: T, delay: number): T => {
+    const [debouncedValue, setDebouncedValue] = useState<T>(value);
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            setDebouncedValue(value);
+        }, delay);
+        return () => {
+            clearTimeout(handler);
+        };
+    }, [value, delay]);
+    return debouncedValue;
+};
+
+
 const TabButton: React.FC<{
   label: string;
   icon: React.ReactNode;
@@ -72,7 +90,7 @@ const MiniLoader: React.FC = () => (
     </svg>
 );
 
-const PromptInput: React.FC<{
+const InteractivePromptInput: React.FC<{
   part: PromptPart;
   label: string;
   placeholder: string;
@@ -80,57 +98,121 @@ const PromptInput: React.FC<{
   onPromptChange: (part: PromptPart, value: string) => void;
   onRewritePrompt: (part: PromptPart) => void;
   rewritingPrompt: PromptPart | null;
-  // FIX: Widen prop types to be compatible with props drilled down from ControlPanel.
-  // The ControlPanel needs wider types for the EditTab, and `PromptInput` is used in the GenerateTab.
   onRandomPrompt: (part: PromptPart | 'edit') => void;
   randomizingPrompt: PromptPart | 'edit' | null;
+  onGetSuggestions: (part: PromptPart, value: string) => void;
+  suggestions: string[];
+  suggestionsLoading: boolean;
   isLoading: boolean;
-}> = ({ part, label, placeholder, prompt, onPromptChange, onRewritePrompt, rewritingPrompt, onRandomPrompt, randomizingPrompt, isLoading }) => (
-  <div>
-    <label htmlFor={`prompt-${part}`} className="block text-sm font-medium text-text-secondary mb-1">{label}</label>
-    <div className="relative">
-      <textarea
-        id={`prompt-${part}`}
-        rows={2}
-        value={prompt[part]}
-        onChange={(e) => onPromptChange(part, e.target.value)}
-        placeholder={placeholder}
-        className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary focus:border-brand-primary transition pr-20 text-text-primary"
-        disabled={isLoading || !!rewritingPrompt || !!randomizingPrompt}
-      />
-      <div className="absolute top-2 right-2 flex items-center space-x-1">
-        <button
-            onClick={() => onRandomPrompt(part)}
+}> = ({ part, label, placeholder, prompt, onPromptChange, onRewritePrompt, rewritingPrompt, onRandomPrompt, randomizingPrompt, onGetSuggestions, suggestions, suggestionsLoading, isLoading }) => {
+    const debouncedPrompt = useDebounce(prompt[part], 600);
+
+    useEffect(() => {
+        if (debouncedPrompt) {
+            onGetSuggestions(part, debouncedPrompt);
+        }
+    }, [debouncedPrompt, part, onGetSuggestions]);
+
+    const handleSuggestionClick = (suggestion: string) => {
+        const currentValue = prompt[part];
+        const separator = currentValue.trim() === '' ? '' : ', ';
+        onPromptChange(part, `${currentValue}${separator}${suggestion}`);
+    };
+
+    return (
+      <div>
+        <label htmlFor={`prompt-${part}`} className="block text-sm font-medium text-text-secondary mb-1">{label}</label>
+        <div className="relative">
+          <textarea
+            id={`prompt-${part}`}
+            rows={2}
+            value={prompt[part]}
+            onChange={(e) => onPromptChange(part, e.target.value)}
+            placeholder={placeholder}
+            className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary focus:border-brand-primary transition pr-20 text-text-primary"
             disabled={isLoading || !!rewritingPrompt || !!randomizingPrompt}
-            className="p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-primary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
-            aria-label={`Generate random ${part} prompt`}
-            title={`Generate random ${part} prompt`}
-        >
-            {randomizingPrompt === part ? <MiniLoader /> : <RandomIcon />}
-        </button>
-        <button
-            onClick={() => onRewritePrompt(part)}
-            disabled={isLoading || !!rewritingPrompt || !!randomizingPrompt || !prompt[part]}
-            className="p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-primary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
-            aria-label={`Enhance ${part} prompt`}
-            title={`Enhance ${part} prompt`}
-        >
-            {rewritingPrompt === part ? <MiniLoader /> : <RewriteIcon />}
-        </button>
+          />
+          <div className="absolute top-2 right-2 flex items-center space-x-1">
+            <button
+                onClick={() => onRandomPrompt(part)}
+                disabled={isLoading || !!rewritingPrompt || !!randomizingPrompt}
+                className="p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-primary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
+                aria-label={`Generate random ${part} prompt`}
+                title={`Generate random ${part} prompt`}
+            >
+                {randomizingPrompt === part ? <MiniLoader /> : <RandomIcon />}
+            </button>
+            <button
+                onClick={() => onRewritePrompt(part)}
+                disabled={isLoading || !!rewritingPrompt || !!randomizingPrompt || !prompt[part]}
+                className="p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-primary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
+                aria-label={`Enhance ${part} prompt`}
+                title={`Enhance ${part} prompt`}
+            >
+                {rewritingPrompt === part ? <MiniLoader /> : <RewriteIcon />}
+            </button>
+          </div>
+        </div>
+        {(suggestionsLoading || suggestions.length > 0) && (
+            <div className="mt-2 p-2 bg-base-200 rounded-md">
+                <p className="text-xs font-semibold text-text-secondary mb-1 flex items-center gap-1"><IdeaIcon /> Inspiration</p>
+                {suggestionsLoading ? (
+                    <p className="text-xs text-text-secondary animate-pulse">Getting ideas...</p>
+                ) : (
+                    <div className="flex flex-wrap gap-1">
+                        {suggestions.map((s, i) => (
+                            <button 
+                                key={i} 
+                                onClick={() => handleSuggestionClick(s)} 
+                                className="text-xs bg-base-100 hover:bg-brand-primary hover:text-white text-text-secondary px-2 py-1 rounded-full transition-colors"
+                            >
+                                + {s}
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </div>
+        )}
       </div>
-    </div>
-  </div>
-);
+    );
+};
 
 
-const GenerateTab: React.FC<Pick<ControlPanelProps, 'prompt' | 'onPromptChange' | 'onRewritePrompt' | 'rewritingPrompt' | 'onRandomPrompt' | 'randomizingPrompt' | 'style' | 'setStyle' | 'lighting' | 'setLighting' | 'composition' | 'setComposition' | 'aspectRatio' | 'setAspectRatio' | 'numImages' | 'setNumImages' | 'onGenerate' | 'isLoading'>> = ({
-  prompt, onPromptChange, onRewritePrompt, rewritingPrompt, onRandomPrompt, randomizingPrompt, style, setStyle, lighting, setLighting, composition, setComposition, aspectRatio, setAspectRatio, numImages, setNumImages, onGenerate, isLoading
+const GenerateTab: React.FC<Pick<ControlPanelProps, 'prompt' | 'onPromptChange' | 'onRewritePrompt' | 'rewritingPrompt' | 'onRandomPrompt' | 'randomizingPrompt' | 'onGetSuggestions' | 'subjectSuggestions' | 'backgroundSuggestions' | 'suggestionsLoading' | 'style' | 'setStyle' | 'lighting' | 'setLighting' | 'composition' | 'setComposition' | 'aspectRatio' | 'setAspectRatio' | 'numImages' | 'setNumImages' | 'onGenerate' | 'isLoading'>> = ({
+  prompt, onPromptChange, onRewritePrompt, rewritingPrompt, onRandomPrompt, randomizingPrompt, onGetSuggestions, subjectSuggestions, backgroundSuggestions, suggestionsLoading, style, setStyle, lighting, setLighting, composition, setComposition, aspectRatio, setAspectRatio, numImages, setNumImages, onGenerate, isLoading
 }) => (
   <div className="flex flex-col space-y-4">
     <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2">1. Describe Your Image</h2>
-    <PromptInput part="subject" label="Subject" placeholder="e.g., A majestic lion" prompt={prompt} onPromptChange={onPromptChange} onRewritePrompt={onRewritePrompt} rewritingPrompt={rewritingPrompt} onRandomPrompt={onRandomPrompt} randomizingPrompt={randomizingPrompt} isLoading={isLoading} />
-    <PromptInput part="foreground" label="Foreground" placeholder="e.g., wearing a golden crown" prompt={prompt} onPromptChange={onPromptChange} onRewritePrompt={onRewritePrompt} rewritingPrompt={rewritingPrompt} onRandomPrompt={onRandomPrompt} randomizingPrompt={randomizingPrompt} isLoading={isLoading} />
-    <PromptInput part="background" label="Background" placeholder="e.g., on a rocky cliff at sunset" prompt={prompt} onPromptChange={onPromptChange} onRewritePrompt={onRewritePrompt} rewritingPrompt={rewritingPrompt} onRandomPrompt={onRandomPrompt} randomizingPrompt={randomizingPrompt} isLoading={isLoading} />
+    <InteractivePromptInput 
+      part="subject" 
+      label="Subject" 
+      placeholder="e.g., A majestic lion" 
+      prompt={prompt} 
+      onPromptChange={onPromptChange} 
+      onRewritePrompt={onRewritePrompt} 
+      rewritingPrompt={rewritingPrompt} 
+      onRandomPrompt={onRandomPrompt} 
+      randomizingPrompt={randomizingPrompt} 
+      onGetSuggestions={onGetSuggestions}
+      suggestions={subjectSuggestions}
+      suggestionsLoading={suggestionsLoading === 'subject'}
+      isLoading={isLoading} 
+    />
+    <InteractivePromptInput 
+      part="background" 
+      label="Background" 
+      placeholder="e.g., on a rocky cliff at sunset" 
+      prompt={prompt} 
+      onPromptChange={onPromptChange} 
+      onRewritePrompt={onRewritePrompt} 
+      rewritingPrompt={rewritingPrompt} 
+      onRandomPrompt={onRandomPrompt} 
+      randomizingPrompt={randomizingPrompt} 
+      onGetSuggestions={onGetSuggestions}
+      suggestions={backgroundSuggestions}
+      suggestionsLoading={suggestionsLoading === 'background'}
+      isLoading={isLoading} 
+    />
     
     <div className="grid grid-cols-2 gap-4">
       <div>
