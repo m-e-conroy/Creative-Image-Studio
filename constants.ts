@@ -16,6 +16,11 @@ export const INITIAL_STYLES: ImageStyle[] = [
     { name: "Fantasy", prompt: "epic fantasy art, magical, ethereal, detailed, high fantasy concept art" },
     { name: "Watercolor", prompt: "watercolor painting, soft edges, vibrant washes of color, paper texture" },
     { name: "Minimalist", prompt: "minimalist design, clean lines, simple color palette, vector art" },
+    { name: "Illustration", prompt: "digital illustration, detailed, clean lines, vibrant color palette" },
+    { name: "3D Render", prompt: "3D render, octane render, trending on artstation, cinematic lighting, hyperrealistic" },
+    { name: "Impasto", prompt: "impasto painting, thick visible brushstrokes, oil on canvas, textured" },
+    { name: "Sketch", prompt: "pencil sketch, detailed, charcoal drawing, black and white, hand-drawn" },
+    { name: "Collage", prompt: "mixed media collage, torn paper, textures, abstract, layered" },
 ];
 
 export const LIGHTING_STYLES: LightingStyle[] = [

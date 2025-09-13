@@ -14,6 +14,7 @@ type Tab = 'generate' | 'edit' | 'filters';
 const App: React.FC = () => {
   const [prompt, setPrompt] = useState<PromptState>({ subject: '', background: '' });
   const [editPrompt, setEditPrompt] = useState<string>('');
+  const [outpaintPrompt, setOutpaintPrompt] = useState<string>('photorealistically expand the image to fill the transparent space, continuing the scene seamlessly.');
   const [style, setStyle] = useState<ImageStyle>(INITIAL_STYLES[0]);
   const [lighting, setLighting] = useState<LightingStyle>(LIGHTING_STYLES[0]);
   const [composition, setComposition] = useState<CompositionRule>(COMPOSITION_RULES[0]);
@@ -25,6 +26,7 @@ const App: React.FC = () => {
   const [mainImage, setMainImage] = useState<string | null>(null);
   const [originalImage, setOriginalImage] = useState<string | null>(null);
   const [generatedImages, setGeneratedImages] = useState<string[]>([]);
+  const [history, setHistory] = useState<string[]>([]);
 
   const [aspectRatio, setAspectRatio] = useState<string>(SUPPORTED_ASPECT_RATIOS[0].value);
   const [numImages, setNumImages] = useState<number>(1);
@@ -46,6 +48,8 @@ const App: React.FC = () => {
   const canvasRef = useRef<ImageCanvasMethods>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const canUndo = history.length > 1;
+
   const handleGenerate = useCallback(async () => {
     if (!prompt.subject) {
       setError('Please enter a subject to generate an image.');
@@ -58,6 +62,7 @@ const App: React.FC = () => {
     setOriginalImage(null);
     setGeneratedImages([]);
     setActiveTab('generate');
+    setHistory([]);
 
     try {
       const promptParts = [
@@ -75,6 +80,7 @@ const App: React.FC = () => {
         const imageUrl = `data:image/jpeg;base64,${imageB64s[0]}`;
         setMainImage(imageUrl);
         setOriginalImage(imageUrl);
+        setHistory([imageUrl]);
         setActiveTab('edit');
       } else {
         const imageUrls = imageB64s.map(b64 => `data:image/jpeg;base64,${b64}`);
@@ -154,6 +160,7 @@ const App: React.FC = () => {
 
       setMainImage(imageUrl);
       setOriginalImage(imageUrl);
+      setHistory([imageUrl]);
       setGeneratedImages([]);
       setActiveTab('edit');
       setIsLoading(true);
@@ -197,6 +204,7 @@ const App: React.FC = () => {
   const handleSelectImage = useCallback((imageUrl: string) => {
     setMainImage(imageUrl);
     setOriginalImage(imageUrl);
+    setHistory([imageUrl]);
     setGeneratedImages([]);
     setActiveTab('edit');
   }, []);
@@ -213,11 +221,20 @@ const App: React.FC = () => {
     
     try {
       const { data, mimeType } = canvasRef.current.getCanvasData();
-      const result = await editImage(data, mimeType, editPrompt);
+      
+      let finalPrompt = editPrompt;
+      if (editMode === EditMode.MASK) {
+        finalPrompt = `Following the instruction "${editPrompt}", edit the image only in the masked area.`;
+      } else if (editMode === EditMode.SKETCH) {
+        finalPrompt = `Using the user's sketch as a guide, ${editPrompt}.`;
+      }
+
+      const result = await editImage(data, mimeType, finalPrompt);
       
       if (result.image) {
         const imageUrl = `data:${mimeType};base64,${result.image}`;
         setMainImage(imageUrl);
+        setHistory(prev => [...prev, imageUrl]);
         if (canvasRef.current) {
           canvasRef.current.clearDrawing();
         }
@@ -231,7 +248,7 @@ const App: React.FC = () => {
       setIsLoading(false);
       setLoadingMessage('');
     }
-  }, [editPrompt]);
+  }, [editPrompt, editMode]);
 
   const handleOutpaint = useCallback(async (direction: 'up' | 'down' | 'left' | 'right') => {
     if (!canvasRef.current) return;
@@ -242,13 +259,12 @@ const App: React.FC = () => {
     
     try {
       const { data, mimeType } = canvasRef.current.getExpandedCanvasData(direction);
-      const outpaintPrompt = "photorealistically expand the image to fill the transparent space, continuing the scene seamlessly.";
       const result = await editImage(data, mimeType, outpaintPrompt);
       
       if (result.image) {
         const imageUrl = `data:${mimeType};base64,${result.image}`;
         setMainImage(imageUrl);
-        setOriginalImage(imageUrl); // So we can expand from the new image
+        setHistory(prev => [...prev, imageUrl]);
       } else {
          setError(result.text || 'The model could not expand the image. Please try again.');
       }
@@ -259,7 +275,7 @@ const App: React.FC = () => {
       setIsLoading(false);
       setLoadingMessage('');
     }
-  }, []);
+  }, [outpaintPrompt]);
 
   const handleCrop = useCallback(async () => {
     if (!canvasRef.current || !cropRectActive) return;
@@ -272,7 +288,7 @@ const App: React.FC = () => {
       const croppedDataUrl = canvasRef.current.applyCrop();
       if (croppedDataUrl) {
         setMainImage(croppedDataUrl);
-        setOriginalImage(croppedDataUrl);
+        setHistory(prev => [...prev, croppedDataUrl]);
       } else {
         throw new Error("Cropping failed to return image data.");
       }
@@ -286,6 +302,22 @@ const App: React.FC = () => {
     }
   }, [cropRectActive]);
 
+  const handleUndo = useCallback(() => {
+    if (!canUndo) return;
+    
+    const newHistory = [...history];
+    newHistory.pop();
+    const previousImage = newHistory[newHistory.length - 1];
+    
+    setHistory(newHistory);
+    setMainImage(previousImage);
+    
+    if (canvasRef.current) {
+      canvasRef.current.clearDrawing();
+      canvasRef.current.clearCropSelection();
+    }
+  }, [history, canUndo]);
+
   const clearCanvas = useCallback(() => {
     if (canvasRef.current) {
       canvasRef.current.clearDrawing();
@@ -295,6 +327,7 @@ const App: React.FC = () => {
 
   const resetImage = useCallback(() => {
     setMainImage(originalImage);
+    setHistory(originalImage ? [originalImage] : []);
     setEditPrompt('');
     setActiveFilter(FILTERS[0]);
     if (canvasRef.current) {
@@ -369,6 +402,8 @@ const App: React.FC = () => {
             onGenerate={handleGenerate}
             onEdit={handleEdit}
             onOutpaint={handleOutpaint}
+            outpaintPrompt={outpaintPrompt}
+            setOutpaintPrompt={setOutpaintPrompt}
             onCrop={handleCrop}
             cropRectActive={cropRectActive}
             onUploadClick={handleUploadClick}
@@ -382,6 +417,8 @@ const App: React.FC = () => {
             setBrushColor={setBrushColor}
             onClear={clearCanvas}
             onReset={resetImage}
+            onUndo={handleUndo}
+            canUndo={canUndo}
             activeFilter={activeFilter}
             setActiveFilter={setActiveFilter}
           />

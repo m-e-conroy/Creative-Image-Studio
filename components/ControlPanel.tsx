@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule } from '../types';
 import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES } from '../constants';
-import { BrushIcon, ClearIcon, DrawIcon, EditIcon, GenerateIcon, MaskIcon, ResetIcon, FilterIcon, RewriteIcon, RandomIcon, UploadIcon, OutpaintIcon, ArrowUpIcon, ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon, CropIcon, IdeaIcon } from './Icons';
+import { BrushIcon, ClearIcon, DrawIcon, EditIcon, GenerateIcon, MaskIcon, ResetIcon, FilterIcon, RewriteIcon, RandomIcon, UploadIcon, OutpaintIcon, ArrowUpIcon, ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon, CropIcon, IdeaIcon, UndoIcon } from './Icons';
 
 type Tab = 'generate' | 'edit' | 'filters';
 
@@ -33,6 +33,8 @@ interface ControlPanelProps {
   onGenerate: () => void;
   onEdit: () => void;
   onOutpaint: (direction: 'up' | 'down' | 'left' | 'right') => void;
+  outpaintPrompt: string;
+  setOutpaintPrompt: (prompt: string) => void;
   onCrop: () => void;
   cropRectActive: boolean;
   onUploadClick: () => void;
@@ -46,6 +48,8 @@ interface ControlPanelProps {
   setBrushColor: (color: string) => void;
   onClear: () => void;
   onReset: () => void;
+  onUndo: () => void;
+  canUndo: boolean;
   activeFilter: Filter;
   setActiveFilter: (filter: Filter) => void;
 }
@@ -255,10 +259,29 @@ const GenerateTab: React.FC<Pick<ControlPanelProps, 'prompt' | 'onPromptChange' 
   </div>
 );
 
-const OutpaintControls: React.FC<{ onOutpaint: ControlPanelProps['onOutpaint'], isLoading: boolean }> = ({ onOutpaint, isLoading }) => (
-    <div className="flex flex-col items-center space-y-3">
-        <p className="text-sm text-text-secondary text-center">Click a direction to expand the canvas. The AI will fill the new space.</p>
-        <div className="grid grid-cols-3 grid-rows-3 gap-2 w-40">
+const OutpaintControls: React.FC<{ 
+    onOutpaint: ControlPanelProps['onOutpaint'], 
+    isLoading: boolean,
+    outpaintPrompt: string,
+    setOutpaintPrompt: (prompt: string) => void,
+}> = ({ onOutpaint, isLoading, outpaintPrompt, setOutpaintPrompt }) => (
+    <div className="flex flex-col space-y-4">
+        <p className="text-sm text-text-secondary text-center">Click a direction to expand the canvas. Describe what should fill the new space.</p>
+        
+        <div>
+            <label htmlFor="outpaint-prompt" className="block text-sm font-medium text-text-secondary mb-1">Outpainting Prompt</label>
+            <textarea 
+                id="outpaint-prompt" 
+                rows={3} 
+                value={outpaintPrompt} 
+                onChange={(e) => setOutpaintPrompt(e.target.value)} 
+                placeholder="e.g., continue the forest scene seamlessly" 
+                className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-secondary focus:border-brand-secondary transition text-text-primary" 
+                disabled={isLoading}
+            />
+        </div>
+        
+        <div className="grid grid-cols-3 grid-rows-3 gap-2 w-40 mx-auto">
             <div className="col-start-2 row-start-1 flex justify-center">
                 <button onClick={() => onOutpaint('up')} disabled={isLoading} className="p-3 rounded-md bg-base-100 hover:bg-brand-secondary hover:text-white transition"><ArrowUpIcon /></button>
             </div>
@@ -275,19 +298,18 @@ const OutpaintControls: React.FC<{ onOutpaint: ControlPanelProps['onOutpaint'], 
     </div>
 );
 
-const CropControls: React.FC<{ onCrop: () => void, onClear: () => void, isLoading: boolean, cropRectActive: boolean }> = ({ onCrop, onClear, isLoading, cropRectActive }) => (
+const CropControls: React.FC<{ onCrop: () => void, isLoading: boolean, cropRectActive: boolean }> = ({ onCrop, isLoading, cropRectActive }) => (
     <div className="flex flex-col items-center space-y-3">
         <p className="text-sm text-text-secondary text-center">Click and drag on the image to select an area to crop.</p>
-        <div className="w-full grid grid-cols-2 gap-2">
-           <button onClick={onClear} disabled={isLoading || !cropRectActive} className="w-full flex items-center justify-center gap-2 bg-base-300 hover:bg-base-300/80 disabled:opacity-50 text-text-secondary font-bold py-2 px-4 rounded-md transition"><ClearIcon /> Clear Selection</button>
+        <div className="w-full">
            <button onClick={onCrop} disabled={isLoading || !cropRectActive} className="w-full flex items-center justify-center gap-2 bg-brand-secondary hover:bg-brand-secondary/80 disabled:opacity-50 text-white font-bold py-2 px-4 rounded-md transition duration-200"><CropIcon /> Apply Crop</button>
         </div>
     </div>
 );
 
 
-const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' | 'editMode' | 'setEditMode' | 'brushSize' | 'setBrushSize' | 'brushColor' | 'setBrushColor' | 'onEdit' | 'onClear' | 'onReset' | 'isLoading' | 'onRandomPrompt' | 'randomizingPrompt' | 'onOutpaint' | 'onCrop' | 'cropRectActive'>> = ({
-  editPrompt, setEditPrompt, editMode, setEditMode, brushSize, setBrushSize, brushColor, setBrushColor, onEdit, onClear, onReset, isLoading, onRandomPrompt, randomizingPrompt, onOutpaint, onCrop, cropRectActive
+const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' | 'editMode' | 'setEditMode' | 'brushSize' | 'setBrushSize' | 'brushColor' | 'setBrushColor' | 'onEdit' | 'onClear' | 'onReset' | 'onUndo' | 'canUndo' | 'isLoading' | 'onRandomPrompt' | 'randomizingPrompt' | 'onOutpaint' | 'outpaintPrompt' | 'setOutpaintPrompt' | 'onCrop' | 'cropRectActive'>> = ({
+  editPrompt, setEditPrompt, editMode, setEditMode, brushSize, setBrushSize, brushColor, setBrushColor, onEdit, onClear, onReset, onUndo, canUndo, isLoading, onRandomPrompt, randomizingPrompt, onOutpaint, outpaintPrompt, setOutpaintPrompt, onCrop, cropRectActive
 }) => (
     <div className="flex flex-col space-y-4">
         <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2">2. Edit Your Creation</h2>
@@ -302,9 +324,9 @@ const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' |
         </div>
         
         {editMode === EditMode.OUTPAINT ? (
-            <OutpaintControls onOutpaint={onOutpaint} isLoading={isLoading} />
+            <OutpaintControls onOutpaint={onOutpaint} isLoading={isLoading} outpaintPrompt={outpaintPrompt} setOutpaintPrompt={setOutpaintPrompt} />
         ) : editMode === EditMode.CROP ? (
-            <CropControls onCrop={onCrop} onClear={onClear} isLoading={isLoading} cropRectActive={cropRectActive} />
+            <CropControls onCrop={onCrop} isLoading={isLoading} cropRectActive={cropRectActive} />
         ) : (
         <>
             <div>
@@ -329,13 +351,15 @@ const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' |
                     </button>
                 </div>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-                <button onClick={onClear} disabled={isLoading} className="w-full flex items-center justify-center gap-2 bg-base-300 hover:bg-base-300/80 disabled:bg-base-300/50 text-text-secondary font-bold py-2 px-4 rounded-md transition"><ClearIcon /> Clear</button>
-                <button onClick={onReset} disabled={isLoading} className="w-full flex items-center justify-center gap-2 bg-base-300 hover:bg-base-300/80 disabled:bg-base-300/50 text-text-secondary font-bold py-2 px-4 rounded-md transition"><ResetIcon /> Reset</button>
-            </div>
             <button onClick={onEdit} disabled={isLoading || !editPrompt} className="w-full flex items-center justify-center gap-2 bg-brand-secondary hover:bg-brand-secondary/80 disabled:bg-base-300 text-white font-bold py-2 px-4 rounded-md transition duration-200"><EditIcon /> Apply Edit</button>
         </>
         )}
+        
+        <div className="grid grid-cols-3 gap-2 pt-4 border-t border-base-300">
+            <button onClick={onClear} disabled={isLoading} className="w-full flex items-center justify-center gap-2 bg-base-300 hover:bg-base-300/80 disabled:bg-base-300/50 text-text-secondary font-bold py-2 px-4 rounded-md transition"><ClearIcon /> Clear</button>
+            <button onClick={onUndo} disabled={isLoading || !canUndo} className="w-full flex items-center justify-center gap-2 bg-base-300 hover:bg-base-300/80 disabled:bg-base-300/50 text-text-secondary font-bold py-2 px-4 rounded-md transition"><UndoIcon /> Undo</button>
+            <button onClick={onReset} disabled={isLoading} className="w-full flex items-center justify-center gap-2 bg-base-300 hover:bg-base-300/80 disabled:bg-base-300/50 text-text-secondary font-bold py-2 px-4 rounded-md transition"><ResetIcon /> Reset</button>
+        </div>
     </div>
 );
 
