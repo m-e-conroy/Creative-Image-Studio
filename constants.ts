@@ -1,4 +1,4 @@
-import { ImageStyle, AspectRatioValue, Filter, LightingStyle, CompositionRule } from "./types";
+import { ImageStyle, AspectRatioValue, Filter, LightingStyle, CompositionRule, ClipArtShape } from "./types";
 
 export const SUPPORTED_ASPECT_RATIOS: { name: string; value: AspectRatioValue }[] = [
     { name: 'Square (1:1)', value: '1:1' },
@@ -44,7 +44,6 @@ export const COMPOSITION_RULES: CompositionRule[] = [
     { name: "High Angle", prompt: "high angle shot, bird's eye view" },
 ];
 
-
 export const FILTERS: Filter[] = [
     { name: "None", value: "none" },
     { name: "Noir", value: "grayscale(100%)" },
@@ -54,4 +53,47 @@ export const FILTERS: Filter[] = [
     { name: "Solarize", value: "invert(100%)" },
     { name: "Vibrant", value: "saturate(200%)" },
     { name: "Cyber Glow", value: "contrast(120%) saturate(180%) hue-rotate(290deg)" },
+];
+
+export const INITIAL_SHAPES: ClipArtShape[] = [
+    {
+        name: 'Star',
+        dataUrl: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iYmxhY2siPjxwYXRoIGQ9Ik0xMiAuNTg3bDMuNjY4IDcuNTY4IDguMzMyIDEuMTUxLTYuMDY0IDUuODI4IDEuNDggOC4yNzlMMTIgMTkuNDQ5bC03LjQxNiA0Ljk2NCAxLjQ4LTguMjc5TDAgOS4zMDZsOC4zMzItMS4xNTF6Ii8+PC9zdmc+'
+    },
+    {
+        name: 'Heart',
+        dataUrl: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iYmxhY2siPjxwYXRoIGQ9Ik0xMiAyMS4zNWwtMS40NS0xLjMyQzUuNCAxNS4zNiAyIDEyLjI4IDIgOC41IDIgNS40MiA0LjQyIDMgNy41IDNjMS43NCAwIDMuNDEuODEgNC41IDIuMDlDMTMuMDkgMy44MSAxNC43NiAzIDE2LjUgMyAxOS41OCAzIDIyIDUuNDIgMjIgOC41YzAgMy43OC0zLjQgNi44Ni04LjU1IDExLjU0TDEyIDIxLjM1eiIvPjwvc3ZnPg=='
+    },
+    {
+        name: 'Arrow',
+        dataUrl: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iYmxhY2siPjxwYXRoIGQ9Ik0xMiA0bC0xLjQxIDEuNDFMMTYuMTcgMTFINGwtLjAxIDJoMTIuMTZsLTUuNTcgNS41OUwxMiAyMGw4LTh6Ii8+PC9zdmc+'
+    },
+    {
+        name: 'Circle',
+        dataUrl: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iYmxhY2siPjxjaXJjbGUgY3g9IjEyIiBjeT0iMTIiIHI9IjEwIi8+PC9zdmc+'
+    },
+    {
+        name: 'Square',
+        dataUrl: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iYmxhY2siPjxyZWN0IHg9IjMiIHk9IjMiIHdpZHRoPSIxOCIgaGVpZ2h0PSIxOCIgcng9IjIiLz48L3N2Zz4='
+    },
+    {
+        name: 'Triangle',
+        dataUrl: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iYmxhY2siPjxwYXRoIGQ9Ik0xMiAyIEwxIDIxIEwyMyAyMSBaIi8+PC9zdmc+'
+    },
+    {
+        name: 'Person',
+        dataUrl: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iYmxhY2siPjxwYXRoIGQ9Ik0xMiAxMmMxLjY2IDAgMy0xLjM0IDMtMyBjMC0xLjY2LTEuMzQtMy0zLTMgcy0zIDEuMzQtMyAzYzAgMS42NiAxLjM0IDMgMyAzIHogTTEyIDE0Yy0yLjMzIDAtNyAyLjI1LTcgNSBjMC4yMSAxLjE1IDIuNDIgMiA3IDIgNC41OCAwIDYuNzktMC44NSA3LTJjMC0yLjc1LTQuNjctNS03LTUgeiIvPjwvc3ZnPg=='
+    },
+    {
+        name: 'Speech Bubble',
+        dataUrl: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iYmxhY2siPjxwYXRoIGQ9Ik0yMCAySDJDMC45IDIgMCAyLjkgMCA0djEyaDIwbDIgM1Y0YzAtMS4xLTAuOS0yLTItMnogbS0yIDEySDZWOGgxMHY2eiIvPjwvc3ZnPg=='
+    },
+    {
+        name: 'Cloud',
+        dataUrl: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iYmxhY2siPjxwYXRoIGQ9Ik0xOS4zNSAxMC4wNGMtMS40My0xLjU0LTMuNTQtMi40OS01Ljg1LTIuNDktMS4yNSAwLTIuNDUuMjctMy41My43NUM4LjY4IDYuNjQgNi45NiA1LjUgNSA1LjVjLTIuNzYgMC01IDIuMjQtNSA1IDAgMC41MS4xIDEgMC4yOCAxLjQ2QzAuMTIgMTIuNDYgMCAxMy4yMSAwIDE0YzAgMy4zMSAyLjY5IDYgNiA2aDEzYzIuNzYgMCA1LTIuMjQgNS01IDAtMi42My0xLjk0LTQuNzgtNC40OC00Ljk2LTEuNzQtMi4wMy00LjM4LTMuMjYtNy4xNy0zLjI2eiIvPjwvc3ZnPg=='
+    },
+    {
+        name: 'Lightbulb',
+        dataUrl: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iYmxhY2siPjxwYXRoIGQ9Ik05IDE5aDZ2Mkg5di0yek0xMiAyQy41IDIgMiA2LjUgMiAxMmMwIDMuMDQgMi40NyA1LjUgNS41IDUuNWgwQzEwLjUzIDE3LjUgMTIgMTQuNTMgMTIgMTJjMC0yLjUzIDIuNDctNS41IDUuNS01LjVoMEMyMS41MyA2LjUgMjQgMi4wNCAyNCA4YzAtNS41LTQuNS02LTExLTYgMS0xIDEuNS0xLjUgMS41LTIuNUMxMy41IDQuNDcgMTIuNTMgMiAxMiAyIi8+PC9zdmc+'
+    }
 ];

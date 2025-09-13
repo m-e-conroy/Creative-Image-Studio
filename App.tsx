@@ -1,10 +1,11 @@
-import React, { useState, useRef, useCallback } from 'react';
+
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { ControlPanel } from './components/ControlPanel';
 import { ImageCanvas } from './components/ImageCanvas';
 import { generateImage, editImage, rewritePrompt, generateRandomPrompt, describeImage, getPromptSuggestions } from './services/geminiService';
 import { ImageCanvasMethods } from './components/ImageCanvas';
-import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule } from './types';
-import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES } from './constants';
+import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, Stroke } from './types';
+import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, INITIAL_SHAPES } from './constants';
 import { LogoIcon } from './components/Icons';
 import { ImageGallery } from './components/ImageGallery';
 import { ThemeSwitcher } from './components/ThemeSwitcher';
@@ -27,6 +28,13 @@ const App: React.FC = () => {
   const [originalImage, setOriginalImage] = useState<string | null>(null);
   const [generatedImages, setGeneratedImages] = useState<string[]>([]);
   const [history, setHistory] = useState<string[]>([]);
+  const [clipArtShapes, setClipArtShapes] = useState<ClipArtShape[]>(INITIAL_SHAPES);
+  
+  // New state for interactive canvas elements
+  const [strokes, setStrokes] = useState<Stroke[]>([]);
+  const [placedShapes, setPlacedShapes] = useState<PlacedShape[]>([]);
+  const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null);
+
 
   const [aspectRatio, setAspectRatio] = useState<string>(SUPPORTED_ASPECT_RATIOS[0].value);
   const [numImages, setNumImages] = useState<number>(1);
@@ -50,6 +58,32 @@ const App: React.FC = () => {
 
   const canUndo = history.length > 1;
 
+  useEffect(() => {
+    try {
+        const savedShapes = localStorage.getItem('clipArtShapes');
+        if (savedShapes) {
+            const parsedShapes: ClipArtShape[] = JSON.parse(savedShapes);
+            // Combine initial shapes with saved shapes, preventing duplicates by name
+            const combined = [...INITIAL_SHAPES];
+            const initialNames = new Set(INITIAL_SHAPES.map(s => s.name));
+            parsedShapes.forEach(saved => {
+                if (!initialNames.has(saved.name)) {
+                    combined.push(saved);
+                }
+            });
+            setClipArtShapes(combined);
+        }
+    } catch (e) {
+        console.error("Failed to load saved clip art shapes:", e);
+    }
+  }, []);
+  
+  const clearInteractiveState = () => {
+    setStrokes([]);
+    setPlacedShapes([]);
+    setSelectedShapeId(null);
+  };
+  
   const handleGenerate = useCallback(async () => {
     if (!prompt.subject) {
       setError('Please enter a subject to generate an image.');
@@ -63,6 +97,7 @@ const App: React.FC = () => {
     setGeneratedImages([]);
     setActiveTab('generate');
     setHistory([]);
+    clearInteractiveState();
 
     try {
       const promptParts = [
@@ -153,6 +188,7 @@ const App: React.FC = () => {
 
   const handleImageUpload = useCallback(async (file: File) => {
     setError(null);
+    clearInteractiveState();
     const reader = new FileReader();
     reader.onload = async (e) => {
       const imageUrl = e.target?.result as string;
@@ -207,6 +243,7 @@ const App: React.FC = () => {
     setHistory([imageUrl]);
     setGeneratedImages([]);
     setActiveTab('edit');
+    clearInteractiveState();
   }, []);
 
   const handleEdit = useCallback(async () => {
@@ -238,6 +275,7 @@ const App: React.FC = () => {
         if (canvasRef.current) {
           canvasRef.current.clearDrawing();
         }
+        clearInteractiveState();
       } else {
          setError(result.text || 'The model did not return an image. Try a different prompt.');
       }
@@ -265,6 +303,7 @@ const App: React.FC = () => {
         const imageUrl = `data:${mimeType};base64,${result.image}`;
         setMainImage(imageUrl);
         setHistory(prev => [...prev, imageUrl]);
+        clearInteractiveState();
       } else {
          setError(result.text || 'The model could not expand the image. Please try again.');
       }
@@ -289,6 +328,7 @@ const App: React.FC = () => {
       if (croppedDataUrl) {
         setMainImage(croppedDataUrl);
         setHistory(prev => [...prev, croppedDataUrl]);
+        clearInteractiveState();
       } else {
         throw new Error("Cropping failed to return image data.");
       }
@@ -316,6 +356,7 @@ const App: React.FC = () => {
       canvasRef.current.clearDrawing();
       canvasRef.current.clearCropSelection();
     }
+    clearInteractiveState();
   }, [history, canUndo]);
 
   const clearCanvas = useCallback(() => {
@@ -323,6 +364,7 @@ const App: React.FC = () => {
       canvasRef.current.clearDrawing();
       canvasRef.current.clearCropSelection();
     }
+    clearInteractiveState();
   }, []);
 
   const resetImage = useCallback(() => {
@@ -334,6 +376,7 @@ const App: React.FC = () => {
       canvasRef.current.clearDrawing();
       canvasRef.current.clearCropSelection();
     }
+    clearInteractiveState();
   }, [originalImage]);
 
   const handleDownload = useCallback(() => {
@@ -348,6 +391,64 @@ const App: React.FC = () => {
       document.body.removeChild(link);
     }
   }, []);
+  
+  const handleSaveShape = useCallback((name: string) => {
+      if (!name.trim() || !canvasRef.current) return;
+
+      const dataUrl = canvasRef.current.getDrawingAsDataURL(strokes);
+      if (!dataUrl) {
+        setError("There's nothing on the canvas to save.");
+        return;
+      }
+
+      setError(null);
+      const newShape: ClipArtShape = { name, dataUrl };
+      
+      setClipArtShapes(prevShapes => {
+          const newShapes = [...prevShapes, newShape];
+          try {
+              const userShapes = newShapes.filter(s => !INITIAL_SHAPES.some(is => is.name === s.name));
+              localStorage.setItem('clipArtShapes', JSON.stringify(userShapes));
+          } catch(e) {
+              console.error("Failed to save clip art shapes to local storage:", e);
+              setError("Could not save shape. Your browser's storage might be full.");
+          }
+          return newShapes;
+      });
+      setStrokes([]);
+  }, [strokes]);
+
+  // Handlers for interactive shapes and strokes
+  const handleAddStroke = useCallback((stroke: Stroke) => {
+    setStrokes(prev => [...prev, stroke]);
+  }, []);
+
+  const handleAddShape = useCallback((shape: Omit<PlacedShape, 'id' | 'rotation' | 'color'>) => {
+    const newShape: PlacedShape = {
+        id: `shape_${Date.now()}_${Math.random()}`,
+        ...shape,
+        rotation: 0,
+        color: brushColor,
+    };
+    setPlacedShapes(prev => [...prev, newShape]);
+    setSelectedShapeId(newShape.id);
+  }, [brushColor]);
+
+  const handleUpdateShape = useCallback((id: string, updates: Partial<Omit<PlacedShape, 'id'>>) => {
+    setPlacedShapes(prev => prev.map(shape => 
+        shape.id === id ? { ...shape, ...updates } : shape
+    ));
+  }, []);
+
+  const handleSelectShape = useCallback((id: string | null) => {
+    setSelectedShapeId(id);
+  }, []);
+
+  const handleDeleteSelectedShape = useCallback(() => {
+    if (!selectedShapeId) return;
+    setPlacedShapes(prev => prev.filter(shape => shape.id !== selectedShapeId));
+    setSelectedShapeId(null);
+  }, [selectedShapeId]);
 
   return (
     <>
@@ -421,6 +522,12 @@ const App: React.FC = () => {
             canUndo={canUndo}
             activeFilter={activeFilter}
             setActiveFilter={setActiveFilter}
+            clipArtShapes={clipArtShapes}
+            onSaveShape={handleSaveShape}
+            placedShapes={placedShapes}
+            selectedShapeId={selectedShapeId}
+            onUpdateShape={handleUpdateShape}
+            onDeleteSelectedShape={handleDeleteSelectedShape}
           />
           {error && (
               <div className="bg-red-500/20 border border-red-500 text-red-300 p-3 rounded-md text-sm">
@@ -446,6 +553,13 @@ const App: React.FC = () => {
                 onDownload={handleDownload}
                 onUploadClick={handleUploadClick}
                 setCropRectActive={setCropRectActive}
+                strokes={strokes}
+                placedShapes={placedShapes}
+                selectedShapeId={selectedShapeId}
+                onAddStroke={handleAddStroke}
+                onAddShape={handleAddShape}
+                onUpdateShape={handleUpdateShape}
+                onSelectShape={handleSelectShape}
               />
             )}
           </div>

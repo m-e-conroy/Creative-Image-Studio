@@ -166,3 +166,18 @@ export const IdeaIcon: React.FC = () => (
         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM4 10a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1z" clipRule="evenodd" />
     </svg>
 );
+
+export const SaveIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+        <path d="M5 4a2 2 0 012-2h6a2 2 0 012 2v1H5V4zM5 8h10a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1V9a1 1 0 011-1z" />
+        <path d="M15 8h-2a1 1 0 00-1 1v2a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 00-1-1z" />
+    </svg>
+);
+
+export const RotateIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+        <path fillRule="evenodd" d="M15.312 11.25a.75.75 0 01-.75.75h-3.375a.75.75 0 010-1.5h1.938l-3.32-3.32a.75.75 0 011.06-1.06l3.32 3.32v-1.938a.75.75 0 011.5 0v3.375z" clipRule="evenodd" />
+        <path fillRule="evenodd" d="M6.168 4.688a.75.75 0 01.75-.75h3.375a.75.75 0 010 1.5H8.354l3.32 3.32a.75.75 0 11-1.06 1.06l-3.32-3.32v1.938a.75.75 0 01-1.5 0V5.438a.75.75 0 01.75-.75z" clipRule="evenodd" />
+        <path d="M4.5 9.75a5.25 5.25 0 1010.5 0 5.25 5.25 0 00-10.5 0zm5.25-6.75a6.75 6.75 0 100 13.5 6.75 6.75 0 000-13.5z" />
+    </svg>
+);

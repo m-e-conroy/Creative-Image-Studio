@@ -1,7 +1,8 @@
+
 import React, { useState, useEffect } from 'react';
-import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule } from '../types';
+import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape } from '../types';
 import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES } from '../constants';
-import { BrushIcon, ClearIcon, DrawIcon, EditIcon, GenerateIcon, MaskIcon, ResetIcon, FilterIcon, RewriteIcon, RandomIcon, UploadIcon, OutpaintIcon, ArrowUpIcon, ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon, CropIcon, IdeaIcon, UndoIcon } from './Icons';
+import { BrushIcon, ClearIcon, DrawIcon, EditIcon, GenerateIcon, MaskIcon, ResetIcon, FilterIcon, RewriteIcon, RandomIcon, UploadIcon, OutpaintIcon, ArrowUpIcon, ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon, CropIcon, IdeaIcon, UndoIcon, SaveIcon, RotateIcon } from './Icons';
 
 type Tab = 'generate' | 'edit' | 'filters';
 
@@ -52,6 +53,12 @@ interface ControlPanelProps {
   canUndo: boolean;
   activeFilter: Filter;
   setActiveFilter: (filter: Filter) => void;
+  clipArtShapes: ClipArtShape[];
+  onSaveShape: (name: string) => void;
+  placedShapes: PlacedShape[];
+  selectedShapeId: string | null;
+  onUpdateShape: (id: string, updates: Partial<Omit<PlacedShape, 'id'>>) => void;
+  onDeleteSelectedShape: () => void;
 }
 
 const useDebounce = <T,>(value: T, delay: number): T => {
@@ -308,9 +315,35 @@ const CropControls: React.FC<{ onCrop: () => void, isLoading: boolean, cropRectA
 );
 
 
-const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' | 'editMode' | 'setEditMode' | 'brushSize' | 'setBrushSize' | 'brushColor' | 'setBrushColor' | 'onEdit' | 'onClear' | 'onReset' | 'onUndo' | 'canUndo' | 'isLoading' | 'onRandomPrompt' | 'randomizingPrompt' | 'onOutpaint' | 'outpaintPrompt' | 'setOutpaintPrompt' | 'onCrop' | 'cropRectActive'>> = ({
-  editPrompt, setEditPrompt, editMode, setEditMode, brushSize, setBrushSize, brushColor, setBrushColor, onEdit, onClear, onReset, onUndo, canUndo, isLoading, onRandomPrompt, randomizingPrompt, onOutpaint, outpaintPrompt, setOutpaintPrompt, onCrop, cropRectActive
-}) => (
+const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' | 'editMode' | 'setEditMode' | 'brushSize' | 'setBrushSize' | 'brushColor' | 'setBrushColor' | 'onEdit' | 'onClear' | 'onReset' | 'onUndo' | 'canUndo' | 'isLoading' | 'onRandomPrompt' | 'randomizingPrompt' | 'onOutpaint' | 'outpaintPrompt' | 'setOutpaintPrompt' | 'onCrop' | 'cropRectActive' | 'clipArtShapes' | 'onSaveShape' | 'placedShapes' | 'selectedShapeId' | 'onUpdateShape' | 'onDeleteSelectedShape'>> = (props) => {
+    const { editPrompt, setEditPrompt, editMode, setEditMode, brushSize, setBrushSize, brushColor, setBrushColor, onEdit, onClear, onReset, onUndo, canUndo, isLoading, onRandomPrompt, randomizingPrompt, onOutpaint, outpaintPrompt, setOutpaintPrompt, onCrop, cropRectActive, clipArtShapes, onSaveShape, placedShapes, selectedShapeId, onUpdateShape, onDeleteSelectedShape } = props;
+    const [newShapeName, setNewShapeName] = useState('');
+
+    const selectedShape = selectedShapeId ? placedShapes.find(s => s.id === selectedShapeId) : null;
+
+    const handleSaveClick = () => {
+        if (newShapeName.trim()) {
+            onSaveShape(newShapeName);
+            setNewShapeName('');
+        }
+    };
+    
+    const handleDragStart = (e: React.DragEvent<HTMLImageElement>, shape: ClipArtShape) => {
+        e.dataTransfer.setData('text/plain', shape.dataUrl);
+    };
+
+    const handleRotationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (!selectedShape) return;
+        const degrees = Number(e.target.value);
+        onUpdateShape(selectedShape.id, { rotation: degrees * (Math.PI / 180) });
+    };
+
+    const handleColorChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (!selectedShape) return;
+        onUpdateShape(selectedShape.id, { color: e.target.value });
+    }
+
+    return (
     <div className="flex flex-col space-y-4">
         <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2">2. Edit Your Creation</h2>
         <div>
@@ -336,6 +369,38 @@ const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' |
                     {editMode === EditMode.SKETCH && (<input type="color" value={brushColor} onChange={(e) => setBrushColor(e.target.value)} className="w-10 h-10 p-1 bg-base-100 border border-base-300 rounded-md cursor-pointer" disabled={isLoading} />)}
                 </div>
             </div>
+            {editMode === EditMode.SKETCH && (
+                <div className="space-y-3 p-3 bg-base-200/50 rounded-md">
+                    <label className="block text-sm font-medium text-text-secondary">Clip Art Library</label>
+                    <div className="grid grid-cols-5 gap-2 max-h-32 overflow-y-auto p-1 bg-base-100 rounded">
+                        {clipArtShapes.map(shape => (
+                            <div key={shape.name} className="aspect-square p-1 bg-base-200 rounded-md flex items-center justify-center cursor-grab active:cursor-grabbing" title={shape.name}>
+                                <img src={shape.dataUrl} alt={shape.name} draggable="true" onDragStart={(e) => handleDragStart(e, shape)} className="max-w-full max-h-full" />
+                            </div>
+                        ))}
+                    </div>
+                     <div className="flex items-center gap-2">
+                        <input type="text" value={newShapeName} onChange={(e) => setNewShapeName(e.target.value)} placeholder="Name your sketch" className="flex-grow bg-base-100 border border-base-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-brand-secondary" disabled={isLoading}/>
+                        <button onClick={handleSaveClick} disabled={isLoading || !newShapeName.trim()} className="p-2 bg-brand-secondary text-white rounded-md disabled:opacity-50 transition" title="Save current sketch"><SaveIcon /></button>
+                    </div>
+                </div>
+            )}
+            {editMode === EditMode.SKETCH && selectedShape && (
+                 <div className="space-y-3 p-3 bg-base-200/50 rounded-md">
+                    <label className="block text-sm font-medium text-text-secondary">Shape Properties</label>
+                    <div className="grid grid-cols-2 gap-4 items-center">
+                        <div className="flex items-center gap-2">
+                            <label htmlFor="shape-color" className="text-sm">Color:</label>
+                            <input id="shape-color" type="color" value={selectedShape.color} onChange={handleColorChange} className="w-10 h-10 p-1 bg-base-100 border border-base-300 rounded-md cursor-pointer" disabled={isLoading} />
+                        </div>
+                        <button onClick={onDeleteSelectedShape} disabled={isLoading || !selectedShapeId} className="w-full flex items-center justify-center gap-2 p-2 bg-red-600 hover:bg-red-700 text-white rounded-md disabled:opacity-50 transition text-sm" title="Delete selected shape"><ClearIcon /> Delete</button>
+                    </div>
+                    <div>
+                       <label htmlFor="shape-rotation" className="block text-sm font-medium text-text-secondary mb-1 flex items-center gap-2"><RotateIcon /> Rotation ({Math.round(selectedShape.rotation * 180 / Math.PI)}°)</label>
+                       <input id="shape-rotation" type="range" min="-180" max="180" value={Math.round(selectedShape.rotation * 180 / Math.PI)} onChange={handleRotationChange} className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer" disabled={isLoading} />
+                    </div>
+                </div>
+            )}
             <div>
                 <label htmlFor="edit-prompt" className="block text-sm font-medium text-text-secondary mb-1">Editing Prompt</label>
                 <div className="relative">
@@ -361,7 +426,7 @@ const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' |
             <button onClick={onReset} disabled={isLoading} className="w-full flex items-center justify-center gap-2 bg-base-300 hover:bg-base-300/80 disabled:bg-base-300/50 text-text-secondary font-bold py-2 px-4 rounded-md transition"><ResetIcon /> Reset</button>
         </div>
     </div>
-);
+)};
 
 const FiltersTab: React.FC<Pick<ControlPanelProps, 'activeFilter' | 'setActiveFilter' | 'isLoading'>> = ({
     activeFilter, setActiveFilter, isLoading

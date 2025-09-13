@@ -27,6 +27,35 @@ export interface Filter {
   value: string;
 }
 
+export interface ClipArtShape {
+  name: string;
+  dataUrl: string;
+}
+
+export interface Point {
+  x: number;
+  y: number;
+}
+
+export interface Stroke {
+  id: string;
+  points: Point[];
+  color: string;
+  size: number;
+}
+
+export interface PlacedShape {
+  id: string;
+  dataUrl: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number; // in radians
+  color: string; // hex string
+}
+
+
 export type AspectRatioValue = '1:1' | '4:3' | '3:4' | '16:9' | '9:16';
 
 export interface PromptState {
