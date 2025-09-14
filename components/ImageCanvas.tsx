@@ -22,6 +22,9 @@ interface ImageCanvasProps {
   onAddShape: (shape: Omit<PlacedShape, 'id' | 'rotation' | 'color'>) => void;
   onUpdateShape: (id: string, updates: Partial<Omit<PlacedShape, 'id'>>) => void;
   onSelectShape: (id: string | null) => void;
+  // New props for image dimensions
+  onImageLoad: (dimensions: { width: number; height: number; }) => void;
+  imageDimensions: { width: number; height: number; } | null;
 }
 
 interface Rect { x: number; y: number; width: number; height: number; }
@@ -61,7 +64,7 @@ const ROTATION_HANDLE_OFFSET = 25;
 
 export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
   (props, ref) => {
-    const { imageSrc, isLoading, loadingMessage, editMode, brushSize, brushColor, activeFilter, onDownload, onUploadClick, setCropRectActive, strokes, placedShapes, selectedShapeId, onAddStroke, onAddShape, onUpdateShape, onSelectShape } = props;
+    const { imageSrc, isLoading, loadingMessage, editMode, brushSize, brushColor, activeFilter, onDownload, onUploadClick, setCropRectActive, strokes, placedShapes, selectedShapeId, onAddStroke, onAddShape, onUpdateShape, onSelectShape, onImageLoad, imageDimensions } = props;
     
     const mainCanvasRef = useRef<HTMLCanvasElement>(null);
     const interactionCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -220,6 +223,8 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             interactionCanvas.width = img.naturalWidth;
             interactionCanvas.height = img.naturalHeight;
             
+            onImageLoad({ width: img.naturalWidth, height: img.naturalHeight });
+
             const mainCtx = getCanvasContext(mainCanvasRef);
             if (mainCtx) {
                 mainCtx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
@@ -227,7 +232,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             }
             redrawInteractionCanvas();
         }
-    }, [redrawInteractionCanvas]);
+    }, [redrawInteractionCanvas, onImageLoad]);
 
     useEffect(() => {
         if (imageSrc) {
@@ -676,11 +681,18 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
           </div>
         )}
         {imageSrc && !isLoading && (
+          <>
             <button
                 onClick={onDownload}
                 className="absolute top-3 right-3 z-20 bg-base-200/80 hover:bg-brand-primary text-text-primary hover:text-white p-2 rounded-full transition-colors duration-200"
                 aria-label="Download image" title="Download image"
             > <DownloadIcon /> </button>
+            {imageDimensions && (
+              <div className="absolute bottom-3 right-3 z-20 bg-black/60 text-white text-xs px-2 py-1 rounded-md pointer-events-none">
+                {imageDimensions.width} x {imageDimensions.height}px
+              </div>
+            )}
+          </>
         )}
         {showBrushCursor && (
             <div

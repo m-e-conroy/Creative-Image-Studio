@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, ClipArtCategory, TechnicalModifier } from '../types';
 import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, TECHNICAL_MODIFIERS } from '../constants';
-import { BrushIcon, ClearIcon, DrawIcon, EditIcon, GenerateIcon, MaskIcon, ResetIcon, FilterIcon, RewriteIcon, RandomIcon, UploadIcon, OutpaintIcon, ArrowUpIcon, ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon, CropIcon, IdeaIcon, UndoIcon, SaveIcon, RotateIcon, SettingsIcon } from './Icons';
+import { BrushIcon, ClearIcon, DrawIcon, EditIcon, GenerateIcon, MaskIcon, ResetIcon, FilterIcon, RewriteIcon, RandomIcon, UploadIcon, OutpaintIcon, ArrowUpIcon, ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon, CropIcon, IdeaIcon, UndoIcon, SaveIcon, RotateIcon, SettingsIcon, CloseIcon, CopyIcon, CheckIcon } from './Icons';
 import { ThemeSwitcher } from './ThemeSwitcher';
 
 type Tab = 'generate' | 'edit' | 'filters' | 'settings';
@@ -122,6 +122,7 @@ const InteractivePromptInput: React.FC<{
   isLoading: boolean;
 }> = ({ part, label, placeholder, prompt, onPromptChange, onRewritePrompt, rewritingPrompt, onRandomPrompt, randomizingPrompt, onGetSuggestions, suggestions, suggestionsLoading, isLoading }) => {
     const debouncedPrompt = useDebounce(prompt[part], 600);
+    const [isCopied, setIsCopied] = useState(false);
 
     useEffect(() => {
         if (debouncedPrompt) {
@@ -135,6 +136,17 @@ const InteractivePromptInput: React.FC<{
         onPromptChange(part, `${currentValue}${separator}${suggestion}`);
     };
 
+    const handleCopy = () => {
+      navigator.clipboard.writeText(prompt[part]).then(() => {
+          setIsCopied(true);
+          setTimeout(() => setIsCopied(false), 2000);
+      });
+    };
+
+    const handleClear = () => {
+        onPromptChange(part, '');
+    };
+
     return (
       <div>
         <label htmlFor={`prompt-${part}`} className="block text-sm font-medium text-text-secondary mb-1">{label}</label>
@@ -145,10 +157,28 @@ const InteractivePromptInput: React.FC<{
             value={prompt[part]}
             onChange={(e) => onPromptChange(part, e.target.value)}
             placeholder={placeholder}
-            className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary focus:border-brand-primary transition pr-20 text-text-primary"
+            className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary focus:border-brand-primary transition pr-36 text-text-primary"
             disabled={isLoading || !!rewritingPrompt || !!randomizingPrompt}
           />
           <div className="absolute top-2 right-2 flex items-center space-x-1">
+            <button
+                onClick={handleClear}
+                disabled={isLoading || !prompt[part]}
+                className="p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-primary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
+                aria-label={`Clear ${part} prompt`}
+                title={`Clear ${part} prompt`}
+            >
+                <CloseIcon />
+            </button>
+            <button
+                onClick={handleCopy}
+                disabled={isLoading || !prompt[part]}
+                className="p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-primary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
+                aria-label={`Copy ${part} prompt`}
+                title={isCopied ? 'Copied!' : `Copy ${part} prompt`}
+            >
+                {isCopied ? <CheckIcon /> : <CopyIcon />}
+            </button>
             <button
                 onClick={() => onRandomPrompt(part)}
                 disabled={isLoading || !!rewritingPrompt || !!randomizingPrompt}
@@ -284,21 +314,57 @@ const OutpaintControls: React.FC<{
     isLoading: boolean,
     outpaintPrompt: string,
     setOutpaintPrompt: (prompt: string) => void,
-}> = ({ onOutpaint, isLoading, outpaintPrompt, setOutpaintPrompt }) => (
+}> = ({ onOutpaint, isLoading, outpaintPrompt, setOutpaintPrompt }) => {
+    const [isCopied, setIsCopied] = useState(false);
+
+    const handleCopy = () => {
+        navigator.clipboard.writeText(outpaintPrompt).then(() => {
+            setIsCopied(true);
+            setTimeout(() => setIsCopied(false), 2000);
+        });
+    };
+
+    const handleClear = () => {
+        setOutpaintPrompt('');
+    };
+    
+    return (
     <div className="flex flex-col space-y-4">
         <p className="text-sm text-text-secondary text-center">Click a direction to expand the canvas. Describe what should fill the new space.</p>
         
         <div>
             <label htmlFor="outpaint-prompt" className="block text-sm font-medium text-text-secondary mb-1">Outpainting Prompt</label>
-            <textarea 
-                id="outpaint-prompt" 
-                rows={3} 
-                value={outpaintPrompt} 
-                onChange={(e) => setOutpaintPrompt(e.target.value)} 
-                placeholder="e.g., continue the forest scene seamlessly" 
-                className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-secondary focus:border-brand-secondary transition text-text-primary" 
-                disabled={isLoading}
-            />
+            <div className="relative">
+              <textarea 
+                  id="outpaint-prompt" 
+                  rows={3} 
+                  value={outpaintPrompt} 
+                  onChange={(e) => setOutpaintPrompt(e.target.value)} 
+                  placeholder="e.g., continue the forest scene seamlessly" 
+                  className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-secondary focus:border-brand-secondary transition text-text-primary pr-20" 
+                  disabled={isLoading}
+              />
+              <div className="absolute top-2 right-2 flex items-center space-x-1">
+                  <button
+                      onClick={handleClear}
+                      disabled={isLoading || !outpaintPrompt}
+                      className="p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-secondary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
+                      aria-label="Clear outpainting prompt"
+                      title="Clear outpainting prompt"
+                  >
+                      <CloseIcon />
+                  </button>
+                  <button
+                      onClick={handleCopy}
+                      disabled={isLoading || !outpaintPrompt}
+                      className="p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-secondary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
+                      aria-label="Copy outpainting prompt"
+                      title={isCopied ? 'Copied!' : 'Copy outpainting prompt'}
+                  >
+                      {isCopied ? <CheckIcon /> : <CopyIcon />}
+                  </button>
+              </div>
+            </div>
         </div>
         
         <div className="grid grid-cols-3 grid-rows-3 gap-2 w-40 mx-auto">
@@ -316,7 +382,7 @@ const OutpaintControls: React.FC<{
             </div>
         </div>
     </div>
-);
+)};
 
 const CropControls: React.FC<{ onCrop: () => void, isLoading: boolean, cropRectActive: boolean }> = ({ onCrop, isLoading, cropRectActive }) => (
     <div className="flex flex-col items-center space-y-3">
@@ -331,6 +397,7 @@ const CropControls: React.FC<{ onCrop: () => void, isLoading: boolean, cropRectA
 const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' | 'editMode' | 'setEditMode' | 'brushSize' | 'setBrushSize' | 'brushColor' | 'setBrushColor' | 'onEdit' | 'onClear' | 'onReset' | 'onUndo' | 'canUndo' | 'isLoading' | 'onRandomPrompt' | 'randomizingPrompt' | 'onOutpaint' | 'outpaintPrompt' | 'setOutpaintPrompt' | 'onCrop' | 'cropRectActive' | 'clipArtCategories' | 'selectedClipArtCategoryName' | 'setSelectedClipArtCategoryName' | 'onSaveShape' | 'placedShapes' | 'selectedShapeId' | 'onUpdateShape' | 'onDeleteSelectedShape'>> = (props) => {
     const { editPrompt, setEditPrompt, editMode, setEditMode, brushSize, setBrushSize, brushColor, setBrushColor, onEdit, onClear, onReset, onUndo, canUndo, isLoading, onRandomPrompt, randomizingPrompt, onOutpaint, outpaintPrompt, setOutpaintPrompt, onCrop, cropRectActive, clipArtCategories, selectedClipArtCategoryName, setSelectedClipArtCategoryName, onSaveShape, placedShapes, selectedShapeId, onUpdateShape, onDeleteSelectedShape } = props;
     const [newShapeName, setNewShapeName] = useState('');
+    const [isEditPromptCopied, setIsEditPromptCopied] = useState(false);
 
     const selectedShape = selectedShapeId ? placedShapes.find(s => s.id === selectedShapeId) : null;
     const selectedCategory = clipArtCategories.find(c => c.name === selectedClipArtCategoryName);
@@ -356,6 +423,18 @@ const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' |
         if (!selectedShape) return;
         onUpdateShape(selectedShape.id, { color: e.target.value });
     }
+
+    const handleEditCopy = () => {
+        navigator.clipboard.writeText(editPrompt).then(() => {
+            setIsEditPromptCopied(true);
+            setTimeout(() => setIsEditPromptCopied(false), 2000);
+        });
+    };
+
+    const handleEditClear = () => {
+        setEditPrompt('');
+    };
+
 
     return (
     <div className="flex flex-col space-y-4">
@@ -424,16 +503,36 @@ const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' |
             <div>
                 <label htmlFor="edit-prompt" className="block text-sm font-medium text-text-secondary mb-1">Editing Prompt</label>
                 <div className="relative">
-                    <textarea id="edit-prompt" rows={3} value={editPrompt} onChange={(e) => setEditPrompt(e.target.value)} placeholder={editMode === EditMode.MASK ? "e.g., Turn the masked area into a river" : "e.g., Add a red boat based on my sketch"} className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-secondary focus:border-brand-secondary transition text-text-primary pr-10" disabled={isLoading || randomizingPrompt === 'edit'} />
-                    <button
-                        onClick={() => onRandomPrompt('edit')}
-                        disabled={isLoading || randomizingPrompt === 'edit'}
-                        className="absolute top-2 right-2 p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-secondary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
-                        aria-label="Generate random edit prompt"
-                        title="Generate random edit prompt"
-                    >
-                        {randomizingPrompt === 'edit' ? <MiniLoader /> : <RandomIcon />}
-                    </button>
+                    <textarea id="edit-prompt" rows={3} value={editPrompt} onChange={(e) => setEditPrompt(e.target.value)} placeholder={editMode === EditMode.MASK ? "e.g., Turn the masked area into a river" : "e.g., Add a red boat based on my sketch"} className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-secondary focus:border-brand-secondary transition text-text-primary pr-28" disabled={isLoading || randomizingPrompt === 'edit'} />
+                    <div className="absolute top-2 right-2 flex items-center space-x-1">
+                        <button
+                            onClick={handleEditClear}
+                            disabled={isLoading || !editPrompt}
+                            className="p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-secondary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
+                            aria-label="Clear edit prompt"
+                            title="Clear edit prompt"
+                        >
+                            <CloseIcon />
+                        </button>
+                        <button
+                            onClick={handleEditCopy}
+                            disabled={isLoading || !editPrompt}
+                            className="p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-secondary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
+                            aria-label="Copy edit prompt"
+                            title={isEditPromptCopied ? 'Copied!' : 'Copy edit prompt'}
+                        >
+                            {isEditPromptCopied ? <CheckIcon /> : <CopyIcon />}
+                        </button>
+                        <button
+                            onClick={() => onRandomPrompt('edit')}
+                            disabled={isLoading || randomizingPrompt === 'edit'}
+                            className="p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-secondary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
+                            aria-label="Generate random edit prompt"
+                            title="Generate random edit prompt"
+                        >
+                            {randomizingPrompt === 'edit' ? <MiniLoader /> : <RandomIcon />}
+                        </button>
+                    </div>
                 </div>
             </div>
             <button onClick={onEdit} disabled={isLoading || !editPrompt} className="w-full flex items-center justify-center gap-2 bg-brand-secondary hover:bg-brand-secondary/80 disabled:bg-base-300 text-white font-bold py-2 px-4 rounded-md transition duration-200"><EditIcon /> Apply Edit</button>

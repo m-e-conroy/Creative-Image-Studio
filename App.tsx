@@ -7,7 +7,6 @@ import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, C
 import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, CLIP_ART_CATEGORIES, TECHNICAL_MODIFIERS } from './constants';
 import { LogoIcon } from './components/Icons';
 import { ImageGallery } from './components/ImageGallery';
-import { ThemeSwitcher } from './components/ThemeSwitcher';
 
 type Tab = 'generate' | 'edit' | 'filters' | 'settings';
 
@@ -31,6 +30,7 @@ const App: React.FC = () => {
   const [originalImage, setOriginalImage] = useState<string | null>(null);
   const [generatedImages, setGeneratedImages] = useState<string[]>([]);
   const [history, setHistory] = useState<string[]>([]);
+  const [imageDimensions, setImageDimensions] = useState<{width: number, height: number} | null>(null);
   
   // State for clip art categories
   const [clipArtCategories, setClipArtCategories] = useState<ClipArtCategory[]>(CLIP_ART_CATEGORIES);
@@ -107,6 +107,7 @@ const App: React.FC = () => {
     setMainImage(null);
     setOriginalImage(null);
     setGeneratedImages([]);
+    setImageDimensions(null);
     setActiveTab('generate');
     setHistory([]);
     clearInteractiveState();
@@ -202,6 +203,7 @@ const App: React.FC = () => {
   const handleImageUpload = useCallback(async (file: File) => {
     setError(null);
     clearInteractiveState();
+    setImageDimensions(null);
     const reader = new FileReader();
     reader.onload = async (e) => {
       const imageUrl = e.target?.result as string;
@@ -257,6 +259,7 @@ const App: React.FC = () => {
     setGeneratedImages([]);
     setActiveTab('edit');
     clearInteractiveState();
+    setImageDimensions(null);
   }, []);
 
   const handleEdit = useCallback(async () => {
@@ -385,6 +388,7 @@ const App: React.FC = () => {
     setHistory(originalImage ? [originalImage] : []);
     setEditPrompt('');
     setActiveFilter(FILTERS[0]);
+    setImageDimensions(null);
     if (canvasRef.current) {
       canvasRef.current.clearDrawing();
       canvasRef.current.clearCropSelection();
@@ -503,7 +507,6 @@ const App: React.FC = () => {
               <LogoIcon />
               <h1 className="text-xl font-bold text-text-primary">Creative Image Studio</h1>
             </div>
-            {/* ThemeSwitcher moved to settings panel */}
         </header>
         <aside className="w-full md:w-[400px] lg:w-[450px] bg-base-200 p-6 flex-shrink-0 flex flex-col space-y-6 max-h-screen overflow-y-auto">
           <div className="hidden md:flex items-center justify-between">
@@ -511,7 +514,6 @@ const App: React.FC = () => {
                 <LogoIcon />
                 <h1 className="text-2xl font-bold text-text-primary">Creative Image Studio</h1>
               </div>
-              {/* ThemeSwitcher moved to settings panel */}
           </div>
           <ControlPanel
             activeTab={activeTab}
@@ -603,6 +605,8 @@ const App: React.FC = () => {
                 onAddShape={handleAddShape}
                 onUpdateShape={handleUpdateShape}
                 onSelectShape={handleSelectShape}
+                onImageLoad={setImageDimensions}
+                imageDimensions={imageDimensions}
               />
             )}
           </div>

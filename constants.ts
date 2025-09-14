@@ -77,15 +77,25 @@ export const TECHNICAL_MODIFIERS: TechnicalModifier[] = [
     { name: "Tilt-Shift", prompt: "tilt-shift photography, miniature faking, selective focus" },
 ].sort((a, b) => a.name.localeCompare(b.name));
 
-export const FILTERS: Filter[] = [
+const unsortedFilters: Filter[] = [
     { name: "None", value: "none" },
+    { name: "Blueprint", value: "grayscale(100%) contrast(200%) invert(100%) hue-rotate(180deg)" },
+    { name: "Cool", value: "sepia(20%) hue-rotate(180deg) saturate(150%)" },
+    { name: "Cyber Glow", value: "contrast(120%) saturate(180%) hue-rotate(290deg)" },
+    { name: "Gritty", value: "contrast(160%) grayscale(50%)" },
+    { name: "High Contrast", value: "contrast(180%)" },
+    { name: "Infrared", value: "hue-rotate(280deg) saturate(200%) contrast(120%)" },
+    { name: "Invert", value: "invert(100%)" },
     { name: "Noir", value: "grayscale(100%)" },
     { name: "Sepia", value: "sepia(100%)" },
-    { name: "Vintage", value: "sepia(60%) contrast(110%) brightness(90%)" },
-    { name: "High Contrast", value: "contrast(180%)" },
-    { name: "Solarize", value: "invert(100%)" },
     { name: "Vibrant", value: "saturate(200%)" },
-    { name: "Cyber Glow", value: "contrast(120%) saturate(180%) hue-rotate(290deg)" },
+    { name: "Vintage", value: "sepia(60%) contrast(110%) brightness(90%)" },
+    { name: "Warm", value: "sepia(40%) saturate(150%) hue-rotate(-20deg)" },
+];
+
+export const FILTERS: Filter[] = [
+    unsortedFilters.find(f => f.name === "None")!,
+    ...unsortedFilters.filter(f => f.name !== "None").sort((a, b) => a.name.localeCompare(b.name))
 ];
 
 export const CLIP_ART_CATEGORIES: ClipArtCategory[] = [
