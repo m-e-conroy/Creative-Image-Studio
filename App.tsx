@@ -1,24 +1,27 @@
-
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { ControlPanel } from './components/ControlPanel';
 import { ImageCanvas } from './components/ImageCanvas';
 import { generateImage, editImage, rewritePrompt, generateRandomPrompt, describeImage, getPromptSuggestions } from './services/geminiService';
 import { ImageCanvasMethods } from './components/ImageCanvas';
-import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, Stroke } from './types';
-import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, INITIAL_SHAPES } from './constants';
+import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, Stroke, ClipArtCategory, TechnicalModifier } from './types';
+import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, CLIP_ART_CATEGORIES, TECHNICAL_MODIFIERS } from './constants';
 import { LogoIcon } from './components/Icons';
 import { ImageGallery } from './components/ImageGallery';
 import { ThemeSwitcher } from './components/ThemeSwitcher';
 
-type Tab = 'generate' | 'edit' | 'filters';
+type Tab = 'generate' | 'edit' | 'filters' | 'settings';
+
+const findDefault = <T extends { name: string }>(arr: T[], name: string): T => arr.find(item => item.name === name) || arr[0];
 
 const App: React.FC = () => {
   const [prompt, setPrompt] = useState<PromptState>({ subject: '', background: '' });
   const [editPrompt, setEditPrompt] = useState<string>('');
   const [outpaintPrompt, setOutpaintPrompt] = useState<string>('photorealistically expand the image to fill the transparent space, continuing the scene seamlessly.');
-  const [style, setStyle] = useState<ImageStyle>(INITIAL_STYLES[0]);
-  const [lighting, setLighting] = useState<LightingStyle>(LIGHTING_STYLES[0]);
-  const [composition, setComposition] = useState<CompositionRule>(COMPOSITION_RULES[0]);
+  
+  const [style, setStyle] = useState<ImageStyle>(() => findDefault(INITIAL_STYLES, "None"));
+  const [lighting, setLighting] = useState<LightingStyle>(() => findDefault(LIGHTING_STYLES, "Default"));
+  const [composition, setComposition] = useState<CompositionRule>(() => findDefault(COMPOSITION_RULES, "Default"));
+  const [technicalModifier, setTechnicalModifier] = useState<TechnicalModifier>(() => findDefault(TECHNICAL_MODIFIERS, "Default"));
 
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [loadingMessage, setLoadingMessage] = useState<string>('');
@@ -28,8 +31,11 @@ const App: React.FC = () => {
   const [originalImage, setOriginalImage] = useState<string | null>(null);
   const [generatedImages, setGeneratedImages] = useState<string[]>([]);
   const [history, setHistory] = useState<string[]>([]);
-  const [clipArtShapes, setClipArtShapes] = useState<ClipArtShape[]>(INITIAL_SHAPES);
   
+  // State for clip art categories
+  const [clipArtCategories, setClipArtCategories] = useState<ClipArtCategory[]>(CLIP_ART_CATEGORIES);
+  const [selectedClipArtCategoryName, setSelectedClipArtCategoryName] = useState<string>(CLIP_ART_CATEGORIES[0].name);
+
   // New state for interactive canvas elements
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const [placedShapes, setPlacedShapes] = useState<PlacedShape[]>([]);
@@ -59,23 +65,29 @@ const App: React.FC = () => {
   const canUndo = history.length > 1;
 
   useEffect(() => {
+    // Initialize with default categories
+    const categories = [...CLIP_ART_CATEGORIES];
+    let customShapes: ClipArtShape[] = [];
+
     try {
-        const savedShapes = localStorage.getItem('clipArtShapes');
-        if (savedShapes) {
-            const parsedShapes: ClipArtShape[] = JSON.parse(savedShapes);
-            // Combine initial shapes with saved shapes, preventing duplicates by name
-            const combined = [...INITIAL_SHAPES];
-            const initialNames = new Set(INITIAL_SHAPES.map(s => s.name));
-            parsedShapes.forEach(saved => {
-                if (!initialNames.has(saved.name)) {
-                    combined.push(saved);
-                }
-            });
-            setClipArtShapes(combined);
-        }
+      const savedShapesJSON = localStorage.getItem('userClipArtShapes');
+      if (savedShapesJSON) {
+        customShapes = JSON.parse(savedShapesJSON);
+      }
     } catch (e) {
-        console.error("Failed to load saved clip art shapes:", e);
+      console.error("Failed to load user clip art shapes:", e);
     }
+    
+    // Check if custom category already exists to avoid duplicates during HMR
+    const hasCustomCategory = categories.some(c => c.name === 'Custom');
+
+    if (customShapes.length > 0 && !hasCustomCategory) {
+      categories.push({ name: 'Custom', shapes: customShapes });
+      // Set the default category to Custom if it exists and is not empty
+      setSelectedClipArtCategoryName('Custom');
+    }
+
+    setClipArtCategories(categories);
   }, []);
   
   const clearInteractiveState = () => {
@@ -105,7 +117,8 @@ const App: React.FC = () => {
         prompt.background ? `background of ${prompt.background}` : '',
         style.prompt,
         lighting.prompt,
-        composition.prompt
+        composition.prompt,
+        technicalModifier.prompt,
       ].filter(Boolean); // Filter out empty strings
       
       const combinedPrompt = promptParts.join(', ');
@@ -128,7 +141,7 @@ const App: React.FC = () => {
       setIsLoading(false);
       setLoadingMessage('');
     }
-  }, [prompt, style, aspectRatio, numImages, lighting, composition]);
+  }, [prompt, style, aspectRatio, numImages, lighting, composition, technicalModifier]);
 
   const handleRewritePrompt = useCallback(async (part: PromptPart) => {
     const currentPrompt = prompt[part];
@@ -257,16 +270,16 @@ const App: React.FC = () => {
     setError(null);
     
     try {
-      const { data, mimeType } = canvasRef.current.getCanvasData();
+      const { data, mimeType, maskData } = canvasRef.current.getCanvasData(editMode);
       
       let finalPrompt = editPrompt;
       if (editMode === EditMode.MASK) {
-        finalPrompt = `Following the instruction "${editPrompt}", edit the image only in the masked area.`;
+        finalPrompt = `Apply the following change ONLY to the masked (white) area of the image: ${editPrompt}. Blend the new content seamlessly with the existing image.`;
       } else if (editMode === EditMode.SKETCH) {
-        finalPrompt = `Using the user's sketch as a guide, ${editPrompt}.`;
+        finalPrompt = `Using the user's drawing and shapes as a guide, ${editPrompt}.`;
       }
 
-      const result = await editImage(data, mimeType, finalPrompt);
+      const result = await editImage(data, mimeType, finalPrompt, maskData);
       
       if (result.image) {
         const imageUrl = `data:${mimeType};base64,${result.image}`;
@@ -393,30 +406,55 @@ const App: React.FC = () => {
   }, []);
   
   const handleSaveShape = useCallback((name: string) => {
-      if (!name.trim() || !canvasRef.current) return;
+    if (!name.trim() || !canvasRef.current) return;
 
-      const dataUrl = canvasRef.current.getDrawingAsDataURL(strokes);
-      if (!dataUrl) {
-        setError("There's nothing on the canvas to save.");
-        return;
-      }
+    const dataUrl = canvasRef.current.getDrawingAsDataURL(strokes);
+    if (!dataUrl) {
+      setError("There's nothing on the canvas to save.");
+      return;
+    }
 
-      setError(null);
-      const newShape: ClipArtShape = { name, dataUrl };
-      
-      setClipArtShapes(prevShapes => {
-          const newShapes = [...prevShapes, newShape];
-          try {
-              const userShapes = newShapes.filter(s => !INITIAL_SHAPES.some(is => is.name === s.name));
-              localStorage.setItem('clipArtShapes', JSON.stringify(userShapes));
-          } catch(e) {
-              console.error("Failed to save clip art shapes to local storage:", e);
-              setError("Could not save shape. Your browser's storage might be full.");
-          }
-          return newShapes;
-      });
-      setStrokes([]);
+    setError(null);
+    const newShape: ClipArtShape = { name, dataUrl };
+    
+    setClipArtCategories(prevCategories => {
+        const newCategories = prevCategories.map(c => ({ ...c, shapes: [...c.shapes] })); // Deep copy
+        let customCategory = newCategories.find(c => c.name === 'Custom');
+
+        if (customCategory) {
+            // Prevent adding shapes with duplicate names
+            if (!customCategory.shapes.some(s => s.name === newShape.name)) {
+                customCategory.shapes.push(newShape);
+            }
+        } else {
+            customCategory = { name: 'Custom', shapes: [newShape] };
+            newCategories.push(customCategory);
+        }
+        
+        try {
+            localStorage.setItem('userClipArtShapes', JSON.stringify(customCategory.shapes));
+        } catch(e) {
+            console.error("Failed to save user clip art shapes:", e);
+            setError("Could not save shape. Your browser's storage might be full.");
+        }
+        return newCategories;
+    });
+    
+    setSelectedClipArtCategoryName('Custom');
+    setStrokes([]);
   }, [strokes]);
+
+  const handleClearCustomShapes = useCallback(() => {
+    try {
+        localStorage.removeItem('userClipArtShapes');
+        const defaultCategories = [...CLIP_ART_CATEGORIES];
+        setClipArtCategories(defaultCategories);
+        setSelectedClipArtCategoryName(defaultCategories[0].name);
+    } catch(e) {
+        console.error("Failed to clear custom shapes:", e);
+        setError("Could not clear custom shapes. There might be a browser issue.");
+    }
+  }, []);
 
   // Handlers for interactive shapes and strokes
   const handleAddStroke = useCallback((stroke: Stroke) => {
@@ -465,7 +503,7 @@ const App: React.FC = () => {
               <LogoIcon />
               <h1 className="text-xl font-bold text-text-primary">Creative Image Studio</h1>
             </div>
-            <ThemeSwitcher />
+            {/* ThemeSwitcher moved to settings panel */}
         </header>
         <aside className="w-full md:w-[400px] lg:w-[450px] bg-base-200 p-6 flex-shrink-0 flex flex-col space-y-6 max-h-screen overflow-y-auto">
           <div className="hidden md:flex items-center justify-between">
@@ -473,7 +511,7 @@ const App: React.FC = () => {
                 <LogoIcon />
                 <h1 className="text-2xl font-bold text-text-primary">Creative Image Studio</h1>
               </div>
-              <ThemeSwitcher />
+              {/* ThemeSwitcher moved to settings panel */}
           </div>
           <ControlPanel
             activeTab={activeTab}
@@ -496,6 +534,8 @@ const App: React.FC = () => {
             setLighting={setLighting}
             composition={composition}
             setComposition={setComposition}
+            technicalModifier={technicalModifier}
+            setTechnicalModifier={setTechnicalModifier}
             aspectRatio={aspectRatio}
             setAspectRatio={setAspectRatio}
             numImages={numImages}
@@ -522,12 +562,15 @@ const App: React.FC = () => {
             canUndo={canUndo}
             activeFilter={activeFilter}
             setActiveFilter={setActiveFilter}
-            clipArtShapes={clipArtShapes}
+            clipArtCategories={clipArtCategories}
+            selectedClipArtCategoryName={selectedClipArtCategoryName}
+            setSelectedClipArtCategoryName={setSelectedClipArtCategoryName}
             onSaveShape={handleSaveShape}
             placedShapes={placedShapes}
             selectedShapeId={selectedShapeId}
             onUpdateShape={handleUpdateShape}
             onDeleteSelectedShape={handleDeleteSelectedShape}
+            onClearCustomShapes={handleClearCustomShapes}
           />
           {error && (
               <div className="bg-red-500/20 border border-red-500 text-red-300 p-3 rounded-md text-sm">

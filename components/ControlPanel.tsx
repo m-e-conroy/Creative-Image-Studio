@@ -1,10 +1,10 @@
-
 import React, { useState, useEffect } from 'react';
-import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape } from '../types';
-import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES } from '../constants';
-import { BrushIcon, ClearIcon, DrawIcon, EditIcon, GenerateIcon, MaskIcon, ResetIcon, FilterIcon, RewriteIcon, RandomIcon, UploadIcon, OutpaintIcon, ArrowUpIcon, ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon, CropIcon, IdeaIcon, UndoIcon, SaveIcon, RotateIcon } from './Icons';
+import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, ClipArtCategory, TechnicalModifier } from '../types';
+import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, TECHNICAL_MODIFIERS } from '../constants';
+import { BrushIcon, ClearIcon, DrawIcon, EditIcon, GenerateIcon, MaskIcon, ResetIcon, FilterIcon, RewriteIcon, RandomIcon, UploadIcon, OutpaintIcon, ArrowUpIcon, ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon, CropIcon, IdeaIcon, UndoIcon, SaveIcon, RotateIcon, SettingsIcon } from './Icons';
+import { ThemeSwitcher } from './ThemeSwitcher';
 
-type Tab = 'generate' | 'edit' | 'filters';
+type Tab = 'generate' | 'edit' | 'filters' | 'settings';
 
 interface ControlPanelProps {
   activeTab: Tab;
@@ -27,6 +27,8 @@ interface ControlPanelProps {
   setLighting: (style: LightingStyle) => void;
   composition: CompositionRule;
   setComposition: (rule: CompositionRule) => void;
+  technicalModifier: TechnicalModifier;
+  setTechnicalModifier: (modifier: TechnicalModifier) => void;
   aspectRatio: string;
   setAspectRatio: (value: string) => void;
   numImages: number;
@@ -53,12 +55,15 @@ interface ControlPanelProps {
   canUndo: boolean;
   activeFilter: Filter;
   setActiveFilter: (filter: Filter) => void;
-  clipArtShapes: ClipArtShape[];
+  clipArtCategories: ClipArtCategory[];
+  selectedClipArtCategoryName: string;
+  setSelectedClipArtCategoryName: (name: string) => void;
   onSaveShape: (name: string) => void;
   placedShapes: PlacedShape[];
   selectedShapeId: string | null;
   onUpdateShape: (id: string, updates: Partial<Omit<PlacedShape, 'id'>>) => void;
   onDeleteSelectedShape: () => void;
+  onClearCustomShapes: () => void;
 }
 
 const useDebounce = <T,>(value: T, delay: number): T => {
@@ -189,8 +194,8 @@ const InteractivePromptInput: React.FC<{
 };
 
 
-const GenerateTab: React.FC<Pick<ControlPanelProps, 'prompt' | 'onPromptChange' | 'onRewritePrompt' | 'rewritingPrompt' | 'onRandomPrompt' | 'randomizingPrompt' | 'onGetSuggestions' | 'subjectSuggestions' | 'backgroundSuggestions' | 'suggestionsLoading' | 'style' | 'setStyle' | 'lighting' | 'setLighting' | 'composition' | 'setComposition' | 'aspectRatio' | 'setAspectRatio' | 'numImages' | 'setNumImages' | 'onGenerate' | 'isLoading'>> = ({
-  prompt, onPromptChange, onRewritePrompt, rewritingPrompt, onRandomPrompt, randomizingPrompt, onGetSuggestions, subjectSuggestions, backgroundSuggestions, suggestionsLoading, style, setStyle, lighting, setLighting, composition, setComposition, aspectRatio, setAspectRatio, numImages, setNumImages, onGenerate, isLoading
+const GenerateTab: React.FC<Pick<ControlPanelProps, 'prompt' | 'onPromptChange' | 'onRewritePrompt' | 'rewritingPrompt' | 'onRandomPrompt' | 'randomizingPrompt' | 'onGetSuggestions' | 'subjectSuggestions' | 'backgroundSuggestions' | 'suggestionsLoading' | 'style' | 'setStyle' | 'lighting' | 'setLighting' | 'composition' | 'setComposition' | 'technicalModifier' | 'setTechnicalModifier' | 'aspectRatio' | 'setAspectRatio' | 'numImages' | 'setNumImages' | 'onGenerate' | 'isLoading'>> = ({
+  prompt, onPromptChange, onRewritePrompt, rewritingPrompt, onRandomPrompt, randomizingPrompt, onGetSuggestions, subjectSuggestions, backgroundSuggestions, suggestionsLoading, style, setStyle, lighting, setLighting, composition, setComposition, technicalModifier, setTechnicalModifier, aspectRatio, setAspectRatio, numImages, setNumImages, onGenerate, isLoading
 }) => (
   <div className="flex flex-col space-y-4">
     <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2">1. Describe Your Image</h2>
@@ -240,12 +245,20 @@ const GenerateTab: React.FC<Pick<ControlPanelProps, 'prompt' | 'onPromptChange' 
       </div>
     </div>
 
-    <div>
+    <div className="grid grid-cols-2 gap-4">
+      <div>
         <label htmlFor="composition" className="block text-sm font-medium text-text-secondary mb-1">Composition</label>
         <select id="composition" value={composition.name} onChange={(e) => setComposition(COMPOSITION_RULES.find(c => c.name === e.target.value) || COMPOSITION_RULES[0])} className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary focus:border-brand-primary transition" disabled={isLoading || !!rewritingPrompt || !!randomizingPrompt}>
           {COMPOSITION_RULES.map(c => <option key={c.name}>{c.name}</option>)}
         </select>
       </div>
+      <div>
+        <label htmlFor="technical-modifier" className="block text-sm font-medium text-text-secondary mb-1">Technical Modifiers</label>
+        <select id="technical-modifier" value={technicalModifier.name} onChange={(e) => setTechnicalModifier(TECHNICAL_MODIFIERS.find(c => c.name === e.target.value) || TECHNICAL_MODIFIERS[0])} className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary focus:border-brand-primary transition" disabled={isLoading || !!rewritingPrompt || !!randomizingPrompt}>
+            {TECHNICAL_MODIFIERS.map(c => <option key={c.name}>{c.name}</option>)}
+        </select>
+      </div>
+    </div>
 
     <div className="grid grid-cols-2 gap-4">
       <div>
@@ -315,11 +328,12 @@ const CropControls: React.FC<{ onCrop: () => void, isLoading: boolean, cropRectA
 );
 
 
-const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' | 'editMode' | 'setEditMode' | 'brushSize' | 'setBrushSize' | 'brushColor' | 'setBrushColor' | 'onEdit' | 'onClear' | 'onReset' | 'onUndo' | 'canUndo' | 'isLoading' | 'onRandomPrompt' | 'randomizingPrompt' | 'onOutpaint' | 'outpaintPrompt' | 'setOutpaintPrompt' | 'onCrop' | 'cropRectActive' | 'clipArtShapes' | 'onSaveShape' | 'placedShapes' | 'selectedShapeId' | 'onUpdateShape' | 'onDeleteSelectedShape'>> = (props) => {
-    const { editPrompt, setEditPrompt, editMode, setEditMode, brushSize, setBrushSize, brushColor, setBrushColor, onEdit, onClear, onReset, onUndo, canUndo, isLoading, onRandomPrompt, randomizingPrompt, onOutpaint, outpaintPrompt, setOutpaintPrompt, onCrop, cropRectActive, clipArtShapes, onSaveShape, placedShapes, selectedShapeId, onUpdateShape, onDeleteSelectedShape } = props;
+const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' | 'editMode' | 'setEditMode' | 'brushSize' | 'setBrushSize' | 'brushColor' | 'setBrushColor' | 'onEdit' | 'onClear' | 'onReset' | 'onUndo' | 'canUndo' | 'isLoading' | 'onRandomPrompt' | 'randomizingPrompt' | 'onOutpaint' | 'outpaintPrompt' | 'setOutpaintPrompt' | 'onCrop' | 'cropRectActive' | 'clipArtCategories' | 'selectedClipArtCategoryName' | 'setSelectedClipArtCategoryName' | 'onSaveShape' | 'placedShapes' | 'selectedShapeId' | 'onUpdateShape' | 'onDeleteSelectedShape'>> = (props) => {
+    const { editPrompt, setEditPrompt, editMode, setEditMode, brushSize, setBrushSize, brushColor, setBrushColor, onEdit, onClear, onReset, onUndo, canUndo, isLoading, onRandomPrompt, randomizingPrompt, onOutpaint, outpaintPrompt, setOutpaintPrompt, onCrop, cropRectActive, clipArtCategories, selectedClipArtCategoryName, setSelectedClipArtCategoryName, onSaveShape, placedShapes, selectedShapeId, onUpdateShape, onDeleteSelectedShape } = props;
     const [newShapeName, setNewShapeName] = useState('');
 
     const selectedShape = selectedShapeId ? placedShapes.find(s => s.id === selectedShapeId) : null;
+    const selectedCategory = clipArtCategories.find(c => c.name === selectedClipArtCategoryName);
 
     const handleSaveClick = () => {
         if (newShapeName.trim()) {
@@ -372,8 +386,14 @@ const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' |
             {editMode === EditMode.SKETCH && (
                 <div className="space-y-3 p-3 bg-base-200/50 rounded-md">
                     <label className="block text-sm font-medium text-text-secondary">Clip Art Library</label>
+                    <div className="grid grid-cols-2 gap-2">
+                         <label htmlFor="clip-art-category" className="sr-only">Clip Art Category</label>
+                         <select id="clip-art-category" value={selectedClipArtCategoryName} onChange={(e) => setSelectedClipArtCategoryName(e.target.value)} className="col-span-2 w-full bg-base-100 border border-base-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-brand-secondary" disabled={isLoading}>
+                             {clipArtCategories.map(cat => <option key={cat.name} value={cat.name}>{cat.name}</option>)}
+                         </select>
+                    </div>
                     <div className="grid grid-cols-5 gap-2 max-h-32 overflow-y-auto p-1 bg-base-100 rounded">
-                        {clipArtShapes.map(shape => (
+                        {selectedCategory?.shapes.map(shape => (
                             <div key={shape.name} className="aspect-square p-1 bg-base-200 rounded-md flex items-center justify-center cursor-grab active:cursor-grabbing" title={shape.name}>
                                 <img src={shape.dataUrl} alt={shape.name} draggable="true" onDragStart={(e) => handleDragStart(e, shape)} className="max-w-full max-h-full" />
                             </div>
@@ -381,7 +401,7 @@ const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' |
                     </div>
                      <div className="flex items-center gap-2">
                         <input type="text" value={newShapeName} onChange={(e) => setNewShapeName(e.target.value)} placeholder="Name your sketch" className="flex-grow bg-base-100 border border-base-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-brand-secondary" disabled={isLoading}/>
-                        <button onClick={handleSaveClick} disabled={isLoading || !newShapeName.trim()} className="p-2 bg-brand-secondary text-white rounded-md disabled:opacity-50 transition" title="Save current sketch"><SaveIcon /></button>
+                        <button onClick={handleSaveClick} disabled={isLoading || !newShapeName.trim()} className="p-2 bg-brand-secondary text-white rounded-md disabled:opacity-50 transition" title="Save current sketch to Custom library"><SaveIcon /></button>
                     </div>
                 </div>
             )}
@@ -450,16 +470,54 @@ const FiltersTab: React.FC<Pick<ControlPanelProps, 'activeFilter' | 'setActiveFi
     </div>
 );
 
+const SettingsTab: React.FC<{
+    onClearCustomShapes: () => void;
+}> = ({ onClearCustomShapes }) => {
+
+    const handleClearClick = () => {
+        if (window.confirm("Are you sure you want to delete all your saved custom clip art? This action cannot be undone.")) {
+            onClearCustomShapes();
+        }
+    };
+
+    return (
+        <div className="flex flex-col space-y-4">
+            <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2"><SettingsIcon /> Application Settings</h2>
+
+            <div className="p-3 bg-base-200/50 rounded-md">
+                <label className="block text-sm font-medium text-text-secondary">Theme</label>
+                <div className="mt-2 flex items-center justify-between">
+                    <p className="text-sm text-text-primary">Switch between light and dark mode.</p>
+                    <ThemeSwitcher />
+                </div>
+            </div>
+            
+            <div className="p-3 bg-base-200/50 rounded-md">
+                <label className="block text-sm font-medium text-text-secondary">Manage Data</label>
+                <div className="mt-2 flex items-center justify-between">
+                    <p className="text-sm text-text-primary">Clear all saved custom clip art.</p>
+                    <button 
+                        onClick={handleClearClick}
+                        className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-3 rounded-md transition text-sm">
+                        <ClearIcon /> Clear
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 
 export const ControlPanel: React.FC<ControlPanelProps> = (props) => {
-  const { activeTab, setActiveTab, hasImage, onUploadClick, isLoading } = props;
+  const { activeTab, setActiveTab, hasImage, onUploadClick, isLoading, onClearCustomShapes } = props;
 
   return (
     <div className="flex flex-col space-y-6">
-      <div className="grid grid-cols-3 gap-2 p-1 bg-base-100 rounded-lg">
+      <div className="grid grid-cols-4 gap-2 p-1 bg-base-100 rounded-lg">
         <TabButton label="Generate" icon={<GenerateIcon />} isActive={activeTab === 'generate'} onClick={() => setActiveTab('generate')} />
         <TabButton label="Edit" icon={<EditIcon />} isActive={activeTab === 'edit'} onClick={() => setActiveTab('edit')} disabled={!hasImage} />
         <TabButton label="Filters" icon={<FilterIcon />} isActive={activeTab === 'filters'} onClick={() => setActiveTab('filters')} disabled={!hasImage} />
+        <TabButton label="Settings" icon={<SettingsIcon />} isActive={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
       </div>
       
       <div className="px-1">
@@ -476,6 +534,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = (props) => {
         {activeTab === 'generate' && <GenerateTab {...props} />}
         {activeTab === 'edit' && hasImage && <EditTab {...props} />}
         {activeTab === 'filters' && hasImage && <FiltersTab {...props} />}
+        {activeTab === 'settings' && <SettingsTab onClearCustomShapes={onClearCustomShapes} />}
       </div>
     </div>
   );

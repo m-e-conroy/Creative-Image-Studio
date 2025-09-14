@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Modality, Type } from "@google/genai";
 import { PromptPart } from "../types";
 
@@ -57,24 +58,36 @@ export async function generateImage(
 export async function editImage(
   base64ImageData: string,
   mimeType: string,
-  prompt: string
+  prompt: string,
+  base64MaskData?: string
 ): Promise<{ text?: string; image?: string }> {
   return handleApiCall(async () => {
+    // FIX: Explicitly type `parts` as `any[]` to allow for a mix of
+    // inlineData and text parts. This prevents TypeScript from inferring
+    // a restrictive type based on only the first element in the array.
+    const parts: any[] = [
+      {
+        inlineData: {
+          data: base64ImageData,
+          mimeType: mimeType,
+        },
+      },
+    ];
+
+    if (base64MaskData) {
+      parts.push({
+        inlineData: {
+          data: base64MaskData,
+          mimeType: 'image/png',
+        },
+      });
+    }
+
+    parts.push({ text: prompt });
+
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image-preview',
-      contents: {
-        parts: [
-          {
-            inlineData: {
-              data: base64ImageData,
-              mimeType: mimeType,
-            },
-          },
-          {
-            text: prompt,
-          },
-        ],
-      },
+      contents: { parts },
       config: {
         responseModalities: [Modality.IMAGE, Modality.TEXT],
       },

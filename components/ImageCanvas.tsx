@@ -1,6 +1,5 @@
-
 import React, { useRef, useEffect, useState, useImperativeHandle, forwardRef, useCallback } from 'react';
-import { EditMode, PlacedShape, Stroke, Point } from '../types';
+import { EditMode, PlacedShape, Stroke, Point, CanvasData } from '../types';
 import { Loader } from './Loader';
 import { DownloadIcon, UploadIcon } from './Icons';
 
@@ -47,7 +46,7 @@ interface InteractionState {
 }
 
 export interface ImageCanvasMethods {
-  getCanvasData: () => { data: string; mimeType: string; };
+  getCanvasData: (editMode: EditMode) => CanvasData;
   getExpandedCanvasData: (direction: 'up' | 'down' | 'left' | 'right') => { data: string; mimeType: string; };
   getCanvasAsDataURL: () => string;
   clearDrawing: () => void;
@@ -260,35 +259,47 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
     }, []);
 
     useImperativeHandle(ref, () => ({
-      getCanvasData: () => {
+      getCanvasData: (editMode: EditMode): CanvasData => {
         const mainCanvas = mainCanvasRef.current;
-        const interactionCanvas = interactionCanvasRef.current;
         if (!mainCanvas) return { data: '', mimeType: '' };
-
+    
+        const mimeType = 'image/png';
+    
+        if (editMode === EditMode.MASK) {
+          const originalImageData = mainCanvas.toDataURL(mimeType).split(',')[1];
+    
+          const maskCanvas = document.createElement('canvas');
+          maskCanvas.width = mainCanvas.width;
+          maskCanvas.height = mainCanvas.height;
+          const maskCtx = maskCanvas.getContext('2d');
+          if (!maskCtx) return { data: originalImageData, mimeType }; 
+    
+          maskCtx.fillStyle = 'black'; // Unchanged area
+          maskCtx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
+          
+          // Draw strokes in white for the area to be edited
+          strokes.forEach(stroke => drawStroke(maskCtx, { ...stroke, color: 'white' }));
+          
+          const maskData = maskCanvas.toDataURL(mimeType).split(',')[1];
+          return { data: originalImageData, mimeType, maskData };
+        }
+    
+        // For SKETCH mode (and others as a fallback), composite everything.
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = mainCanvas.width;
         tempCanvas.height = mainCanvas.height;
         const tempCtx = tempCanvas.getContext('2d');
-        if (tempCtx) {
-          tempCtx.drawImage(mainCanvas, 0, 0);
-          if (interactionCanvas) {
-            // Draw without selection boxes for the final output
-            const ctx = getCanvasContext(interactionCanvasRef);
-            const selectedShape = placedShapes.find(s => s.id === selectedShapeId);
-            if (ctx && selectedShape) {
-                // Temporarily redraw without selection for capture
-                ctx.clearRect(0, 0, interactionCanvas.width, interactionCanvas.height);
-                strokes.forEach(stroke => drawStroke(ctx, stroke));
-                placedShapes.forEach(shape => drawShape(ctx, shape));
-                tempCtx.drawImage(interactionCanvas, 0, 0);
-                drawSelectionBox(ctx, selectedShape); // Redraw selection box
-            } else {
-                 tempCtx.drawImage(interactionCanvas, 0, 0);
-            }
-          }
-          return { data: tempCanvas.toDataURL('image/png').split(',')[1], mimeType: 'image/png' };
+        if (!tempCtx) return { data: '', mimeType: '' };
+    
+        tempCtx.drawImage(mainCanvas, 0, 0);
+    
+        if (editMode === EditMode.SKETCH) {
+          strokes.forEach(stroke => drawStroke(tempCtx, stroke));
+          placedShapes.forEach(shape => drawShape(tempCtx, shape));
         }
-        return { data: '', mimeType: '' };
+        
+        const data = tempCanvas.toDataURL(mimeType).split(',')[1];
+        return { data, mimeType };
       },
       getExpandedCanvasData: (direction: 'up' | 'down' | 'left' | 'right') => {
         const originalCanvas = mainCanvasRef.current;
@@ -682,17 +693,21 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                 }}
             />
         )}
-        <canvas ref={mainCanvasRef} style={{ filter: activeFilter || 'none', position: 'absolute' }} className="max-w-full max-h-full object-contain" />
-        <canvas
-            ref={interactionCanvasRef}
-            style={{ position: 'absolute', zIndex: 20, cursor: getCanvasCursorStyle() }}
-            className="max-w-full max-h-full object-contain"
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-            onMouseEnter={handleMouseEnter}
-            onMouseLeave={handleMouseLeave}
-        />
+        {imageSrc && (
+          <>
+            <canvas ref={mainCanvasRef} style={{ filter: activeFilter || 'none', position: 'absolute' }} className="max-w-full max-h-full object-contain" />
+            <canvas
+                ref={interactionCanvasRef}
+                style={{ position: 'absolute', zIndex: 20, cursor: getCanvasCursorStyle() }}
+                className="max-w-full max-h-full object-contain"
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+                onMouseEnter={handleMouseEnter}
+                onMouseLeave={handleMouseLeave}
+            />
+          </>
+        )}
       </div>
     );
   }

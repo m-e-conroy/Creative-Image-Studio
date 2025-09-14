@@ -22,6 +22,11 @@ export interface CompositionRule {
   prompt: string;
 }
 
+export interface TechnicalModifier {
+  name: string;
+  prompt: string;
+}
+
 export interface Filter {
   name: string;
   value: string;
@@ -30,6 +35,11 @@ export interface Filter {
 export interface ClipArtShape {
   name: string;
   dataUrl: string;
+}
+
+export interface ClipArtCategory {
+  name: string;
+  shapes: ClipArtShape[];
 }
 
 export interface Point {
@@ -64,3 +74,9 @@ export interface PromptState {
 }
 
 export type PromptPart = keyof PromptState;
+
+export interface CanvasData {
+  data: string;
+  mimeType: string;
+  maskData?: string;
+}
