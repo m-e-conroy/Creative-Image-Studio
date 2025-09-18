@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, ClipArtCategory, TechnicalModifier } from '../types';
 import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, TECHNICAL_MODIFIERS } from '../constants';
-import { BrushIcon, ClearIcon, DrawIcon, EditIcon, GenerateIcon, MaskIcon, ResetIcon, FilterIcon, RewriteIcon, RandomIcon, UploadIcon, OutpaintIcon, ArrowUpIcon, ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon, CropIcon, IdeaIcon, UndoIcon, SaveIcon, RotateIcon, SettingsIcon, CloseIcon, CopyIcon, CheckIcon } from './Icons';
+import { BrushIcon, ClearIcon, DrawIcon, EditIcon, GenerateIcon, MaskIcon, ResetIcon, FilterIcon, RewriteIcon, RandomIcon, UploadIcon, OutpaintIcon, ArrowUpIcon, ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon, CropIcon, IdeaIcon, UndoIcon, SaveIcon, RotateIcon, SettingsIcon, CloseIcon, CopyIcon, CheckIcon, LogoIcon } from './Icons';
 import { ThemeSwitcher } from './ThemeSwitcher';
 
 type Tab = 'generate' | 'edit' | 'filters' | 'settings';
 
 interface ControlPanelProps {
+  onClose: () => void;
   activeTab: Tab;
   setActiveTab: (tab: Tab) => void;
   prompt: PromptState;
@@ -632,10 +633,24 @@ const SettingsTab: React.FC<{
 
 
 export const ControlPanel: React.FC<ControlPanelProps> = (props) => {
-  const { activeTab, setActiveTab, hasImage, onUploadClick, isLoading, onClearCustomShapes } = props;
+  const { activeTab, setActiveTab, hasImage, onUploadClick, isLoading, onClearCustomShapes, onClose } = props;
 
   return (
     <div className="flex flex-col space-y-6">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-3">
+          <LogoIcon />
+          <h1 className="text-xl md:text-2xl font-bold text-text-primary">Creative Image Studio</h1>
+        </div>
+        <button
+          onClick={onClose}
+          className="md:hidden p-1 -mr-2 rounded-full text-text-secondary hover:bg-base-300"
+          aria-label="Close panel"
+        >
+          <CloseIcon />
+        </button>
+      </div>
+
       <div className="grid grid-cols-4 gap-2 p-1 bg-base-100 rounded-lg">
         <TabButton label="Generate" icon={<GenerateIcon />} isActive={activeTab === 'generate'} onClick={() => setActiveTab('generate')} />
         <TabButton label="Edit" icon={<EditIcon />} isActive={activeTab === 'edit'} onClick={() => setActiveTab('edit')} disabled={!hasImage} />

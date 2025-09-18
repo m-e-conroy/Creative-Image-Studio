@@ -5,7 +5,7 @@ import { generateImage, editImage, rewritePrompt, generateRandomPrompt, describe
 import { ImageCanvasMethods } from './components/ImageCanvas';
 import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, Stroke, ClipArtCategory, TechnicalModifier } from './types';
 import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, CLIP_ART_CATEGORIES, TECHNICAL_MODIFIERS } from './constants';
-import { LogoIcon, DownloadIcon } from './components/Icons';
+import { DownloadIcon, SettingsIcon } from './components/Icons';
 import { ImageGallery } from './components/ImageGallery';
 
 type Tab = 'generate' | 'edit' | 'filters' | 'settings';
@@ -59,6 +59,8 @@ const App: React.FC = () => {
   const [subjectSuggestions, setSubjectSuggestions] = useState<string[]>([]);
   const [backgroundSuggestions, setBackgroundSuggestions] = useState<string[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState<PromptPart | null>(null);
+
+  const [isPanelOpen, setIsPanelOpen] = useState(false);
 
   const canvasRef = useRef<ImageCanvasMethods>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -525,21 +527,11 @@ const App: React.FC = () => {
         accept="image/png, image/jpeg, image/webp"
         className="hidden"
       />
-      <div className="min-h-screen bg-base-100 flex flex-col md:flex-row font-sans">
-        <header className="md:hidden flex items-center justify-between p-4 bg-base-200 border-b border-base-300">
-            <div className="flex items-center space-x-2">
-              <LogoIcon />
-              <h1 className="text-xl font-bold text-text-primary">Creative Image Studio</h1>
-            </div>
-        </header>
-        <aside className="w-full md:w-[400px] lg:w-[450px] bg-base-200 p-6 flex-shrink-0 flex flex-col space-y-6 max-h-screen overflow-y-auto">
-          <div className="hidden md:flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <LogoIcon />
-                <h1 className="text-2xl font-bold text-text-primary">Creative Image Studio</h1>
-              </div>
-          </div>
+      <div className="min-h-screen bg-base-100 flex font-sans">
+        {isPanelOpen && <div onClick={() => setIsPanelOpen(false)} className="fixed inset-0 bg-black/60 z-40 md:hidden" aria-hidden="true" />}
+        <aside className={`fixed inset-y-0 left-0 z-50 w-11/12 max-w-md transform transition-transform duration-300 ease-in-out bg-base-200 p-6 flex-shrink-0 flex flex-col space-y-6 max-h-screen overflow-y-auto md:relative md:w-[400px] lg:w-[450px] md:translate-x-0 ${isPanelOpen ? 'translate-x-0' : '-translate-x-full'}`}>
           <ControlPanel
+            onClose={() => setIsPanelOpen(false)}
             activeTab={activeTab}
             setActiveTab={setActiveTab}
             prompt={prompt}
@@ -607,7 +599,14 @@ const App: React.FC = () => {
               </div>
           )}
         </aside>
-        <main className="flex-1 flex items-center justify-center p-6 bg-base-100/50">
+        <main className="flex-1 flex items-center justify-center p-4 md:p-6 bg-base-100/50 relative">
+          <button
+            onClick={() => setIsPanelOpen(true)}
+            className="md:hidden fixed bottom-4 left-4 z-30 bg-brand-primary text-white p-3 rounded-full shadow-lg hover:bg-brand-primary/80 transition-colors"
+            aria-label="Open controls panel"
+          >
+            <SettingsIcon />
+          </button>
           <div className="w-full h-full max-w-[800px] max-h-[800px] flex items-center justify-center relative">
             {mainImage && !isLoading && (
               <>
