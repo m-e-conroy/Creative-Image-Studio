@@ -62,23 +62,28 @@ export async function editImage(
   base64MaskData?: string
 ): Promise<{ text?: string; image?: string }> {
   return handleApiCall(async () => {
-    // FIX: Explicitly type `parts` as `any[]` to allow for a mix of
-    // inlineData and text parts. This prevents TypeScript from inferring
-    // a restrictive type based on only the first element in the array.
-    const parts: any[] = [
-      {
-        inlineData: {
-          data: base64ImageData,
-          mimeType: mimeType,
-        },
-      },
-    ];
+    const parts: any[] = [];
 
     if (base64MaskData) {
+      // For masked edits, the model expects the mask first to provide context.
       parts.push({
         inlineData: {
           data: base64MaskData,
           mimeType: 'image/png',
+        },
+      });
+      parts.push({
+        inlineData: {
+          data: base64ImageData,
+          mimeType: mimeType,
+        },
+      });
+    } else {
+      // For non-masked edits, just send the image.
+      parts.push({
+        inlineData: {
+          data: base64ImageData,
+          mimeType: mimeType,
         },
       });
     }
@@ -94,9 +99,11 @@ export async function editImage(
     });
     
     const result: { text?: string; image?: string } = {};
+    const candidate = response.candidates?.[0];
 
-    if (response.candidates && response.candidates.length > 0) {
-        for (const part of response.candidates[0].content.parts) {
+    // Safely access parts to prevent crash on responses without content (e.g., safety blocks)
+    if (candidate?.content?.parts) {
+        for (const part of candidate.content.parts) {
           if (part.text) {
             result.text = part.text;
           } else if (part.inlineData) {
@@ -105,8 +112,19 @@ export async function editImage(
         }
     }
 
+    // If no image was found, provide a more detailed error message if possible.
+    if (!result.image && candidate) {
+      // FIX: The `finishReason` enum value for unspecified is 'FINISH_REASON_UNSPECIFIED', not 'UNSPECIFIED'.
+      if (candidate.finishReason && candidate.finishReason !== 'STOP' && candidate.finishReason !== 'FINISH_REASON_UNSPECIFIED') {
+        const reason = candidate.finishReason.charAt(0).toUpperCase() + candidate.finishReason.slice(1).toLowerCase().replace(/_/g, ' ');
+        result.text = `Image generation failed. Reason: ${reason}. Please adjust your prompt or mask.`;
+      }
+    } else if (!result.image && !candidate) {
+        result.text = "The model did not return a response. This may be due to a network issue or a problem with the input.";
+    }
+
     if(!result.image) {
-        console.warn("Model response did not contain an image part.", response);
+        console.warn("Model response did not contain an image part.", { response, result });
     }
 
     return result;

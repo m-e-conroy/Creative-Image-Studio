@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, useImperativeHandle, forwardRef, useCallback } from 'react';
 import { EditMode, PlacedShape, Stroke, Point, CanvasData } from '../types';
 import { Loader } from './Loader';
-import { DownloadIcon, UploadIcon } from './Icons';
+import { UploadIcon } from './Icons';
 
 interface ImageCanvasProps {
   imageSrc: string | null;
@@ -11,7 +11,6 @@ interface ImageCanvasProps {
   brushSize: number;
   brushColor: string;
   activeFilter: string;
-  onDownload: () => void;
   onUploadClick: () => void;
   setCropRectActive: (isActive: boolean) => void;
   // New props for interactive elements
@@ -24,7 +23,6 @@ interface ImageCanvasProps {
   onSelectShape: (id: string | null) => void;
   // New props for image dimensions
   onImageLoad: (dimensions: { width: number; height: number; }) => void;
-  imageDimensions: { width: number; height: number; } | null;
 }
 
 interface Rect { x: number; y: number; width: number; height: number; }
@@ -50,7 +48,7 @@ interface InteractionState {
 
 export interface ImageCanvasMethods {
   getCanvasData: (editMode: EditMode) => CanvasData;
-  getExpandedCanvasData: (direction: 'up' | 'down' | 'left' | 'right') => { data: string; mimeType: string; };
+  getExpandedCanvasData: (direction: 'up' | 'down' | 'left' | 'right') => { data: string; mimeType: string; maskData: string; };
   getCanvasAsDataURL: () => string;
   clearDrawing: () => void;
   applyCrop: () => string | null;
@@ -64,7 +62,7 @@ const ROTATION_HANDLE_OFFSET = 25;
 
 export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
   (props, ref) => {
-    const { imageSrc, isLoading, loadingMessage, editMode, brushSize, brushColor, activeFilter, onDownload, onUploadClick, setCropRectActive, strokes, placedShapes, selectedShapeId, onAddStroke, onAddShape, onUpdateShape, onSelectShape, onImageLoad, imageDimensions } = props;
+    const { imageSrc, isLoading, loadingMessage, editMode, brushSize, brushColor, activeFilter, onUploadClick, setCropRectActive, strokes, placedShapes, selectedShapeId, onAddStroke, onAddShape, onUpdateShape, onSelectShape, onImageLoad } = props;
     
     const mainCanvasRef = useRef<HTMLCanvasElement>(null);
     const interactionCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -190,6 +188,18 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         ctx.restore();
     };
 
+    const drawCropRectangle = useCallback((rect: Rect) => {
+      const ctx = getCanvasContext(interactionCanvasRef);
+      if (!ctx) return;
+      ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+      ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+      ctx.clearRect(rect.x, rect.y, rect.width, rect.height);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+    }, [getCanvasContext]);
+
     const redrawInteractionCanvas = useCallback(() => {
         const ctx = getCanvasContext(interactionCanvasRef);
         const canvas = interactionCanvasRef.current;
@@ -210,7 +220,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             drawCropRectangle(cropRect);
         }
 
-    }, [editMode, strokes, placedShapes, selectedShapeId, cropRect]);
+    }, [editMode, strokes, placedShapes, selectedShapeId, cropRect, drawCropRectangle]);
 
     useEffect(redrawInteractionCanvas, [redrawInteractionCanvas]);
 
@@ -230,9 +240,12 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                 mainCtx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
                 mainCtx.drawImage(img, 0, 0);
             }
-            redrawInteractionCanvas();
+            const interactionCtx = getCanvasContext(interactionCanvasRef);
+            if (interactionCtx) {
+                interactionCtx.clearRect(0, 0, interactionCanvas.width, interactionCanvas.height);
+            }
         }
-    }, [redrawInteractionCanvas, onImageLoad]);
+    }, [onImageLoad, getCanvasContext]);
 
     useEffect(() => {
         if (imageSrc) {
@@ -249,19 +262,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             if (mainCtx?.canvas) mainCtx.clearRect(0, 0, mainCtx.canvas.width, mainCtx.canvas.height);
             if (interactionCtx?.canvas) interactionCtx.clearRect(0, 0, interactionCtx.canvas.width, interactionCtx.canvas.height);
         }
-    }, [imageSrc, initCanvases, setCropRectActive]);
-
-    const drawCropRectangle = useCallback((rect: Rect) => {
-      const ctx = getCanvasContext(interactionCanvasRef);
-      if (!ctx) return;
-      ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-      ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-      ctx.clearRect(rect.x, rect.y, rect.width, rect.height);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
-    }, []);
+    }, [imageSrc, initCanvases]);
 
     useImperativeHandle(ref, () => ({
       getCanvasData: (editMode: EditMode): CanvasData => {
@@ -308,22 +309,88 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
       },
       getExpandedCanvasData: (direction: 'up' | 'down' | 'left' | 'right') => {
         const originalCanvas = mainCanvasRef.current;
-        if (!originalCanvas) return { data: '', mimeType: '' };
+        if (!originalCanvas) return { data: '', mimeType: '', maskData: '' };
+
+        // Constants for the seamless blending effect
+        const MASK_BLUR_RADIUS = 8; // The softness of the mask edge
+        const IMAGE_BLEED_PIXELS = 4; // How many pixels the original image bleeds into the new area
+        
         const EXPANSION_AMOUNT = Math.round(Math.min(originalCanvas.width, originalCanvas.height) * 0.5);
+        
         const tempCanvas = document.createElement('canvas');
         const tempCtx = tempCanvas.getContext('2d');
-        if (!tempCtx) return { data: '', mimeType: '' };
+        const maskCanvas = document.createElement('canvas');
+        const maskCtx = maskCanvas.getContext('2d');
+
+        if (!tempCtx || !maskCtx) return { data: '', mimeType: '', maskData: '' };
+        
         let newWidth = originalCanvas.width, newHeight = originalCanvas.height;
         let drawX = 0, drawY = 0;
+        let maskRect = { x: 0, y: 0, w: 0, h: 0 };
+
         switch (direction) {
-          case 'up': newHeight += EXPANSION_AMOUNT; drawY = EXPANSION_AMOUNT; break;
-          case 'down': newHeight += EXPANSION_AMOUNT; break;
-          case 'left': newWidth += EXPANSION_AMOUNT; drawX = EXPANSION_AMOUNT; break;
-          case 'right': newWidth += EXPANSION_AMOUNT; break;
+          case 'up': 
+            newHeight += EXPANSION_AMOUNT; 
+            drawY = EXPANSION_AMOUNT; 
+            maskRect = { x: 0, y: 0, w: newWidth, h: EXPANSION_AMOUNT };
+            break;
+          case 'down': 
+            newHeight += EXPANSION_AMOUNT; 
+            maskRect = { x: 0, y: originalCanvas.height, w: newWidth, h: EXPANSION_AMOUNT };
+            break;
+          case 'left': 
+            newWidth += EXPANSION_AMOUNT; 
+            drawX = EXPANSION_AMOUNT; 
+            maskRect = { x: 0, y: 0, w: EXPANSION_AMOUNT, h: newHeight };
+            break;
+          case 'right': 
+            newWidth += EXPANSION_AMOUNT; 
+            maskRect = { x: originalCanvas.width, y: 0, w: EXPANSION_AMOUNT, h: newHeight };
+            break;
         }
-        tempCanvas.width = newWidth; tempCanvas.height = newHeight;
-        tempCtx.drawImage(originalCanvas, drawX, drawY);
-        return { data: tempCanvas.toDataURL('image/png').split(',')[1], mimeType: 'image/png' };
+
+        tempCanvas.width = newWidth; 
+        tempCanvas.height = newHeight;
+        maskCanvas.width = newWidth;
+        maskCanvas.height = newHeight;
+        
+        // Fill the new area with random noise.
+        const canvasImageData = tempCtx.createImageData(newWidth, newHeight);
+        const noiseData = canvasImageData.data;
+        for (let i = 0; i < noiseData.length; i += 4) {
+            const val = Math.floor(Math.random() * 256);
+            noiseData[i] = val; noiseData[i + 1] = val; noiseData[i + 2] = val; noiseData[i + 3] = 255;
+        }
+        tempCtx.putImageData(canvasImageData, 0, 0);
+
+        // Draw the original image, slightly expanded to "bleed" into the new area.
+        // This provides the model with more context at the seam.
+        tempCtx.drawImage(
+            originalCanvas, 
+            drawX - IMAGE_BLEED_PIXELS, 
+            drawY - IMAGE_BLEED_PIXELS, 
+            originalCanvas.width + (IMAGE_BLEED_PIXELS * 2), 
+            originalCanvas.height + (IMAGE_BLEED_PIXELS * 2)
+        );
+        const imageData = tempCanvas.toDataURL('image/png').split(',')[1];
+        
+        // Create the mask with a blurred edge for seamless blending.
+        maskCtx.fillStyle = 'black'; // Unchanged area
+        maskCtx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
+        
+        // Apply a blur filter to the context.
+        maskCtx.filter = `blur(${MASK_BLUR_RADIUS}px)`;
+        
+        maskCtx.fillStyle = 'white'; // Area to generate
+        // Draw the white rectangle. The blur filter will automatically create a soft edge.
+        maskCtx.fillRect(maskRect.x, maskRect.y, maskRect.w, maskRect.h);
+        
+        // It's good practice to reset the filter when done.
+        maskCtx.filter = 'none';
+
+        const maskData = maskCanvas.toDataURL('image/png').split(',')[1];
+
+        return { data: imageData, mimeType: 'image/png', maskData: maskData };
       },
       getCanvasAsDataURL: () => {
         const originalCanvas = mainCanvasRef.current;
@@ -563,24 +630,35 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
 
     const handleMouseUp = () => {
         const { mode } = interaction.current;
+
         if (mode === 'drawing' && interaction.current.currentStroke && interaction.current.currentStroke.points.length > 1) {
             onAddStroke(interaction.current.currentStroke);
         } else if (mode === 'cropping' && interaction.current.startPoint) {
-            const endPoint = cursorPos;
+            const endPoint = canvasCursorPos;
             if (endPoint) {
                 const start = interaction.current.startPoint;
                 const width = Math.abs(endPoint.x - start.x);
                 const height = Math.abs(endPoint.y - start.y);
+
                 if (width > 10 && height > 10) {
                     const rect = { x: Math.min(endPoint.x, start.x), y: Math.min(endPoint.y, start.y), width, height };
                     setCropRect(rect);
                     setCropRectActive(true);
+                    // Draw the rectangle immediately to give the user feedback. The re-render triggered
+                    // by setCropRect will make it persist correctly via the useEffect hook.
                     drawCropRectangle(rect);
+                    // Exit early to prevent the final redraw from clearing the just-drawn rectangle
+                    // due to stale state.
+                    interaction.current = { mode: 'idle' };
+                    return;
                 }
             }
         }
+
         interaction.current = { mode: 'idle' };
-        redrawInteractionCanvas(); // Full redraw to clean up live drawings
+        // Redraw for all other cases, e.g., to clear an invalid (too small) crop selection
+        // or to finalize a drawing stroke.
+        redrawInteractionCanvas();
     };
 
     const handleCursorMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -679,20 +757,6 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             <Loader />
             <p className="text-lg font-semibold mt-4 text-white animate-pulse-fast">{loadingMessage}</p>
           </div>
-        )}
-        {imageSrc && !isLoading && (
-          <>
-            <button
-                onClick={onDownload}
-                className="absolute top-3 right-3 z-20 bg-base-200/80 hover:bg-brand-primary text-text-primary hover:text-white p-2 rounded-full transition-colors duration-200"
-                aria-label="Download image" title="Download image"
-            > <DownloadIcon /> </button>
-            {imageDimensions && (
-              <div className="absolute bottom-3 right-3 z-20 bg-black/60 text-white text-xs px-2 py-1 rounded-md pointer-events-none">
-                {imageDimensions.width} x {imageDimensions.height}px
-              </div>
-            )}
-          </>
         )}
         {showBrushCursor && (
             <div

@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { ControlPanel } from './components/ControlPanel';
 import { ImageCanvas } from './components/ImageCanvas';
@@ -6,7 +5,7 @@ import { generateImage, editImage, rewritePrompt, generateRandomPrompt, describe
 import { ImageCanvasMethods } from './components/ImageCanvas';
 import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, Stroke, ClipArtCategory, TechnicalModifier } from './types';
 import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, CLIP_ART_CATEGORIES, TECHNICAL_MODIFIERS } from './constants';
-import { LogoIcon } from './components/Icons';
+import { LogoIcon, DownloadIcon } from './components/Icons';
 import { ImageGallery } from './components/ImageGallery';
 
 type Tab = 'generate' | 'edit' | 'filters' | 'settings';
@@ -16,7 +15,7 @@ const findDefault = <T extends { name: string }>(arr: T[], name: string): T => a
 const App: React.FC = () => {
   const [prompt, setPrompt] = useState<PromptState>({ subject: '', background: '' });
   const [editPrompt, setEditPrompt] = useState<string>('');
-  const [outpaintPrompt, setOutpaintPrompt] = useState<string>('photorealistically expand the image to fill the transparent space, continuing the scene seamlessly.');
+  const [outpaintPrompt, setOutpaintPrompt] = useState<string>('Extend the scene seamlessly, matching the original image\'s style and lighting.');
   
   const [style, setStyle] = useState<ImageStyle>(() => findDefault(INITIAL_STYLES, "None"));
   const [lighting, setLighting] = useState<LightingStyle>(() => findDefault(LIGHTING_STYLES, "Default"));
@@ -314,11 +313,14 @@ const App: React.FC = () => {
     setError(null);
     
     try {
-      const { data, mimeType } = canvasRef.current.getExpandedCanvasData(direction);
-      const result = await editImage(data, mimeType, outpaintPrompt);
+      const { data, mimeType, maskData } = canvasRef.current.getExpandedCanvasData(direction);
+      
+      // Make the prompt more explicit to guide the model better.
+      const finalOutpaintPrompt = `The masked (white) area indicates new empty space to be filled. ${outpaintPrompt}`;
+      const result = await editImage(data, mimeType, finalOutpaintPrompt, maskData);
       
       if (result.image) {
-        const imageUrl = `data:${mimeType};base64,${result.image}`;
+        const imageUrl = `data:image/png;base64,${result.image}`;
         setMainImage(imageUrl);
         setHistory(prev => [...prev, imageUrl]);
         clearInteractiveState();
@@ -584,7 +586,23 @@ const App: React.FC = () => {
           )}
         </aside>
         <main className="flex-1 flex items-center justify-center p-6 bg-base-100/50">
-          <div className="w-full h-full max-w-[800px] max-h-[800px] flex items-center justify-center">
+          <div className="w-full h-full max-w-[800px] max-h-[800px] flex items-center justify-center relative">
+            {mainImage && !isLoading && (
+              <>
+                <button
+                    onClick={handleDownload}
+                    className="absolute top-3 right-3 z-30 bg-base-200/80 hover:bg-brand-primary text-text-primary hover:text-white p-2 rounded-full transition-colors duration-200"
+                    aria-label="Download image" title="Download image"
+                >
+                  <DownloadIcon />
+                </button>
+                {imageDimensions && (
+                  <div className="absolute bottom-3 right-3 z-30 bg-black/60 text-white text-xs px-2 py-1 rounded-md pointer-events-none">
+                    {imageDimensions.width} x {imageDimensions.height}px
+                  </div>
+                )}
+              </>
+            )}
             {generatedImages.length > 0 ? (
               <ImageGallery images={generatedImages} onSelectImage={handleSelectImage} />
             ) : (
@@ -597,7 +615,6 @@ const App: React.FC = () => {
                 brushSize={brushSize}
                 brushColor={brushColor}
                 activeFilter={activeFilter.value}
-                onDownload={handleDownload}
                 onUploadClick={handleUploadClick}
                 setCropRectActive={setCropRectActive}
                 strokes={strokes}
@@ -608,7 +625,6 @@ const App: React.FC = () => {
                 onUpdateShape={handleUpdateShape}
                 onSelectShape={handleSelectShape}
                 onImageLoad={setImageDimensions}
-                imageDimensions={imageDimensions}
               />
             )}
           </div>
