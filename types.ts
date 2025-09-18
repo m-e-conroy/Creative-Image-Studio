@@ -1,16 +1,4 @@
-// FIX: Define and export all necessary types for the application.
-// This resolves circular dependency issues and missing type definitions.
-export enum EditMode {
-  MASK = 'mask',
-  SKETCH = 'sketch',
-  OUTPAINT = 'outpaint',
-  CROP = 'crop',
-}
-
-export enum LayerType {
-  IMAGE = 'image',
-  PIXEL = 'pixel',
-}
+export type AspectRatioValue = "1:1" | "16:9" | "9:16" | "4:3" | "3:4";
 
 export interface ImageStyle {
   name: string;
@@ -37,14 +25,6 @@ export interface Filter {
   value: string;
 }
 
-export interface ImageAdjustments {
-  brightness: number;
-  contrast: number;
-  red: number;
-  green: number;
-  blue: number;
-}
-
 export interface ClipArtShape {
   name: string;
   dataUrl: string;
@@ -55,53 +35,68 @@ export interface ClipArtCategory {
   shapes: ClipArtShape[];
 }
 
-export interface Point {
-  x: number;
-  y: number;
+export enum EditMode {
+  MASK = 'mask',
+  SKETCH = 'sketch',
+  OUTPAINT = 'outpaint',
+  CROP = 'crop',
 }
 
-export interface Stroke {
-  id: string;
-  points: Point[];
-  color: string;
-  size: number;
-}
-
-export interface PlacedShape {
-  id: string;
-  dataUrl: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  rotation: number; // in radians
-  color: string; // hex string
-}
-
-export interface Layer {
-  id: string;
-  name: string;
-  type: LayerType;
-  isVisible: boolean;
-  opacity: number; // 0-100
-  // Content specific to layer type
-  src?: string; // For IMAGE layers
-  strokes?: Stroke[]; // For PIXEL layers
-  placedShapes?: PlacedShape[]; // For PIXEL layers
-}
-
-
-export type AspectRatioValue = '1:1' | '4:3' | '3:4' | '16:9' | '9:16';
+export type PromptPart = 'subject' | 'background';
 
 export interface PromptState {
   subject: string;
   background: string;
 }
 
-export type PromptPart = keyof PromptState;
+export interface Point {
+    x: number;
+    y: number;
+}
 
-export interface CanvasData {
-  data: string;
-  mimeType: string;
-  maskData?: string;
+export interface Stroke {
+    id: string;
+    points: Point[];
+    color: string;
+    size: number;
+}
+
+export interface PlacedShape {
+    id: string;
+    dataUrl: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    rotation: number;
+    color: string;
+}
+
+export interface ImageAdjustments {
+    brightness: number;
+    contrast: number;
+    red: number;
+    green: number;
+    blue: number;
+    filter?: string;
+}
+
+export enum LayerType {
+    IMAGE = 'image',
+    PIXEL = 'pixel',
+    ADJUSTMENT = 'adjustment',
+}
+
+export interface Layer {
+    id: string;
+    name: string;
+    type: LayerType;
+    isVisible: boolean;
+    opacity: number;
+    src?: string;
+    strokes?: Stroke[];
+    placedShapes?: PlacedShape[];
+    adjustments?: ImageAdjustments;
+    maskSrc?: string;
+    maskEnabled?: boolean;
 }

@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, ClipArtCategory, TechnicalModifier, ImageAdjustments, Layer, LayerType } from '../types';
 import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, TECHNICAL_MODIFIERS } from '../constants';
-import { BrushIcon, ClearIcon, DrawIcon, EditIcon, GenerateIcon, MaskIcon, ResetIcon, FilterIcon, RewriteIcon, RandomIcon, UploadIcon, OutpaintIcon, ArrowUpIcon, ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon, CropIcon, IdeaIcon, UndoIcon, SaveIcon, RotateIcon, SettingsIcon, CloseIcon, CopyIcon, CheckIcon, LogoIcon } from './Icons';
+import { BrushIcon, ClearIcon, DrawIcon, EditIcon, GenerateIcon, MaskIcon, ResetIcon, FilterIcon, RewriteIcon, RandomIcon, UploadIcon, OutpaintIcon, ArrowUpIcon, ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon, CropIcon, IdeaIcon, UndoIcon, SaveIcon, RotateIcon, SettingsIcon, CloseIcon, CopyIcon, CheckIcon, LogoIcon, AddIcon } from './Icons';
 import { ThemeSwitcher } from './ThemeSwitcher';
 import { LayersPanel } from './LayersPanel';
 
-type Tab = 'generate' | 'edit' | 'filters' | 'settings';
+type Tab = 'generate' | 'edit' | 'settings';
 
 interface ControlPanelProps {
   onClose: () => void;
@@ -57,11 +57,6 @@ interface ControlPanelProps {
   onReset: () => void;
   onUndo: () => void;
   canUndo: boolean;
-  activeFilters: Filter[];
-  onToggleFilter: (filter: Filter) => void;
-  adjustments: ImageAdjustments;
-  onAdjustmentChange: (adjustment: keyof ImageAdjustments, value: number) => void;
-  onResetAdjustments: () => void;
   clipArtCategories: ClipArtCategory[];
   selectedClipArtCategoryName: string;
   setSelectedClipArtCategoryName: (name: string) => void;
@@ -69,6 +64,8 @@ interface ControlPanelProps {
   selectedShapeId: string | null;
   onDeleteSelectedShape: () => void;
   onClearCustomShapes: () => void;
+  colorPresets: string[];
+  onAddColorPreset: () => void;
   // Layer props
   layers: Layer[];
   activeLayerId: string | null;
@@ -77,6 +74,15 @@ interface ControlPanelProps {
   onSelectLayer: (id: string) => void;
   onUpdateLayer: (id: string, updates: Partial<Layer>) => void;
   onReorderLayers: (dragId: string, dropId: string) => void;
+  onLayerAdjustmentChange: (adjustment: keyof ImageAdjustments, value: number) => void;
+  onResetLayerAdjustments: () => void;
+  onLayerFilterChange: (filterName: string) => void;
+  onInteractionEndWithHistory: () => void;
+  // Mask props
+  isEditingMask: boolean;
+  onSelectLayerMask: (id: string) => void;
+  onAddLayerMask: (id: string) => void;
+  onDeleteLayerMask: (id: string) => void;
 }
 
 const useDebounce = <T,>(value: T, delay: number): T => {
@@ -425,9 +431,108 @@ const CropControls: React.FC<{ onCrop: () => void, isLoading: boolean, cropRectA
     </div>
 );
 
+const MaskingTools: React.FC<Pick<ControlPanelProps, 'brushSize' | 'setBrushSize' | 'brushColor' | 'setBrushColor' | 'isLoading'>> = ({ brushSize, setBrushSize, brushColor, setBrushColor, isLoading }) => {
+  return (
+    <div className="space-y-4">
+        <h3 className="text-md font-semibold text-text-primary flex items-center gap-2"><MaskIcon/> Masking Tools</h3>
+        <p className="text-sm text-text-secondary">Paint with black to hide parts of the layer, and white to reveal them.</p>
+        <div>
+            <label htmlFor="brush-size" className="block text-sm font-medium text-text-secondary mb-2">Brush Size</label>
+            <input id="brush-size" type="range" min="5" max="100" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer" disabled={isLoading} />
+        </div>
+        <div>
+            <label className="block text-sm font-medium text-text-secondary mb-2">Brush Color</label>
+            <div className="flex items-center gap-2">
+                <button onClick={() => setBrushColor('#FFFFFF')} className={`w-10 h-10 rounded-md bg-white border-2 ${brushColor === '#FFFFFF' ? 'border-brand-secondary' : 'border-base-300'}`} disabled={isLoading} aria-label="Select white brush"></button>
+                <button onClick={() => setBrushColor('#000000')} className={`w-10 h-10 rounded-md bg-black border-2 ${brushColor === '#000000' ? 'border-brand-secondary' : 'border-base-300'}`} disabled={isLoading} aria-label="Select black brush"></button>
+            </div>
+        </div>
+    </div>
+  )
+}
 
-const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' | 'editMode' | 'setEditMode' | 'brushSize' | 'setBrushSize' | 'brushColor' | 'setBrushColor' | 'onEdit' | 'onClear' | 'onReset' | 'onUndo' | 'canUndo' | 'isLoading' | 'onRandomPrompt' | 'randomizingPrompt' | 'onOutpaint' | 'outpaintPrompt' | 'setOutpaintPrompt' | 'outpaintAmount' | 'setOutpaintAmount' | 'onCrop' | 'cropRectActive' | 'clipArtCategories' | 'selectedClipArtCategoryName' | 'setSelectedClipArtCategoryName' | 'onSaveShape' | 'selectedShapeId' | 'onDeleteSelectedShape' | 'layers' | 'activeLayerId' | 'onAddLayer' | 'onDeleteLayer' | 'onSelectLayer' | 'onUpdateLayer' | 'onReorderLayers'>> = (props) => {
-    const { editPrompt, setEditPrompt, editMode, setEditMode, brushSize, setBrushSize, brushColor, setBrushColor, onEdit, onClear, onReset, onUndo, canUndo, isLoading, onRandomPrompt, randomizingPrompt, onOutpaint, outpaintPrompt, setOutpaintPrompt, outpaintAmount, setOutpaintAmount, onCrop, cropRectActive, clipArtCategories, selectedClipArtCategoryName, setSelectedClipArtCategoryName, onSaveShape, selectedShapeId, onDeleteSelectedShape } = props;
+const AdjustmentControls: React.FC<{
+    adjustments: ImageAdjustments;
+    onAdjustmentChange: (adjustment: keyof ImageAdjustments, value: number) => void;
+    onResetAdjustments: () => void;
+    onFilterChange: (filterName: string) => void;
+    isLoading: boolean;
+}> = ({ adjustments, onAdjustmentChange, onResetAdjustments, onFilterChange, isLoading }) => (
+    <div className="space-y-3 pt-4 border-t border-base-300">
+        <h3 className="text-md font-semibold text-text-primary">Adjustments</h3>
+        <div>
+            <label htmlFor="filter" className="block text-sm font-medium text-text-secondary mb-1">Preset Filter</label>
+            <select
+                id="filter"
+                value={adjustments.filter || 'None'}
+                onChange={(e) => onFilterChange(e.target.value)}
+                disabled={isLoading}
+                className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary focus:border-brand-primary transition"
+            >
+                {FILTERS.map(f => <option key={f.name} value={f.name}>{f.name}</option>)}
+            </select>
+        </div>
+        <div>
+            <label htmlFor="brightness" className="block text-sm font-medium text-text-secondary mb-1">
+                Brightness ({adjustments.brightness}%)
+            </label>
+            <input
+                id="brightness" type="range" min="50" max="150" value={adjustments.brightness}
+                onChange={(e) => onAdjustmentChange('brightness', parseInt(e.target.value, 10))}
+                disabled={isLoading} className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer"
+            />
+        </div>
+        <div>
+            <label htmlFor="contrast" className="block text-sm font-medium text-text-secondary mb-1">
+                Contrast ({adjustments.contrast}%)
+            </label>
+            <input
+                id="contrast" type="range" min="50" max="200" value={adjustments.contrast}
+                onChange={(e) => onAdjustmentChange('contrast', parseInt(e.target.value, 10))}
+                disabled={isLoading} className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer"
+            />
+        </div>
+        <div>
+            <label htmlFor="red" className="block text-sm font-medium text-text-secondary mb-1">
+                Red ({adjustments.red}%)
+            </label>
+            <input
+                id="red" type="range" min="0" max="200" value={adjustments.red}
+                onChange={(e) => onAdjustmentChange('red', parseInt(e.target.value, 10))}
+                disabled={isLoading} className="w-full h-2 bg-red-500/50 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:bg-red-500"
+            />
+        </div>
+        <div>
+            <label htmlFor="green" className="block text-sm font-medium text-text-secondary mb-1">
+                Green ({adjustments.green}%)
+            </label>
+            <input
+                id="green" type="range" min="0" max="200" value={adjustments.green}
+                onChange={(e) => onAdjustmentChange('green', parseInt(e.target.value, 10))}
+                disabled={isLoading} className="w-full h-2 bg-green-500/50 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:bg-green-500"
+            />
+        </div>
+        <div>
+            <label htmlFor="blue" className="block text-sm font-medium text-text-secondary mb-1">
+                Blue ({adjustments.blue}%)
+            </label>
+            <input
+                id="blue" type="range" min="0" max="200" value={adjustments.blue}
+                onChange={(e) => onAdjustmentChange('blue', parseInt(e.target.value, 10))}
+                disabled={isLoading} className="w-full h-2 bg-blue-500/50 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:bg-blue-500"
+            />
+        </div>
+        <button
+            onClick={onResetAdjustments} disabled={isLoading}
+            className="w-full flex items-center justify-center gap-2 bg-base-300 hover:bg-base-300/80 disabled:opacity-50 text-text-secondary font-bold py-2 px-3 rounded-md transition text-sm">
+            <ResetIcon /> Reset Adjustments
+        </button>
+    </div>
+);
+
+
+const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' | 'editMode' | 'setEditMode' | 'brushSize' | 'setBrushSize' | 'brushColor' | 'setBrushColor' | 'onEdit' | 'onClear' | 'onReset' | 'onUndo' | 'canUndo' | 'isLoading' | 'onRandomPrompt' | 'randomizingPrompt' | 'onOutpaint' | 'outpaintPrompt' | 'setOutpaintPrompt' | 'outpaintAmount' | 'setOutpaintAmount' | 'onCrop' | 'cropRectActive' | 'clipArtCategories' | 'selectedClipArtCategoryName' | 'setSelectedClipArtCategoryName' | 'onSaveShape' | 'selectedShapeId' | 'onDeleteSelectedShape' | 'layers' | 'activeLayerId' | 'onAddLayer' | 'onDeleteLayer' | 'onSelectLayer' | 'onUpdateLayer' | 'onReorderLayers' | 'isEditingMask' | 'onSelectLayerMask' | 'onAddLayerMask' | 'onDeleteLayerMask' | 'colorPresets' | 'onAddColorPreset' | 'hasImage' | 'onLayerAdjustmentChange' | 'onResetLayerAdjustments' | 'onLayerFilterChange' | 'onInteractionEndWithHistory'>> = (props) => {
+    const { editPrompt, setEditPrompt, editMode, setEditMode, brushSize, setBrushSize, brushColor, setBrushColor, onEdit, onClear, onReset, onUndo, canUndo, isLoading, onRandomPrompt, randomizingPrompt, onOutpaint, outpaintPrompt, setOutpaintPrompt, outpaintAmount, setOutpaintAmount, onCrop, cropRectActive, clipArtCategories, selectedClipArtCategoryName, setSelectedClipArtCategoryName, onSaveShape, selectedShapeId, onDeleteSelectedShape, isEditingMask, colorPresets, onAddColorPreset, hasImage, onLayerAdjustmentChange, onResetLayerAdjustments, onLayerFilterChange, onInteractionEndWithHistory } = props;
     const [newShapeName, setNewShapeName] = useState('');
     const [isEditPromptCopied, setIsEditPromptCopied] = useState(false);
 
@@ -458,6 +563,7 @@ const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' |
     };
 
     const isPixelLayerActive = activeLayer?.type === LayerType.PIXEL;
+    const isAdjustmentLayerActive = activeLayer?.type === LayerType.ADJUSTMENT;
 
     return (
     <div className="flex flex-col space-y-4">
@@ -465,232 +571,148 @@ const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' |
 
         <LayersPanel {...props} />
 
-        <div>
-            <label className="block text-sm font-medium text-text-secondary mb-2">Editing Mode</label>
-            <div className="grid grid-cols-4 gap-2">
-                <button onClick={() => setEditMode(EditMode.MASK)} disabled={isLoading} className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md transition text-sm ${editMode === EditMode.MASK ? 'bg-brand-secondary text-white' : 'bg-base-100 hover:bg-base-300'}`}><MaskIcon /> Mask</button>
-                <button onClick={() => setEditMode(EditMode.SKETCH)} disabled={isLoading} className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md transition text-sm ${editMode === EditMode.SKETCH ? 'bg-brand-secondary text-white' : 'bg-base-100 hover:bg-base-300'}`}><DrawIcon /> Sketch</button>
-                <button onClick={() => setEditMode(EditMode.OUTPAINT)} disabled={isLoading} className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md transition text-sm ${editMode === EditMode.OUTPAINT ? 'bg-brand-secondary text-white' : 'bg-base-100 hover:bg-base-300'}`}><OutpaintIcon /> Outpaint</button>
-                <button onClick={() => setEditMode(EditMode.CROP)} disabled={isLoading} className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md transition text-sm ${editMode === EditMode.CROP ? 'bg-brand-secondary text-white' : 'bg-base-100 hover:bg-base-300'}`}><CropIcon /> Crop</button>
-            </div>
-        </div>
-        
-        {editMode === EditMode.OUTPAINT ? (
-            <OutpaintControls onOutpaint={onOutpaint} isLoading={isLoading} outpaintPrompt={outpaintPrompt} setOutpaintPrompt={setOutpaintPrompt} outpaintAmount={outpaintAmount} setOutpaintAmount={setOutpaintAmount} />
-        ) : editMode === EditMode.CROP ? (
-            <CropControls onCrop={onCrop} isLoading={isLoading} cropRectActive={cropRectActive} />
+        {isEditingMask ? (
+            <MaskingTools {...props} />
+        ) : isAdjustmentLayerActive && activeLayer.adjustments ? (
+            <AdjustmentControls 
+                adjustments={activeLayer.adjustments} 
+                onAdjustmentChange={onLayerAdjustmentChange}
+                onResetAdjustments={onResetLayerAdjustments}
+                onFilterChange={onLayerFilterChange}
+                isLoading={isLoading}
+            />
         ) : (
         <>
-            <div className={`${!isPixelLayerActive ? 'opacity-50' : ''}`}>
-                <label htmlFor="brush-size" className="block text-sm font-medium text-text-secondary mb-2 flex items-center gap-2"><BrushIcon/> Brush Options</label>
-                <div className="flex items-center gap-4">
-                    <input id="brush-size" type="range" min="5" max="100" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer" disabled={isLoading || !isPixelLayerActive} />
-                    {editMode === EditMode.SKETCH && (<input type="color" value={brushColor} onChange={(e) => setBrushColor(e.target.value)} className="w-10 h-10 p-1 bg-base-100 border border-base-300 rounded-md cursor-pointer" disabled={isLoading || !isPixelLayerActive} />)}
-                </div>
-                 {!isPixelLayerActive && <p className="text-xs text-text-secondary mt-1">Select a Pixel layer to draw.</p>}
-            </div>
-            {editMode === EditMode.SKETCH && (
-                <div className={`space-y-3 p-3 bg-base-200/50 rounded-md ${!isPixelLayerActive ? 'opacity-50' : ''}`}>
-                    <label className="block text-sm font-medium text-text-secondary">Clip Art Library</label>
-                    <div className="grid grid-cols-2 gap-2">
-                         <label htmlFor="clip-art-category" className="sr-only">Clip Art Category</label>
-                         <select id="clip-art-category" value={selectedClipArtCategoryName} onChange={(e) => setSelectedClipArtCategoryName(e.target.value)} className="col-span-2 w-full bg-base-100 border border-base-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-brand-secondary" disabled={isLoading || !isPixelLayerActive}>
-                             {clipArtCategories.map(cat => <option key={cat.name} value={cat.name}>{cat.name}</option>)}
-                         </select>
-                    </div>
-                    <div className="grid grid-cols-5 gap-2 max-h-32 overflow-y-auto p-1 bg-base-100 rounded">
-                        {selectedCategory?.shapes.map(shape => (
-                            <div key={shape.name} className={`aspect-square p-1 bg-base-200 rounded-md flex items-center justify-center ${isPixelLayerActive ? 'cursor-grab active:cursor-grabbing' : 'cursor-not-allowed'}`} title={shape.name}>
-                                <img src={shape.dataUrl} alt={shape.name} draggable={isPixelLayerActive} onDragStart={(e) => handleDragStart(e, shape)} className="max-w-full max-h-full" />
-                            </div>
-                        ))}
-                    </div>
-                     <div className="flex items-center gap-2">
-                        <input type="text" value={newShapeName} onChange={(e) => setNewShapeName(e.target.value)} placeholder="Name your sketch" className="flex-grow bg-base-100 border border-base-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-brand-secondary" disabled={isLoading || !isPixelLayerActive}/>
-                        <button onClick={handleSaveClick} disabled={isLoading || !newShapeName.trim() || !isPixelLayerActive} className="p-2 bg-brand-secondary text-white rounded-md disabled:opacity-50 transition" title="Save current sketch to Custom library"><SaveIcon /></button>
-                    </div>
-                </div>
-            )}
-            {editMode === EditMode.SKETCH && selectedShape && (
-                 <div className="space-y-3 p-3 bg-base-200/50 rounded-md">
-                    <label className="block text-sm font-medium text-text-secondary">Shape Properties</label>
-                     <button onClick={onDeleteSelectedShape} disabled={isLoading || !selectedShapeId} className="w-full flex items-center justify-center gap-2 p-2 bg-red-600 hover:bg-red-700 text-white rounded-md disabled:opacity-50 transition text-sm" title="Delete selected shape"><ClearIcon /> Delete</button>
-                </div>
-            )}
-            <div>
-                <label htmlFor="edit-prompt" className="block text-sm font-medium text-text-secondary mb-1">Editing Prompt</label>
-                <div className="relative">
-                    <textarea id="edit-prompt" rows={3} value={editPrompt} onChange={(e) => setEditPrompt(e.target.value)} placeholder={editMode === EditMode.MASK ? "e.g., Turn the masked area into a river" : "e.g., Add a red boat based on my sketch"} className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-secondary focus:border-brand-secondary transition text-text-primary pr-28" disabled={isLoading || randomizingPrompt === 'edit'} />
-                    <div className="absolute top-2 right-2 flex items-center space-x-1">
+          <div>
+              <label className="block text-sm font-medium text-text-secondary mb-2">Editing Mode</label>
+              <div className="grid grid-cols-4 gap-2">
+                  <button onClick={() => setEditMode(EditMode.MASK)} disabled={isLoading || !hasImage} className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md transition text-sm ${editMode === EditMode.MASK ? 'bg-brand-secondary text-white' : 'bg-base-100 hover:bg-base-300'}`}><MaskIcon /> Mask</button>
+                  <button onClick={() => setEditMode(EditMode.SKETCH)} disabled={isLoading || !hasImage} className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md transition text-sm ${editMode === EditMode.SKETCH ? 'bg-brand-secondary text-white' : 'bg-base-100 hover:bg-base-300'}`}><DrawIcon /> Sketch</button>
+                  <button onClick={() => setEditMode(EditMode.OUTPAINT)} disabled={isLoading || !hasImage} className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md transition text-sm ${editMode === EditMode.OUTPAINT ? 'bg-brand-secondary text-white' : 'bg-base-100 hover:bg-base-300'}`}><OutpaintIcon /> Outpaint</button>
+                  <button onClick={() => setEditMode(EditMode.CROP)} disabled={isLoading || !hasImage} className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md transition text-sm ${editMode === EditMode.CROP ? 'bg-brand-secondary text-white' : 'bg-base-100 hover:bg-base-300'}`}><CropIcon /> Crop</button>
+              </div>
+          </div>
+          
+          {editMode === EditMode.OUTPAINT ? (
+              <OutpaintControls onOutpaint={onOutpaint} isLoading={isLoading} outpaintPrompt={outpaintPrompt} setOutpaintPrompt={setOutpaintPrompt} outpaintAmount={outpaintAmount} setOutpaintAmount={setOutpaintAmount} />
+          ) : editMode === EditMode.CROP ? (
+              <CropControls onCrop={onCrop} isLoading={isLoading} cropRectActive={cropRectActive} />
+          ) : (
+          <>
+              <div className={`space-y-3 ${!isPixelLayerActive ? 'opacity-50' : ''}`}>
+                  <label htmlFor="brush-size" className="block text-sm font-medium text-text-secondary flex items-center gap-2"><BrushIcon/> Brush Options</label>
+                  <div className="flex items-center gap-4">
+                      <input id="brush-size" type="range" min="5" max="100" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer" disabled={isLoading || !isPixelLayerActive} />
+                      {editMode === EditMode.SKETCH && (<input type="color" value={brushColor} onChange={(e) => setBrushColor(e.target.value)} className="w-10 h-10 p-1 bg-base-100 border border-base-300 rounded-md cursor-pointer" disabled={isLoading || !isPixelLayerActive} />)}
+                  </div>
+                  {editMode === EditMode.SKETCH && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      {colorPresets.map(color => (
                         <button
-                            onClick={handleEditClear}
-                            disabled={isLoading || !editPrompt}
-                            className="p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-secondary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
-                            aria-label="Clear edit prompt"
-                            title="Clear edit prompt"
-                        >
-                            <CloseIcon />
-                        </button>
-                        <button
-                            onClick={handleEditCopy}
-                            disabled={isLoading || !editPrompt}
-                            className="p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-secondary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
-                            aria-label="Copy edit prompt"
-                            title={isEditPromptCopied ? 'Copied!' : 'Copy edit prompt'}
-                        >
-                            {isEditPromptCopied ? <CheckIcon /> : <CopyIcon />}
-                        </button>
-                        <button
-                            onClick={() => onRandomPrompt('edit')}
-                            disabled={isLoading || randomizingPrompt === 'edit'}
-                            className="p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-secondary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
-                            aria-label="Generate random edit prompt"
-                            title="Generate random edit prompt"
-                        >
-                            {randomizingPrompt === 'edit' ? <MiniLoader /> : <RandomIcon />}
-                        </button>
+                          key={color}
+                          onClick={() => setBrushColor(color)}
+                          className={`w-6 h-6 rounded-full border-2 transition-transform hover:scale-110 ${brushColor.toLowerCase() === color.toLowerCase() ? 'border-brand-secondary' : 'border-base-300/50'}`}
+                          style={{ backgroundColor: color }}
+                          aria-label={`Set brush color to ${color}`}
+                          disabled={isLoading || !isPixelLayerActive}
+                        />
+                      ))}
+                      <button 
+                        onClick={onAddColorPreset}
+                        className="w-6 h-6 rounded-full border-2 border-dashed border-base-300 flex items-center justify-center text-text-secondary hover:bg-base-300 disabled:opacity-50"
+                        aria-label="Save current color as preset"
+                        title="Save current color as preset"
+                        disabled={isLoading || !isPixelLayerActive || colorPresets.includes(brushColor) || colorPresets.length >= 12}
+                      >
+                        <AddIcon />
+                      </button>
                     </div>
-                </div>
-            </div>
-            <button onClick={onEdit} disabled={isLoading || !editPrompt} className="w-full flex items-center justify-center gap-2 bg-brand-secondary hover:bg-brand-secondary/80 disabled:bg-base-300 text-white font-bold py-2 px-4 rounded-md transition duration-200"><EditIcon /> Apply Edit</button>
+                  )}
+                  {!isPixelLayerActive && <p className="text-xs text-text-secondary mt-1">Select a Pixel layer to draw.</p>}
+              </div>
+              {editMode === EditMode.SKETCH && (
+                  <div className={`space-y-3 p-3 bg-base-200/50 rounded-md ${!isPixelLayerActive ? 'opacity-50' : ''}`}>
+                      <label className="block text-sm font-medium text-text-secondary">Clip Art Library</label>
+                      <div className="grid grid-cols-2 gap-2">
+                          <label htmlFor="clip-art-category" className="sr-only">Clip Art Category</label>
+                          <select id="clip-art-category" value={selectedClipArtCategoryName} onChange={(e) => setSelectedClipArtCategoryName(e.target.value)} className="col-span-2 w-full bg-base-100 border border-base-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-brand-secondary" disabled={isLoading || !isPixelLayerActive}>
+                              {clipArtCategories.map(cat => <option key={cat.name} value={cat.name}>{cat.name}</option>)}
+                          </select>
+                      </div>
+                      <div className="grid grid-cols-5 gap-2 max-h-32 overflow-y-auto p-1 bg-base-100 rounded">
+                          {selectedCategory?.shapes.map(shape => (
+                              <div key={shape.name} className={`aspect-square p-1 bg-base-200 rounded-md flex items-center justify-center ${isPixelLayerActive ? 'cursor-grab active:cursor-grabbing' : 'cursor-not-allowed'}`} title={shape.name}>
+                                  <img src={shape.dataUrl} alt={shape.name} draggable={isPixelLayerActive} onDragStart={(e) => handleDragStart(e, shape)} className="max-w-full max-h-full" />
+                              </div>
+                          ))}
+                      </div>
+                      <div className="flex items-center gap-2">
+                          <input type="text" value={newShapeName} onChange={(e) => setNewShapeName(e.target.value)} placeholder="Name your sketch" className="flex-grow bg-base-100 border border-base-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-brand-secondary" disabled={isLoading || !isPixelLayerActive}/>
+                          <button onClick={handleSaveClick} disabled={isLoading || !newShapeName.trim() || !isPixelLayerActive} className="p-2 bg-brand-secondary text-white rounded-md disabled:opacity-50 transition" title="Save current sketch to Custom library"><SaveIcon /></button>
+                      </div>
+                  </div>
+              )}
+              {editMode === EditMode.SKETCH && selectedShape && (
+                  <div className="space-y-3 p-3 bg-base-200/50 rounded-md">
+                      <label className="block text-sm font-medium text-text-secondary">Shape Properties</label>
+                      <button onClick={onDeleteSelectedShape} disabled={isLoading || !selectedShapeId} className="w-full flex items-center justify-center gap-2 p-2 bg-red-600 hover:bg-red-700 text-white rounded-md disabled:opacity-50 transition text-sm" title="Delete selected shape"><ClearIcon /> Delete</button>
+                  </div>
+              )}
+              <div>
+                  <label htmlFor="edit-prompt" className="block text-sm font-medium text-text-secondary mb-1">Editing Prompt</label>
+                  <div className="relative">
+                      <textarea id="edit-prompt" rows={3} value={editPrompt} onChange={(e) => setEditPrompt(e.target.value)} placeholder={editMode === EditMode.MASK ? "e.g., Turn the masked area into a river" : "e.g., Add a red boat based on my sketch"} className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-secondary focus:border-brand-secondary transition text-text-primary pr-28" disabled={isLoading || randomizingPrompt === 'edit'} />
+                      <div className="absolute top-2 right-2 flex items-center space-x-1">
+                          <button
+                              onClick={handleEditClear}
+                              disabled={isLoading || !editPrompt}
+                              className="p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-secondary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
+                              aria-label="Clear edit prompt"
+                              title="Clear edit prompt"
+                          >
+                              <CloseIcon />
+                          </button>
+                          <button
+                              onClick={handleEditCopy}
+                              disabled={isLoading || !editPrompt}
+                              className="p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-secondary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
+                              aria-label="Copy edit prompt"
+                              title={isEditPromptCopied ? 'Copied!' : 'Copy edit prompt'}
+                          >
+                              {isEditPromptCopied ? <CheckIcon /> : <CopyIcon />}
+                          </button>
+                          <button
+                              onClick={() => onRandomPrompt('edit')}
+                              disabled={isLoading || randomizingPrompt === 'edit'}
+                              className="p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-secondary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
+                              aria-label="Generate random edit prompt"
+                              title="Generate random edit prompt"
+                          >
+                              {randomizingPrompt === 'edit' ? <MiniLoader /> : <RandomIcon />}
+                          </button>
+                      </div>
+                  </div>
+              </div>
+              <button onClick={onEdit} disabled={isLoading || !editPrompt} className="w-full flex items-center justify-center gap-2 bg-brand-secondary hover:bg-brand-secondary/80 disabled:bg-base-300 text-white font-bold py-2 px-4 rounded-md transition duration-200"><EditIcon /> Apply Edit</button>
+          </>
+          )}
         </>
         )}
         
         <div className="grid grid-cols-3 gap-2 pt-4 border-t border-base-300">
-            <button onClick={onClear} disabled={isLoading || !isPixelLayerActive} className="w-full flex items-center justify-center gap-2 bg-base-300 hover:bg-base-300/80 disabled:bg-base-300/50 text-text-secondary font-bold py-2 px-4 rounded-md transition"><ClearIcon /> Clear Layer</button>
+            <button onClick={onClear} disabled={isLoading || (!isPixelLayerActive && !isEditingMask) } className="w-full flex items-center justify-center gap-2 bg-base-300 hover:bg-base-300/80 disabled:bg-base-300/50 text-text-secondary font-bold py-2 px-4 rounded-md transition"><ClearIcon /> Clear</button>
             <button onClick={onUndo} disabled={isLoading || !canUndo} className="w-full flex items-center justify-center gap-2 bg-base-300 hover:bg-base-300/80 disabled:bg-base-300/50 text-text-secondary font-bold py-2 px-4 rounded-md transition"><UndoIcon /> Undo</button>
             <button onClick={onReset} disabled={isLoading} className="w-full flex items-center justify-center gap-2 bg-base-300 hover:bg-base-300/80 disabled:bg-base-300/50 text-text-secondary font-bold py-2 px-4 rounded-md transition"><ResetIcon /> Reset All</button>
         </div>
     </div>
 )};
 
-const AdjustmentControls: React.FC<Pick<ControlPanelProps, 'adjustments' | 'onAdjustmentChange' | 'onResetAdjustments' | 'isLoading'>> = ({
-    adjustments, onAdjustmentChange, onResetAdjustments, isLoading
-}) => (
-    <div className="space-y-3 pt-4 border-t border-base-300">
-        <h3 className="text-md font-semibold text-text-primary">Adjustments</h3>
-        <div>
-            <label htmlFor="brightness" className="block text-sm font-medium text-text-secondary mb-1">
-                Brightness ({adjustments.brightness}%)
-            </label>
-            <input
-                id="brightness"
-                type="range"
-                min="50"
-                max="150"
-                value={adjustments.brightness}
-                onChange={(e) => onAdjustmentChange('brightness', parseInt(e.target.value, 10))}
-                disabled={isLoading}
-                className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer"
-            />
-        </div>
-        <div>
-            <label htmlFor="contrast" className="block text-sm font-medium text-text-secondary mb-1">
-                Contrast ({adjustments.contrast}%)
-            </label>
-            <input
-                id="contrast"
-                type="range"
-                min="50"
-                max="200"
-                value={adjustments.contrast}
-                onChange={(e) => onAdjustmentChange('contrast', parseInt(e.target.value, 10))}
-                disabled={isLoading}
-                className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer"
-            />
-        </div>
-        <div>
-            <label htmlFor="red" className="block text-sm font-medium text-text-secondary mb-1">
-                Red ({adjustments.red}%)
-            </label>
-            <input
-                id="red"
-                type="range"
-                min="0"
-                max="200"
-                value={adjustments.red}
-                onChange={(e) => onAdjustmentChange('red', parseInt(e.target.value, 10))}
-                disabled={isLoading}
-                className="w-full h-2 bg-red-500/50 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:bg-red-500"
-            />
-        </div>
-        <div>
-            <label htmlFor="green" className="block text-sm font-medium text-text-secondary mb-1">
-                Green ({adjustments.green}%)
-            </label>
-            <input
-                id="green"
-                type="range"
-                min="0"
-                max="200"
-                value={adjustments.green}
-                onChange={(e) => onAdjustmentChange('green', parseInt(e.target.value, 10))}
-                disabled={isLoading}
-                className="w-full h-2 bg-green-500/50 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:bg-green-500"
-            />
-        </div>
-        <div>
-            <label htmlFor="blue" className="block text-sm font-medium text-text-secondary mb-1">
-                Blue ({adjustments.blue}%)
-            </label>
-            <input
-                id="blue"
-                type="range"
-                min="0"
-                max="200"
-                value={adjustments.blue}
-                onChange={(e) => onAdjustmentChange('blue', parseInt(e.target.value, 10))}
-                disabled={isLoading}
-                className="w-full h-2 bg-blue-500/50 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:bg-blue-500"
-            />
-        </div>
-        <button
-            onClick={onResetAdjustments}
-            disabled={isLoading}
-            className="w-full flex items-center justify-center gap-2 bg-base-300 hover:bg-base-300/80 disabled:opacity-50 text-text-secondary font-bold py-2 px-3 rounded-md transition text-sm"
-        >
-            <ResetIcon /> Reset Adjustments
-        </button>
-    </div>
-);
-
-
-const FiltersTab: React.FC<Pick<ControlPanelProps, 'activeFilters' | 'onToggleFilter' | 'isLoading' | 'adjustments' | 'onAdjustmentChange' | 'onResetAdjustments'>> = (props) => {
-    const { activeFilters, onToggleFilter, isLoading } = props;
-    return (
-        <div className="flex flex-col space-y-4">
-            <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2">3. Apply Filters</h2>
-            <div>
-                <h3 className="text-md font-semibold text-text-primary mb-2">Presets</h3>
-                <div className="grid grid-cols-2 gap-2">
-                    {FILTERS.map(filter => {
-                        const isActive = activeFilters.some(af => af.name === filter.name);
-                        return (
-                            <button
-                                key={filter.name}
-                                onClick={() => onToggleFilter(filter)}
-                                disabled={isLoading}
-                                className={`py-2 px-3 rounded-md transition text-sm font-semibold text-center
-                                    ${isActive ? 'bg-brand-secondary text-white ring-2 ring-offset-2 ring-offset-base-200 ring-brand-secondary' : 'bg-base-100 hover:bg-base-300 text-text-secondary'}
-                                `}
-                            >
-                                {filter.name}
-                            </button>
-                        )
-                    })}
-                </div>
-            </div>
-            <AdjustmentControls {...props} />
-        </div>
-    );
-};
-
 const SettingsTab: React.FC<{
     onClearCustomShapes: () => void;
 }> = ({ onClearCustomShapes }) => {
 
     const handleClearClick = () => {
-        if (window.confirm("Are you sure you want to delete all your saved custom clip art? This action cannot be undone.")) {
+        if (window.confirm("Are you sure you want to delete all your saved custom clip art and colors? This action cannot be undone.")) {
             onClearCustomShapes();
         }
     };
@@ -710,11 +732,11 @@ const SettingsTab: React.FC<{
             <div className="p-3 bg-base-200/50 rounded-md">
                 <label className="block text-sm font-medium text-text-secondary">Manage Data</label>
                 <div className="mt-2 flex items-center justify-between">
-                    <p className="text-sm text-text-primary">Clear all saved custom clip art.</p>
+                    <p className="text-sm text-text-primary">Clear all saved custom data.</p>
                     <button 
                         onClick={handleClearClick}
                         className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-3 rounded-md transition text-sm">
-                        <ClearIcon /> Clear
+                        <ClearIcon /> Clear All
                     </button>
                 </div>
             </div>
@@ -742,10 +764,9 @@ export const ControlPanel: React.FC<ControlPanelProps> = (props) => {
         </button>
       </div>
 
-      <div className="grid grid-cols-4 gap-2 p-1 bg-base-100 rounded-lg">
+      <div className="grid grid-cols-3 gap-2 p-1 bg-base-100 rounded-lg">
         <TabButton label="Generate" icon={<GenerateIcon />} isActive={activeTab === 'generate'} onClick={() => setActiveTab('generate')} />
         <TabButton label="Edit" icon={<EditIcon />} isActive={activeTab === 'edit'} onClick={() => setActiveTab('edit')} disabled={!hasImage} />
-        <TabButton label="Filters" icon={<FilterIcon />} isActive={activeTab === 'filters'} onClick={() => setActiveTab('filters')} disabled={!hasImage} />
         <TabButton label="Settings" icon={<SettingsIcon />} isActive={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
       </div>
       
@@ -762,7 +783,6 @@ export const ControlPanel: React.FC<ControlPanelProps> = (props) => {
       <div className="p-4 bg-base-100/50 rounded-lg">
         {activeTab === 'generate' && <GenerateTab {...props} />}
         {activeTab === 'edit' && hasImage && <EditTab {...props} />}
-        {activeTab === 'filters' && hasImage && <FiltersTab {...props} />}
         {activeTab === 'settings' && <SettingsTab onClearCustomShapes={onClearCustomShapes} />}
       </div>
     </div>

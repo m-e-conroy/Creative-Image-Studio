@@ -4,11 +4,11 @@ import { ImageCanvas } from './components/ImageCanvas';
 import { generateImage, editImage, rewritePrompt, generateRandomPrompt, describeImage, getPromptSuggestions } from './services/geminiService';
 import { ImageCanvasMethods } from './components/ImageCanvas';
 import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, Stroke, ClipArtCategory, TechnicalModifier, ImageAdjustments, Layer, LayerType } from './types';
-import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, CLIP_ART_CATEGORIES, TECHNICAL_MODIFIERS } from './constants';
+import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, CLIP_ART_CATEGORIES, TECHNICAL_MODIFIERS, INITIAL_COLOR_PRESETS, DEFAULT_ADJUSTMENTS } from './constants';
 import { DownloadIcon, SettingsIcon } from './components/Icons';
 import { ImageGallery } from './components/ImageGallery';
 
-type Tab = 'generate' | 'edit' | 'filters' | 'settings';
+type Tab = 'generate' | 'edit' | 'settings';
 
 const findDefault = <T extends { name: string }>(arr: T[], name: string): T => arr.find(item => item.name === name) || arr[0];
 
@@ -33,10 +33,12 @@ const App: React.FC = () => {
   const [clipArtCategories, setClipArtCategories] = useState<ClipArtCategory[]>(CLIP_ART_CATEGORIES);
   const [selectedClipArtCategoryName, setSelectedClipArtCategoryName] = useState<string>(CLIP_ART_CATEGORIES[0].name);
 
-  // New Layer-based state
+  // Layer-based state
   const [layers, setLayers] = useState<Layer[]>([]);
   const [activeLayerId, setActiveLayerId] = useState<string | null>(null);
   const [history, setHistory] = useState<Layer[][]>([]);
+  const [isEditingMask, setIsEditingMask] = useState<boolean>(false);
+
 
   const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null);
   
@@ -48,8 +50,6 @@ const App: React.FC = () => {
   const [brushColor, setBrushColor] = useState<string>('#FFFFFF');
   
   const [activeTab, setActiveTab] = useState<Tab>('generate');
-  const [activeFilters, setActiveFilters] = useState<Filter[]>([FILTERS[0]]);
-  const [adjustments, setAdjustments] = useState<ImageAdjustments>({ brightness: 100, contrast: 100, red: 100, green: 100, blue: 100 });
   const [rewritingPrompt, setRewritingPrompt] = useState<PromptPart | null>(null);
   const [randomizingPrompt, setRandomizingPrompt] = useState<PromptPart | 'edit' | null>(null);
   const [cropRectActive, setCropRectActive] = useState<boolean>(false);
@@ -59,15 +59,16 @@ const App: React.FC = () => {
   const [suggestionsLoading, setSuggestionsLoading] = useState<PromptPart | null>(null);
 
   const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const [colorPresets, setColorPresets] = useState<string[]>(INITIAL_COLOR_PRESETS);
 
   const canvasRef = useRef<ImageCanvasMethods>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const canUndo = history.length > 1;
-  const hasImage = layers.length > 0;
+  const hasImage = layers.some(l => l.type === LayerType.IMAGE);
 
   useEffect(() => {
-    // Custom Clip Art loading logic (unchanged)
+    // Load custom clip art
     const categories = [...CLIP_ART_CATEGORIES];
     let customShapes: ClipArtShape[] = [];
     try {
@@ -80,6 +81,19 @@ const App: React.FC = () => {
       setSelectedClipArtCategoryName('Custom');
     }
     setClipArtCategories(categories);
+    
+    // Load custom color presets
+    try {
+      const savedColorsJSON = localStorage.getItem('colorPresets');
+      if (savedColorsJSON) {
+        const savedColors = JSON.parse(savedColorsJSON);
+        if (Array.isArray(savedColors) && savedColors.every(c => typeof c === 'string')) {
+          setColorPresets(savedColors);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load custom color presets:", e);
+    }
   }, []);
 
   const updateHistory = useCallback((newLayers: Layer[]) => {
@@ -100,6 +114,7 @@ const App: React.FC = () => {
     setImageDimensions(null);
     setActiveTab('generate');
     setHistory([]);
+    setIsEditingMask(false);
 
     try {
       const promptParts = [ prompt.subject, prompt.background ? `background of ${prompt.background}` : '', style.prompt, lighting.prompt, composition.prompt, technicalModifier.prompt ].filter(Boolean);
@@ -124,12 +139,13 @@ const App: React.FC = () => {
       setIsLoading(false);
       setLoadingMessage('');
     }
-  }, [prompt, style, aspectRatio, numImages, lighting, composition, technicalModifier]);
+  }, [prompt, style, aspectRatio, numImages, lighting, composition, technicalModifier, updateHistory]);
 
   const handleImageUpload = useCallback((file: File) => {
     setError(null);
     setGeneratedImages([]);
     setImageDimensions(null);
+    setIsEditingMask(false);
     const reader = new FileReader();
     reader.onload = async (e) => {
       const imageUrl = e.target?.result as string;
@@ -158,7 +174,7 @@ const App: React.FC = () => {
       }
     };
     reader.readAsDataURL(file);
-  }, []);
+  }, [updateHistory]);
 
   const handleSelectGalleryImage = useCallback((imageUrl: string) => {
     const newLayer: Layer = { id: `layer_${Date.now()}`, name: 'Background', type: LayerType.IMAGE, src: imageUrl, isVisible: true, opacity: 100 };
@@ -168,7 +184,8 @@ const App: React.FC = () => {
     setGeneratedImages([]);
     setActiveTab('edit');
     setImageDimensions(null);
-  }, []);
+    setIsEditingMask(false);
+  }, [updateHistory]);
 
   const handleEdit = useCallback(async () => {
     if (!editPrompt || !canvasRef.current) {
@@ -180,7 +197,7 @@ const App: React.FC = () => {
     setError(null);
     try {
       // Flatten visible layers to create a base image for editing
-      const flatImageData = canvasRef.current.getCanvasAsDataURL(true);
+      const flatImageData = canvasRef.current.getCanvasAsDataURL();
       if (!flatImageData) throw new Error("Could not get canvas data.");
 
       const [meta, data] = flatImageData.split(',');
@@ -205,6 +222,7 @@ const App: React.FC = () => {
         setLayers(newLayers);
         setActiveLayerId(newLayer.id);
         updateHistory(newLayers);
+        setIsEditingMask(false);
       } else {
          setError(result.text || 'The model did not return an image. Try a different prompt.');
       }
@@ -215,7 +233,7 @@ const App: React.FC = () => {
       setIsLoading(false);
       setLoadingMessage('');
     }
-  }, [editPrompt, editMode, layers]);
+  }, [editPrompt, editMode, layers, updateHistory]);
 
   const handleOutpaint = useCallback(async (direction: 'up' | 'down' | 'left' | 'right') => {
     if (!canvasRef.current) return;
@@ -223,17 +241,42 @@ const App: React.FC = () => {
     setLoadingMessage('Expanding the scene...');
     setError(null);
     try {
-      const { data, mimeType, maskData } = canvasRef.current.getExpandedCanvasData(direction, outpaintAmount);
+      const flatImageData = canvasRef.current.getCanvasAsDataURL();
+      if (!flatImageData) throw new Error("Could not get flattened canvas data.");
+
+      const { data, mimeType, maskData, pasteX, pasteY } = await canvasRef.current.getExpandedCanvasData(flatImageData, direction, outpaintAmount);
       const finalOutpaintPrompt = `The masked (white) area indicates new empty space to be filled. ${outpaintPrompt}`;
       const result = await editImage(data, mimeType, finalOutpaintPrompt, maskData);
       
       if (result.image) {
         const imageUrl = `data:image/png;base64,${result.image}`;
-        const newLayer: Layer = { id: `layer_${Date.now()}`, name: `Outpaint ${direction}`, type: LayerType.IMAGE, src: imageUrl, isVisible: true, opacity: 100 };
-        const newLayers = [newLayer]; // Start a new composition with the outpainted image
+        
+        // Create the new outpainted layer
+        const newBackgroundLayer: Layer = { id: `layer_${Date.now()}`, name: `Outpaint ${direction}`, type: LayerType.IMAGE, src: imageUrl, isVisible: true, opacity: 100 };
+        
+        // Translate existing layers to fit on the new canvas
+        const translatedLayers = layers.map(layer => {
+            if (layer.type === LayerType.PIXEL) {
+                const translatedStrokes = layer.strokes?.map(stroke => ({
+                    ...stroke,
+                    points: stroke.points.map(p => ({ x: p.x + pasteX, y: p.y + pasteY }))
+                }));
+                const translatedShapes = layer.placedShapes?.map(shape => ({
+                    ...shape,
+                    x: shape.x + pasteX,
+                    y: shape.y + pasteY
+                }));
+                return { ...layer, strokes: translatedStrokes, placedShapes: translatedShapes };
+            }
+            return layer;
+        });
+        
+        // Place the new outpainted layer at the bottom and the translated layers on top
+        const newLayers = [newBackgroundLayer, ...translatedLayers];
         setLayers(newLayers);
-        setActiveLayerId(newLayer.id);
+        setActiveLayerId(newLayers[newLayers.length - 1].id); // Keep active layer on top
         updateHistory(newLayers);
+        setIsEditingMask(false);
       } else {
          setError(result.text || 'The model could not expand the image. Please try again.');
       }
@@ -244,7 +287,7 @@ const App: React.FC = () => {
       setIsLoading(false);
       setLoadingMessage('');
     }
-  }, [outpaintPrompt, outpaintAmount]);
+  }, [outpaintPrompt, outpaintAmount, layers, updateHistory]);
 
   const handleCrop = useCallback(async () => {
     if (!canvasRef.current || !cropRectActive) return;
@@ -259,6 +302,7 @@ const App: React.FC = () => {
         setLayers(newLayers);
         setActiveLayerId(newLayer.id);
         updateHistory(newLayers);
+        setIsEditingMask(false);
       } else {
         throw new Error("Cropping failed to return image data.");
       }
@@ -270,24 +314,84 @@ const App: React.FC = () => {
       setLoadingMessage('');
       setCropRectActive(false);
     }
-  }, [cropRectActive]);
+  }, [cropRectActive, updateHistory]);
 
   // --- Layer Management ---
   const handleAddLayer = useCallback((type: LayerType) => {
+    const layerName = type === LayerType.PIXEL ? `Pixel Layer ${layers.filter(l => l.type === LayerType.PIXEL).length + 1}` : `Adjustment Layer ${layers.filter(l => l.type === LayerType.ADJUSTMENT).length + 1}`;
     const newLayer: Layer = {
       id: `layer_${Date.now()}`,
-      name: `Layer ${layers.length + 1}`,
+      name: layerName,
       type: type,
       isVisible: true,
       opacity: 100,
-      strokes: [],
-      placedShapes: [],
     };
+    if (type === LayerType.PIXEL) {
+        newLayer.strokes = [];
+        newLayer.placedShapes = [];
+    }
+    if (type === LayerType.ADJUSTMENT) {
+        newLayer.adjustments = { ...DEFAULT_ADJUSTMENTS };
+    }
     const newLayers = [...layers, newLayer];
     setLayers(newLayers);
     setActiveLayerId(newLayer.id);
     updateHistory(newLayers);
-  }, [layers]);
+    setIsEditingMask(false);
+  }, [layers, updateHistory]);
+
+  const handleLayerAdjustmentChange = useCallback((adjustment: keyof ImageAdjustments, value: number) => {
+    if (!activeLayerId) return;
+    setLayers(currentLayers => currentLayers.map(l => {
+      if (l.id === activeLayerId && l.type === LayerType.ADJUSTMENT) {
+        // Using a manual slider implies a custom filter, so 'None' is selected.
+        return { ...l, adjustments: { ...l.adjustments!, [adjustment]: value, filter: 'None' } };
+      }
+      return l;
+    }));
+  }, [activeLayerId]);
+
+  const handleLayerFilterChange = useCallback((filterName: string) => {
+    if (!activeLayerId) return;
+    setLayers(currentLayers => {
+        const newLayers = currentLayers.map(l => {
+          if (l.id === activeLayerId && l.type === LayerType.ADJUSTMENT) {
+            // When a preset is chosen, reset sliders to default and set the filter name
+            return { ...l, adjustments: { ...DEFAULT_ADJUSTMENTS, filter: filterName } };
+          }
+          return l;
+        });
+        updateHistory(newLayers);
+        return newLayers;
+    });
+  }, [activeLayerId, updateHistory]);
+
+  const handleResetLayerAdjustments = useCallback(() => {
+    if (!activeLayerId) return;
+     setLayers(currentLayers => {
+        const newLayers = currentLayers.map(l => {
+          if (l.id === activeLayerId && l.type === LayerType.ADJUSTMENT) {
+            return { ...l, adjustments: { ...DEFAULT_ADJUSTMENTS } };
+          }
+          return l;
+        });
+        updateHistory(newLayers);
+        return newLayers;
+    });
+  }, [activeLayerId, updateHistory]);
+
+
+  // FIX: Moved resetImage before handleDeleteLayer to fix ReferenceError.
+  const resetImage = useCallback(() => {
+    setLayers([]);
+    setActiveLayerId(null);
+    setHistory([]);
+    setEditPrompt('');
+    setImageDimensions(null);
+    setSelectedShapeId(null);
+    setIsEditingMask(false);
+    canvasRef.current?.clearCropSelection();
+  }, []);
 
   const handleDeleteLayer = useCallback((id: string) => {
     const newLayers = layers.filter(l => l.id !== id);
@@ -296,21 +400,29 @@ const App: React.FC = () => {
       // If the active layer was deleted, select the top-most one
       if (activeLayerId === id) {
         setActiveLayerId(newLayers[newLayers.length - 1].id);
+        setIsEditingMask(false);
       }
       updateHistory(newLayers);
     } else {
       resetImage(); // Reset if last layer is deleted
     }
-  }, [layers, activeLayerId]);
+  }, [layers, activeLayerId, updateHistory, resetImage]);
 
   const handleSelectLayer = useCallback((id: string) => {
     setActiveLayerId(id);
+    setIsEditingMask(false);
+  }, []);
+
+  const handleSelectLayerMask = useCallback((id: string) => {
+    setActiveLayerId(id);
+    setIsEditingMask(true);
+    setBrushColor('#000000'); // Default to black for masking
   }, []);
 
   const handleUpdateLayer = useCallback((id: string, updates: Partial<Layer>) => {
     const newLayers = layers.map(l => l.id === id ? { ...l, ...updates } : l);
     setLayers(newLayers);
-    updateHistory(newLayers);
+    // Do not add to history for continuous updates like opacity change
   }, [layers]);
 
   const handleReorderLayers = useCallback((dragId: string, dropId: string) => {
@@ -321,7 +433,35 @@ const App: React.FC = () => {
     newLayers.splice(dropIndex, 0, draggedItem);
     setLayers(newLayers);
     updateHistory(newLayers);
-  }, [layers]);
+  }, [layers, updateHistory]);
+
+  // --- Mask Management ---
+  const handleAddLayerMask = useCallback((layerId: string) => {
+    const whiteMask = canvasRef.current?.getCanvasAsDataURL(true, 'white');
+    if (!whiteMask) return;
+    const newLayers = layers.map(l => l.id === layerId ? { ...l, maskSrc: whiteMask, maskEnabled: true } : l);
+    setLayers(newLayers);
+    updateHistory(newLayers);
+    handleSelectLayerMask(layerId);
+  }, [layers, handleSelectLayerMask, updateHistory]);
+
+  const handleDeleteLayerMask = useCallback((layerId: string) => {
+    const newLayers = layers.map(l => {
+      if (l.id === layerId) {
+        const { maskSrc, maskEnabled, ...rest } = l;
+        return rest;
+      }
+      return l;
+    });
+    setLayers(newLayers);
+    updateHistory(newLayers);
+    setIsEditingMask(false);
+  }, [layers, updateHistory]);
+  
+  const handleUpdateLayerMask = useCallback((layerId: string, maskDataUrl: string) => {
+    // This updates without adding to history, as it's part of a continuous drawing action.
+    setLayers(currentLayers => currentLayers.map(l => l.id === layerId ? { ...l, maskSrc: maskDataUrl } : l));
+  }, []);
   
   // --- Undo/Reset ---
   const handleUndo = useCallback(() => {
@@ -335,34 +475,30 @@ const App: React.FC = () => {
     // If active layer doesn't exist in previous state, select the new top one
     if (previousState && !previousState.find(l => l.id === activeLayerId)) {
         setActiveLayerId(previousState[previousState.length - 1]?.id || null);
+        setIsEditingMask(false);
     }
   }, [history, canUndo, activeLayerId]);
   
   const clearCanvas = useCallback(() => {
     if (!activeLayerId) return;
     const newLayers = layers.map(l => {
-      if (l.id === activeLayerId && l.type === LayerType.PIXEL) {
-        return { ...l, strokes: [], placedShapes: [] };
+      if (l.id === activeLayerId) {
+        if (isEditingMask) {
+          const whiteMask = canvasRef.current?.getCanvasAsDataURL(true, 'white');
+          return { ...l, maskSrc: whiteMask };
+        } else if (l.type === LayerType.PIXEL) {
+          return { ...l, strokes: [], placedShapes: [] };
+        }
       }
       return l;
     });
     setLayers(newLayers);
     updateHistory(newLayers);
-    setSelectedShapeId(null);
+    if (!isEditingMask) {
+      setSelectedShapeId(null);
+    }
     canvasRef.current?.clearCropSelection();
-  }, [layers, activeLayerId]);
-
-  const resetImage = useCallback(() => {
-    setLayers([]);
-    setActiveLayerId(null);
-    setHistory([]);
-    setEditPrompt('');
-    setActiveFilters([FILTERS[0]]);
-    setAdjustments({ brightness: 100, contrast: 100, red: 100, green: 100, blue: 100 });
-    setImageDimensions(null);
-    setSelectedShapeId(null);
-    canvasRef.current?.clearCropSelection();
-  }, []);
+  }, [layers, activeLayerId, isEditingMask, updateHistory]);
 
   // --- Handlers passed to children that modify layer state ---
   const handleAddStroke = useCallback((stroke: Stroke) => {
@@ -387,7 +523,7 @@ const App: React.FC = () => {
     setLayers(newLayers);
     updateHistory(newLayers);
     setSelectedShapeId(newShape.id);
-  }, [layers, activeLayerId, brushColor]);
+  }, [layers, activeLayerId, brushColor, updateHistory]);
 
   const handleUpdateShape = useCallback((id: string, updates: Partial<Omit<PlacedShape, 'id'>>) => {
     if (!activeLayerId) return;
@@ -403,7 +539,7 @@ const App: React.FC = () => {
   
   const handleShapeInteractionEnd = useCallback(() => {
     updateHistory(layers);
-  }, [layers]);
+  }, [layers, updateHistory]);
 
   const handleStrokeInteractionEnd = useCallback((completedStroke: Stroke) => {
     if (!activeLayerId) return;
@@ -431,11 +567,21 @@ const App: React.FC = () => {
     setLayers(newLayers);
     updateHistory(newLayers);
     setSelectedShapeId(null);
-  }, [selectedShapeId, activeLayerId, layers]);
+  }, [selectedShapeId, activeLayerId, layers, updateHistory]);
 
 
   // --- Other handlers ---
-  // (Most of these are unchanged but kept for completeness)
+  const handleAddColorPreset = useCallback(() => {
+    if (!colorPresets.includes(brushColor) && colorPresets.length < 12) {
+      const newPresets = [...colorPresets, brushColor];
+      setColorPresets(newPresets);
+      try {
+        localStorage.setItem('colorPresets', JSON.stringify(newPresets));
+      } catch (e) {
+        console.error("Failed to save color presets:", e);
+      }
+    }
+  }, [brushColor, colorPresets]);
   const handleUploadClick = () => fileInputRef.current?.click();
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -444,7 +590,7 @@ const App: React.FC = () => {
   };
   const handleDownload = useCallback(() => {
     if (!canvasRef.current) return;
-    const dataUrl = canvasRef.current.getCanvasAsDataURL(false);
+    const dataUrl = canvasRef.current.getCanvasAsDataURL();
     if (dataUrl) {
       const link = document.createElement('a');
       link.href = dataUrl;
@@ -498,29 +644,17 @@ const App: React.FC = () => {
   const handleClearCustomShapes = useCallback(() => {
     try {
       localStorage.removeItem('userClipArtShapes');
+      localStorage.removeItem('colorPresets'); // Also clear color presets
       const defaultCategories = [...CLIP_ART_CATEGORIES];
       setClipArtCategories(defaultCategories);
       setSelectedClipArtCategoryName(defaultCategories[0].name);
+      setColorPresets(INITIAL_COLOR_PRESETS);
     } catch (e) {
-      console.error("Failed to clear custom shapes:", e);
-      setError("Could not clear custom shapes. There might be a browser issue.");
+      console.error("Failed to clear custom data:", e);
+      setError("Could not clear custom data. There might be a browser issue.");
     }
   }, []);
-  const handleToggleFilter = useCallback((filterToToggle: Filter) => {
-    setActiveFilters(prevFilters => {
-      if (filterToToggle.name === "None") return [FILTERS[0]];
-      const isAlreadyActive = prevFilters.some(f => f.name === filterToToggle.name);
-      let newFilters: Filter[];
-      if (isAlreadyActive) {
-        newFilters = prevFilters.filter(f => f.name !== filterToToggle.name);
-      } else {
-        newFilters = [...prevFilters.filter(f => f.name !== "None"), filterToToggle];
-      }
-      return newFilters.length === 0 ? [FILTERS[0]] : newFilters;
-    });
-  }, []);
-  const handleAdjustmentChange = (adjustment: keyof ImageAdjustments, value: number) => setAdjustments(prev => ({ ...prev, [adjustment]: value }));
-  const handleResetAdjustments = () => setAdjustments({ brightness: 100, contrast: 100, red: 100, green: 100, blue: 100 });
+
   const handlePromptChange = (part: PromptPart, value: string) => setPrompt(prev => ({ ...prev, [part]: value }));
 
   return (
@@ -541,14 +675,20 @@ const App: React.FC = () => {
             outpaintAmount={outpaintAmount} setOutpaintAmount={setOutpaintAmount} onCrop={handleCrop} cropRectActive={cropRectActive}
             onUploadClick={handleUploadClick} isLoading={isLoading} hasImage={hasImage} editMode={editMode} setEditMode={setEditMode}
             brushSize={brushSize} setBrushSize={setBrushSize} brushColor={brushColor} setBrushColor={setBrushColor} onClear={clearCanvas}
-            onReset={resetImage} onUndo={handleUndo} canUndo={canUndo} activeFilters={activeFilters} onToggleFilter={handleToggleFilter}
-            adjustments={adjustments} onAdjustmentChange={handleAdjustmentChange} onResetAdjustments={handleResetAdjustments}
+            onReset={resetImage} onUndo={handleUndo} canUndo={canUndo}
             clipArtCategories={clipArtCategories} selectedClipArtCategoryName={selectedClipArtCategoryName} setSelectedClipArtCategoryName={setSelectedClipArtCategoryName}
             onSaveShape={handleSaveShape} selectedShapeId={selectedShapeId} onDeleteSelectedShape={handleDeleteSelectedShape}
             onClearCustomShapes={handleClearCustomShapes}
+            colorPresets={colorPresets} onAddColorPreset={handleAddColorPreset}
             // Layer props
             layers={layers} activeLayerId={activeLayerId} onAddLayer={handleAddLayer} onDeleteLayer={handleDeleteLayer}
             onSelectLayer={handleSelectLayer} onUpdateLayer={handleUpdateLayer} onReorderLayers={handleReorderLayers}
+            onLayerAdjustmentChange={handleLayerAdjustmentChange} onResetLayerAdjustments={handleResetLayerAdjustments}
+            onLayerFilterChange={handleLayerFilterChange}
+            onInteractionEndWithHistory={() => updateHistory(layers)}
+            // Mask props
+            isEditingMask={isEditingMask} onSelectLayerMask={handleSelectLayerMask} onAddLayerMask={handleAddLayerMask}
+            onDeleteLayerMask={handleDeleteLayerMask}
           />
           {error && (<div className="bg-red-500/20 border border-red-500 text-red-300 p-3 rounded-md text-sm"><p className="font-semibold">Error</p><p>{error}</p></div>)}
         </aside>
@@ -568,12 +708,15 @@ const App: React.FC = () => {
                 ref={canvasRef}
                 layers={layers}
                 activeLayerId={activeLayerId}
+                isEditingMask={isEditingMask}
                 isLoading={isLoading} loadingMessage={loadingMessage} editMode={editMode} brushSize={brushSize} brushColor={brushColor}
-                activeFilters={activeFilters.map(f => f.value)} adjustments={adjustments} onUploadClick={handleUploadClick}
+                onUploadClick={handleUploadClick}
                 setCropRectActive={setCropRectActive} selectedShapeId={selectedShapeId} onAddStroke={handleAddStroke} onAddShape={handleAddShape}
                 onUpdateShape={handleUpdateShape} onSelectShape={setSelectedShapeId} onImageLoad={setImageDimensions}
                 onShapeInteractionEnd={handleShapeInteractionEnd}
                 onStrokeInteractionEnd={handleStrokeInteractionEnd}
+                onUpdateLayerMask={handleUpdateLayerMask}
+                onInteractionEndWithHistory={() => updateHistory(layers)}
               />
             )}
           </div>

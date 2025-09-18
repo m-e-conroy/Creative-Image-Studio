@@ -251,3 +251,28 @@ export const DeleteLayerIcon: React.FC = () => (
         <path fillRule="evenodd" d="M10 14a1 1 0 011 1v1h1a1 1 0 110 2h-1v1a1 1 0 11-2 0v-1H8a1 1 0 110-2h1v-1a1 1 0 011-1z" clipRule="evenodd" transform="rotate(45 12 16)" />
     </svg>
 );
+
+export const TrashIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+    </svg>
+);
+
+export const LayerMaskIcon: React.FC<{className?: string}> = ({className}) => (
+    <svg className={className} width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+            <mask id="hole">
+                <rect width="100%" height="100%" fill="white"/>
+                <circle cx="12" cy="12" r="6" fill="black"/>
+            </mask>
+        </defs>
+        <rect width="100%" height="100%" fill="currentColor" mask="url(#hole)"/>
+    </svg>
+);
+
+export const AdjustmentLayerIcon: React.FC<{className?: string}> = ({className}) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} viewBox="0 0 20 20" fill="currentColor">
+        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM2 10a8 8 0 1116 0 8 8 0 01-16 0z" clipRule="evenodd" />
+        <path d="M10 2a8 8 0 100 16V2z" />
+    </svg>
+);
