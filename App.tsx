@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { ControlPanel } from './components/ControlPanel';
 import { ImageCanvas } from './components/ImageCanvas';
@@ -288,10 +289,11 @@ const App: React.FC = () => {
         const imageUrl = `data:${mimeType};base64,${result.image}`;
         setMainImage(imageUrl);
         setHistory(prev => [...prev, imageUrl]);
-        if (canvasRef.current) {
-          canvasRef.current.clearDrawing();
+
+        // Persist the mask after editing, but clear sketches as they are now part of the image.
+        if (editMode === EditMode.SKETCH) {
+          clearInteractiveState();
         }
-        clearInteractiveState();
       } else {
          setError(result.text || 'The model did not return an image. Try a different prompt.');
       }
