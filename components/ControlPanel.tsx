@@ -38,6 +38,8 @@ interface ControlPanelProps {
   onOutpaint: (direction: 'up' | 'down' | 'left' | 'right') => void;
   outpaintPrompt: string;
   setOutpaintPrompt: (prompt: string) => void;
+  outpaintAmount: number;
+  setOutpaintAmount: (amount: number) => void;
   onCrop: () => void;
   cropRectActive: boolean;
   onUploadClick: () => void;
@@ -53,8 +55,8 @@ interface ControlPanelProps {
   onReset: () => void;
   onUndo: () => void;
   canUndo: boolean;
-  activeFilter: Filter;
-  setActiveFilter: (filter: Filter) => void;
+  activeFilters: Filter[];
+  onToggleFilter: (filter: Filter) => void;
   clipArtCategories: ClipArtCategory[];
   selectedClipArtCategoryName: string;
   setSelectedClipArtCategoryName: (name: string) => void;
@@ -314,7 +316,9 @@ const OutpaintControls: React.FC<{
     isLoading: boolean,
     outpaintPrompt: string,
     setOutpaintPrompt: (prompt: string) => void,
-}> = ({ onOutpaint, isLoading, outpaintPrompt, setOutpaintPrompt }) => {
+    outpaintAmount: number;
+    setOutpaintAmount: (amount: number) => void;
+}> = ({ onOutpaint, isLoading, outpaintPrompt, setOutpaintPrompt, outpaintAmount, setOutpaintAmount }) => {
     const [isCopied, setIsCopied] = useState(false);
 
     const handleCopy = () => {
@@ -332,6 +336,23 @@ const OutpaintControls: React.FC<{
     <div className="flex flex-col space-y-4">
         <p className="text-sm text-text-secondary text-center">Click a direction to expand the canvas. Describe what should fill the new space.</p>
         
+        <div>
+            <label htmlFor="outpaint-amount" className="block text-sm font-medium text-text-secondary mb-1">
+                Expansion Size ({outpaintAmount}%)
+            </label>
+            <input 
+                id="outpaint-amount" 
+                type="range" 
+                min="10" 
+                max="100" 
+                step="5"
+                value={outpaintAmount}
+                onChange={(e) => setOutpaintAmount(Number(e.target.value))}
+                className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer"
+                disabled={isLoading}
+            />
+        </div>
+
         <div>
             <label htmlFor="outpaint-prompt" className="block text-sm font-medium text-text-secondary mb-1">Outpainting Prompt</label>
             <div className="relative">
@@ -394,8 +415,8 @@ const CropControls: React.FC<{ onCrop: () => void, isLoading: boolean, cropRectA
 );
 
 
-const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' | 'editMode' | 'setEditMode' | 'brushSize' | 'setBrushSize' | 'brushColor' | 'setBrushColor' | 'onEdit' | 'onClear' | 'onReset' | 'onUndo' | 'canUndo' | 'isLoading' | 'onRandomPrompt' | 'randomizingPrompt' | 'onOutpaint' | 'outpaintPrompt' | 'setOutpaintPrompt' | 'onCrop' | 'cropRectActive' | 'clipArtCategories' | 'selectedClipArtCategoryName' | 'setSelectedClipArtCategoryName' | 'onSaveShape' | 'placedShapes' | 'selectedShapeId' | 'onUpdateShape' | 'onDeleteSelectedShape'>> = (props) => {
-    const { editPrompt, setEditPrompt, editMode, setEditMode, brushSize, setBrushSize, brushColor, setBrushColor, onEdit, onClear, onReset, onUndo, canUndo, isLoading, onRandomPrompt, randomizingPrompt, onOutpaint, outpaintPrompt, setOutpaintPrompt, onCrop, cropRectActive, clipArtCategories, selectedClipArtCategoryName, setSelectedClipArtCategoryName, onSaveShape, placedShapes, selectedShapeId, onUpdateShape, onDeleteSelectedShape } = props;
+const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' | 'editMode' | 'setEditMode' | 'brushSize' | 'setBrushSize' | 'brushColor' | 'setBrushColor' | 'onEdit' | 'onClear' | 'onReset' | 'onUndo' | 'canUndo' | 'isLoading' | 'onRandomPrompt' | 'randomizingPrompt' | 'onOutpaint' | 'outpaintPrompt' | 'setOutpaintPrompt' | 'outpaintAmount' | 'setOutpaintAmount' | 'onCrop' | 'cropRectActive' | 'clipArtCategories' | 'selectedClipArtCategoryName' | 'setSelectedClipArtCategoryName' | 'onSaveShape' | 'placedShapes' | 'selectedShapeId' | 'onUpdateShape' | 'onDeleteSelectedShape'>> = (props) => {
+    const { editPrompt, setEditPrompt, editMode, setEditMode, brushSize, setBrushSize, brushColor, setBrushColor, onEdit, onClear, onReset, onUndo, canUndo, isLoading, onRandomPrompt, randomizingPrompt, onOutpaint, outpaintPrompt, setOutpaintPrompt, outpaintAmount, setOutpaintAmount, onCrop, cropRectActive, clipArtCategories, selectedClipArtCategoryName, setSelectedClipArtCategoryName, onSaveShape, placedShapes, selectedShapeId, onUpdateShape, onDeleteSelectedShape } = props;
     const [newShapeName, setNewShapeName] = useState('');
     const [isEditPromptCopied, setIsEditPromptCopied] = useState(false);
 
@@ -450,7 +471,7 @@ const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' |
         </div>
         
         {editMode === EditMode.OUTPAINT ? (
-            <OutpaintControls onOutpaint={onOutpaint} isLoading={isLoading} outpaintPrompt={outpaintPrompt} setOutpaintPrompt={setOutpaintPrompt} />
+            <OutpaintControls onOutpaint={onOutpaint} isLoading={isLoading} outpaintPrompt={outpaintPrompt} setOutpaintPrompt={setOutpaintPrompt} outpaintAmount={outpaintAmount} setOutpaintAmount={setOutpaintAmount} />
         ) : editMode === EditMode.CROP ? (
             <CropControls onCrop={onCrop} isLoading={isLoading} cropRectActive={cropRectActive} />
         ) : (
@@ -547,24 +568,27 @@ const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' |
     </div>
 )};
 
-const FiltersTab: React.FC<Pick<ControlPanelProps, 'activeFilter' | 'setActiveFilter' | 'isLoading'>> = ({
-    activeFilter, setActiveFilter, isLoading
+const FiltersTab: React.FC<Pick<ControlPanelProps, 'activeFilters' | 'onToggleFilter' | 'isLoading'>> = ({
+    activeFilters, onToggleFilter, isLoading
 }) => (
     <div className="flex flex-col space-y-4">
          <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2">3. Apply Filters</h2>
          <div className="grid grid-cols-2 gap-2">
-            {FILTERS.map(filter => (
-                <button
-                    key={filter.name}
-                    onClick={() => setActiveFilter(filter)}
-                    disabled={isLoading}
-                    className={`py-2 px-3 rounded-md transition text-sm font-semibold text-center
-                        ${activeFilter.name === filter.name ? 'bg-brand-secondary text-white ring-2 ring-offset-2 ring-offset-base-200 ring-brand-secondary' : 'bg-base-100 hover:bg-base-300 text-text-secondary'}
-                    `}
-                >
-                    {filter.name}
-                </button>
-            ))}
+            {FILTERS.map(filter => {
+                const isActive = activeFilters.some(af => af.name === filter.name);
+                return (
+                    <button
+                        key={filter.name}
+                        onClick={() => onToggleFilter(filter)}
+                        disabled={isLoading}
+                        className={`py-2 px-3 rounded-md transition text-sm font-semibold text-center
+                            ${isActive ? 'bg-brand-secondary text-white ring-2 ring-offset-2 ring-offset-base-200 ring-brand-secondary' : 'bg-base-100 hover:bg-base-300 text-text-secondary'}
+                        `}
+                    >
+                        {filter.name}
+                    </button>
+                )
+            })}
          </div>
     </div>
 );

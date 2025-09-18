@@ -10,7 +10,7 @@ interface ImageCanvasProps {
   editMode: EditMode;
   brushSize: number;
   brushColor: string;
-  activeFilter: string;
+  activeFilters: string[];
   onUploadClick: () => void;
   setCropRectActive: (isActive: boolean) => void;
   // New props for interactive elements
@@ -48,7 +48,7 @@ interface InteractionState {
 
 export interface ImageCanvasMethods {
   getCanvasData: (editMode: EditMode) => CanvasData;
-  getExpandedCanvasData: (direction: 'up' | 'down' | 'left' | 'right') => { data: string; mimeType: string; maskData: string; };
+  getExpandedCanvasData: (direction: 'up' | 'down' | 'left' | 'right', amount: number) => { data: string; mimeType: string; maskData: string; };
   getCanvasAsDataURL: () => string;
   clearDrawing: () => void;
   applyCrop: () => string | null;
@@ -62,7 +62,7 @@ const ROTATION_HANDLE_OFFSET = 25;
 
 export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
   (props, ref) => {
-    const { imageSrc, isLoading, loadingMessage, editMode, brushSize, brushColor, activeFilter, onUploadClick, setCropRectActive, strokes, placedShapes, selectedShapeId, onAddStroke, onAddShape, onUpdateShape, onSelectShape, onImageLoad } = props;
+    const { imageSrc, isLoading, loadingMessage, editMode, brushSize, brushColor, activeFilters, onUploadClick, setCropRectActive, strokes, placedShapes, selectedShapeId, onAddStroke, onAddShape, onUpdateShape, onSelectShape, onImageLoad } = props;
     
     const mainCanvasRef = useRef<HTMLCanvasElement>(null);
     const interactionCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -307,7 +307,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         const data = tempCanvas.toDataURL(mimeType).split(',')[1];
         return { data, mimeType };
       },
-      getExpandedCanvasData: (direction: 'up' | 'down' | 'left' | 'right') => {
+      getExpandedCanvasData: (direction: 'up' | 'down' | 'left' | 'right', amount: number) => {
         const originalCanvas = mainCanvasRef.current;
         if (!originalCanvas) return { data: '', mimeType: '', maskData: '' };
 
@@ -315,7 +315,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         const MASK_BLUR_RADIUS = 8; // The softness of the mask edge
         const IMAGE_BLEED_PIXELS = 4; // How many pixels the original image bleeds into the new area
         
-        const EXPANSION_AMOUNT = Math.round(Math.min(originalCanvas.width, originalCanvas.height) * 0.5);
+        const EXPANSION_AMOUNT = Math.round(Math.min(originalCanvas.width, originalCanvas.height) * (amount / 100));
         
         const tempCanvas = document.createElement('canvas');
         const tempCtx = tempCanvas.getContext('2d');
@@ -400,7 +400,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         tempCanvas.height = originalCanvas.height;
         const tempCtx = tempCanvas.getContext('2d');
         if (tempCtx) {
-          tempCtx.filter = activeFilter || 'none';
+          tempCtx.filter = activeFilters.join(' ') || 'none';
           tempCtx.drawImage(originalCanvas, 0, 0);
           const interactionCanvas = interactionCanvasRef.current;
           if (interactionCanvas) tempCtx.drawImage(interactionCanvas, 0, 0);
@@ -734,6 +734,8 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         }
     }
 
+    const combinedFilter = activeFilters.join(' ');
+
     return (
       <div 
         className="w-full h-full bg-base-200 rounded-lg flex items-center justify-center relative overflow-hidden border-2 border-base-300"
@@ -771,7 +773,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         )}
         {imageSrc && (
           <>
-            <canvas ref={mainCanvasRef} style={{ filter: activeFilter || 'none', position: 'absolute' }} className="max-w-full max-h-full object-contain" />
+            <canvas ref={mainCanvasRef} style={{ filter: combinedFilter || 'none', position: 'absolute' }} className="max-w-full max-h-full object-contain" />
             <canvas
                 ref={interactionCanvasRef}
                 style={{ position: 'absolute', zIndex: 20, cursor: getCanvasCursorStyle() }}

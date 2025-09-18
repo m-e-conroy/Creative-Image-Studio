@@ -16,6 +16,7 @@ const App: React.FC = () => {
   const [prompt, setPrompt] = useState<PromptState>({ subject: '', background: '' });
   const [editPrompt, setEditPrompt] = useState<string>('');
   const [outpaintPrompt, setOutpaintPrompt] = useState<string>('Extend the scene seamlessly, matching the original image\'s style and lighting.');
+  const [outpaintAmount, setOutpaintAmount] = useState<number>(50); // New state for expansion size
   
   const [style, setStyle] = useState<ImageStyle>(() => findDefault(INITIAL_STYLES, "None"));
   const [lighting, setLighting] = useState<LightingStyle>(() => findDefault(LIGHTING_STYLES, "Default"));
@@ -50,7 +51,7 @@ const App: React.FC = () => {
   const [brushColor, setBrushColor] = useState<string>('#FFFFFF');
   
   const [activeTab, setActiveTab] = useState<Tab>('generate');
-  const [activeFilter, setActiveFilter] = useState<Filter>(FILTERS[0]);
+  const [activeFilters, setActiveFilters] = useState<Filter[]>([FILTERS[0]]);
   const [rewritingPrompt, setRewritingPrompt] = useState<PromptPart | null>(null);
   const [randomizingPrompt, setRandomizingPrompt] = useState<PromptPart | 'edit' | null>(null);
   const [cropRectActive, setCropRectActive] = useState<boolean>(false);
@@ -313,7 +314,7 @@ const App: React.FC = () => {
     setError(null);
     
     try {
-      const { data, mimeType, maskData } = canvasRef.current.getExpandedCanvasData(direction);
+      const { data, mimeType, maskData } = canvasRef.current.getExpandedCanvasData(direction, outpaintAmount);
       
       // Make the prompt more explicit to guide the model better.
       const finalOutpaintPrompt = `The masked (white) area indicates new empty space to be filled. ${outpaintPrompt}`;
@@ -334,7 +335,7 @@ const App: React.FC = () => {
       setIsLoading(false);
       setLoadingMessage('');
     }
-  }, [outpaintPrompt]);
+  }, [outpaintPrompt, outpaintAmount]);
 
   const handleCrop = useCallback(async () => {
     if (!canvasRef.current || !cropRectActive) return;
@@ -391,7 +392,7 @@ const App: React.FC = () => {
     setMainImage(originalImage);
     setHistory(originalImage ? [originalImage] : []);
     setEditPrompt('');
-    setActiveFilter(FILTERS[0]);
+    setActiveFilters([FILTERS[0]]);
     setImageDimensions(null);
     if (canvasRef.current) {
       canvasRef.current.clearDrawing();
@@ -462,6 +463,25 @@ const App: React.FC = () => {
         console.error("Failed to clear custom shapes:", e);
         setError("Could not clear custom shapes. There might be a browser issue.");
     }
+  }, []);
+
+  const handleToggleFilter = useCallback((filterToToggle: Filter) => {
+    setActiveFilters(prevFilters => {
+      if (filterToToggle.name === "None") {
+        return [FILTERS[0]];
+      }
+      const isAlreadyActive = prevFilters.some(f => f.name === filterToToggle.name);
+      let newFilters: Filter[];
+      if (isAlreadyActive) {
+        newFilters = prevFilters.filter(f => f.name !== filterToToggle.name);
+      } else {
+        newFilters = [...prevFilters.filter(f => f.name !== "None"), filterToToggle];
+      }
+      if (newFilters.length === 0) {
+        return [FILTERS[0]];
+      }
+      return newFilters;
+    });
   }, []);
 
   // Handlers for interactive shapes and strokes
@@ -551,6 +571,8 @@ const App: React.FC = () => {
             onOutpaint={handleOutpaint}
             outpaintPrompt={outpaintPrompt}
             setOutpaintPrompt={setOutpaintPrompt}
+            outpaintAmount={outpaintAmount}
+            setOutpaintAmount={setOutpaintAmount}
             onCrop={handleCrop}
             cropRectActive={cropRectActive}
             onUploadClick={handleUploadClick}
@@ -566,8 +588,8 @@ const App: React.FC = () => {
             onReset={resetImage}
             onUndo={handleUndo}
             canUndo={canUndo}
-            activeFilter={activeFilter}
-            setActiveFilter={setActiveFilter}
+            activeFilters={activeFilters}
+            onToggleFilter={handleToggleFilter}
             clipArtCategories={clipArtCategories}
             selectedClipArtCategoryName={selectedClipArtCategoryName}
             setSelectedClipArtCategoryName={setSelectedClipArtCategoryName}
@@ -614,7 +636,7 @@ const App: React.FC = () => {
                 editMode={editMode}
                 brushSize={brushSize}
                 brushColor={brushColor}
-                activeFilter={activeFilter.value}
+                activeFilters={activeFilters.map(f => f.value)}
                 onUploadClick={handleUploadClick}
                 setCropRectActive={setCropRectActive}
                 strokes={strokes}
