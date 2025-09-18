@@ -7,6 +7,11 @@ export enum EditMode {
   CROP = 'crop',
 }
 
+export enum LayerType {
+  IMAGE = 'image',
+  PIXEL = 'pixel',
+}
+
 export interface ImageStyle {
   name: string;
   prompt: string;
@@ -71,6 +76,18 @@ export interface PlacedShape {
   height: number;
   rotation: number; // in radians
   color: string; // hex string
+}
+
+export interface Layer {
+  id: string;
+  name: string;
+  type: LayerType;
+  isVisible: boolean;
+  opacity: number; // 0-100
+  // Content specific to layer type
+  src?: string; // For IMAGE layers
+  strokes?: Stroke[]; // For PIXEL layers
+  placedShapes?: PlacedShape[]; // For PIXEL layers
 }
 
 

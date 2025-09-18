@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, ClipArtCategory, TechnicalModifier, ImageAdjustments } from '../types';
+import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, ClipArtCategory, TechnicalModifier, ImageAdjustments, Layer, LayerType } from '../types';
 import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, TECHNICAL_MODIFIERS } from '../constants';
 import { BrushIcon, ClearIcon, DrawIcon, EditIcon, GenerateIcon, MaskIcon, ResetIcon, FilterIcon, RewriteIcon, RandomIcon, UploadIcon, OutpaintIcon, ArrowUpIcon, ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon, CropIcon, IdeaIcon, UndoIcon, SaveIcon, RotateIcon, SettingsIcon, CloseIcon, CopyIcon, CheckIcon, LogoIcon } from './Icons';
 import { ThemeSwitcher } from './ThemeSwitcher';
+import { LayersPanel } from './LayersPanel';
 
 type Tab = 'generate' | 'edit' | 'filters' | 'settings';
 
@@ -65,11 +66,17 @@ interface ControlPanelProps {
   selectedClipArtCategoryName: string;
   setSelectedClipArtCategoryName: (name: string) => void;
   onSaveShape: (name: string) => void;
-  placedShapes: PlacedShape[];
   selectedShapeId: string | null;
-  onUpdateShape: (id: string, updates: Partial<Omit<PlacedShape, 'id'>>) => void;
   onDeleteSelectedShape: () => void;
   onClearCustomShapes: () => void;
+  // Layer props
+  layers: Layer[];
+  activeLayerId: string | null;
+  onAddLayer: (type: LayerType) => void;
+  onDeleteLayer: (id: string) => void;
+  onSelectLayer: (id: string) => void;
+  onUpdateLayer: (id: string, updates: Partial<Layer>) => void;
+  onReorderLayers: (dragId: string, dropId: string) => void;
 }
 
 const useDebounce = <T,>(value: T, delay: number): T => {
@@ -419,12 +426,13 @@ const CropControls: React.FC<{ onCrop: () => void, isLoading: boolean, cropRectA
 );
 
 
-const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' | 'editMode' | 'setEditMode' | 'brushSize' | 'setBrushSize' | 'brushColor' | 'setBrushColor' | 'onEdit' | 'onClear' | 'onReset' | 'onUndo' | 'canUndo' | 'isLoading' | 'onRandomPrompt' | 'randomizingPrompt' | 'onOutpaint' | 'outpaintPrompt' | 'setOutpaintPrompt' | 'outpaintAmount' | 'setOutpaintAmount' | 'onCrop' | 'cropRectActive' | 'clipArtCategories' | 'selectedClipArtCategoryName' | 'setSelectedClipArtCategoryName' | 'onSaveShape' | 'placedShapes' | 'selectedShapeId' | 'onUpdateShape' | 'onDeleteSelectedShape'>> = (props) => {
-    const { editPrompt, setEditPrompt, editMode, setEditMode, brushSize, setBrushSize, brushColor, setBrushColor, onEdit, onClear, onReset, onUndo, canUndo, isLoading, onRandomPrompt, randomizingPrompt, onOutpaint, outpaintPrompt, setOutpaintPrompt, outpaintAmount, setOutpaintAmount, onCrop, cropRectActive, clipArtCategories, selectedClipArtCategoryName, setSelectedClipArtCategoryName, onSaveShape, placedShapes, selectedShapeId, onUpdateShape, onDeleteSelectedShape } = props;
+const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' | 'editMode' | 'setEditMode' | 'brushSize' | 'setBrushSize' | 'brushColor' | 'setBrushColor' | 'onEdit' | 'onClear' | 'onReset' | 'onUndo' | 'canUndo' | 'isLoading' | 'onRandomPrompt' | 'randomizingPrompt' | 'onOutpaint' | 'outpaintPrompt' | 'setOutpaintPrompt' | 'outpaintAmount' | 'setOutpaintAmount' | 'onCrop' | 'cropRectActive' | 'clipArtCategories' | 'selectedClipArtCategoryName' | 'setSelectedClipArtCategoryName' | 'onSaveShape' | 'selectedShapeId' | 'onDeleteSelectedShape' | 'layers' | 'activeLayerId' | 'onAddLayer' | 'onDeleteLayer' | 'onSelectLayer' | 'onUpdateLayer' | 'onReorderLayers'>> = (props) => {
+    const { editPrompt, setEditPrompt, editMode, setEditMode, brushSize, setBrushSize, brushColor, setBrushColor, onEdit, onClear, onReset, onUndo, canUndo, isLoading, onRandomPrompt, randomizingPrompt, onOutpaint, outpaintPrompt, setOutpaintPrompt, outpaintAmount, setOutpaintAmount, onCrop, cropRectActive, clipArtCategories, selectedClipArtCategoryName, setSelectedClipArtCategoryName, onSaveShape, selectedShapeId, onDeleteSelectedShape } = props;
     const [newShapeName, setNewShapeName] = useState('');
     const [isEditPromptCopied, setIsEditPromptCopied] = useState(false);
 
-    const selectedShape = selectedShapeId ? placedShapes.find(s => s.id === selectedShapeId) : null;
+    const activeLayer = props.layers.find(l => l.id === props.activeLayerId);
+    const selectedShape = activeLayer?.type === LayerType.PIXEL ? activeLayer.placedShapes?.find(s => s.id === selectedShapeId) : null;
     const selectedCategory = clipArtCategories.find(c => c.name === selectedClipArtCategoryName);
 
     const handleSaveClick = () => {
@@ -437,18 +445,7 @@ const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' |
     const handleDragStart = (e: React.DragEvent<HTMLImageElement>, shape: ClipArtShape) => {
         e.dataTransfer.setData('text/plain', shape.dataUrl);
     };
-
-    const handleRotationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (!selectedShape) return;
-        const degrees = Number(e.target.value);
-        onUpdateShape(selectedShape.id, { rotation: degrees * (Math.PI / 180) });
-    };
-
-    const handleColorChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (!selectedShape) return;
-        onUpdateShape(selectedShape.id, { color: e.target.value });
-    }
-
+    
     const handleEditCopy = () => {
         navigator.clipboard.writeText(editPrompt).then(() => {
             setIsEditPromptCopied(true);
@@ -460,10 +457,14 @@ const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' |
         setEditPrompt('');
     };
 
+    const isPixelLayerActive = activeLayer?.type === LayerType.PIXEL;
 
     return (
     <div className="flex flex-col space-y-4">
         <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2">2. Edit Your Creation</h2>
+
+        <LayersPanel {...props} />
+
         <div>
             <label className="block text-sm font-medium text-text-secondary mb-2">Editing Mode</label>
             <div className="grid grid-cols-4 gap-2">
@@ -480,49 +481,40 @@ const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' |
             <CropControls onCrop={onCrop} isLoading={isLoading} cropRectActive={cropRectActive} />
         ) : (
         <>
-            <div>
+            <div className={`${!isPixelLayerActive ? 'opacity-50' : ''}`}>
                 <label htmlFor="brush-size" className="block text-sm font-medium text-text-secondary mb-2 flex items-center gap-2"><BrushIcon/> Brush Options</label>
                 <div className="flex items-center gap-4">
-                    <input id="brush-size" type="range" min="5" max="100" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer" disabled={isLoading} />
-                    {editMode === EditMode.SKETCH && (<input type="color" value={brushColor} onChange={(e) => setBrushColor(e.target.value)} className="w-10 h-10 p-1 bg-base-100 border border-base-300 rounded-md cursor-pointer" disabled={isLoading} />)}
+                    <input id="brush-size" type="range" min="5" max="100" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer" disabled={isLoading || !isPixelLayerActive} />
+                    {editMode === EditMode.SKETCH && (<input type="color" value={brushColor} onChange={(e) => setBrushColor(e.target.value)} className="w-10 h-10 p-1 bg-base-100 border border-base-300 rounded-md cursor-pointer" disabled={isLoading || !isPixelLayerActive} />)}
                 </div>
+                 {!isPixelLayerActive && <p className="text-xs text-text-secondary mt-1">Select a Pixel layer to draw.</p>}
             </div>
             {editMode === EditMode.SKETCH && (
-                <div className="space-y-3 p-3 bg-base-200/50 rounded-md">
+                <div className={`space-y-3 p-3 bg-base-200/50 rounded-md ${!isPixelLayerActive ? 'opacity-50' : ''}`}>
                     <label className="block text-sm font-medium text-text-secondary">Clip Art Library</label>
                     <div className="grid grid-cols-2 gap-2">
                          <label htmlFor="clip-art-category" className="sr-only">Clip Art Category</label>
-                         <select id="clip-art-category" value={selectedClipArtCategoryName} onChange={(e) => setSelectedClipArtCategoryName(e.target.value)} className="col-span-2 w-full bg-base-100 border border-base-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-brand-secondary" disabled={isLoading}>
+                         <select id="clip-art-category" value={selectedClipArtCategoryName} onChange={(e) => setSelectedClipArtCategoryName(e.target.value)} className="col-span-2 w-full bg-base-100 border border-base-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-brand-secondary" disabled={isLoading || !isPixelLayerActive}>
                              {clipArtCategories.map(cat => <option key={cat.name} value={cat.name}>{cat.name}</option>)}
                          </select>
                     </div>
                     <div className="grid grid-cols-5 gap-2 max-h-32 overflow-y-auto p-1 bg-base-100 rounded">
                         {selectedCategory?.shapes.map(shape => (
-                            <div key={shape.name} className="aspect-square p-1 bg-base-200 rounded-md flex items-center justify-center cursor-grab active:cursor-grabbing" title={shape.name}>
-                                <img src={shape.dataUrl} alt={shape.name} draggable="true" onDragStart={(e) => handleDragStart(e, shape)} className="max-w-full max-h-full" />
+                            <div key={shape.name} className={`aspect-square p-1 bg-base-200 rounded-md flex items-center justify-center ${isPixelLayerActive ? 'cursor-grab active:cursor-grabbing' : 'cursor-not-allowed'}`} title={shape.name}>
+                                <img src={shape.dataUrl} alt={shape.name} draggable={isPixelLayerActive} onDragStart={(e) => handleDragStart(e, shape)} className="max-w-full max-h-full" />
                             </div>
                         ))}
                     </div>
                      <div className="flex items-center gap-2">
-                        <input type="text" value={newShapeName} onChange={(e) => setNewShapeName(e.target.value)} placeholder="Name your sketch" className="flex-grow bg-base-100 border border-base-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-brand-secondary" disabled={isLoading}/>
-                        <button onClick={handleSaveClick} disabled={isLoading || !newShapeName.trim()} className="p-2 bg-brand-secondary text-white rounded-md disabled:opacity-50 transition" title="Save current sketch to Custom library"><SaveIcon /></button>
+                        <input type="text" value={newShapeName} onChange={(e) => setNewShapeName(e.target.value)} placeholder="Name your sketch" className="flex-grow bg-base-100 border border-base-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-brand-secondary" disabled={isLoading || !isPixelLayerActive}/>
+                        <button onClick={handleSaveClick} disabled={isLoading || !newShapeName.trim() || !isPixelLayerActive} className="p-2 bg-brand-secondary text-white rounded-md disabled:opacity-50 transition" title="Save current sketch to Custom library"><SaveIcon /></button>
                     </div>
                 </div>
             )}
             {editMode === EditMode.SKETCH && selectedShape && (
                  <div className="space-y-3 p-3 bg-base-200/50 rounded-md">
                     <label className="block text-sm font-medium text-text-secondary">Shape Properties</label>
-                    <div className="grid grid-cols-2 gap-4 items-center">
-                        <div className="flex items-center gap-2">
-                            <label htmlFor="shape-color" className="text-sm">Color:</label>
-                            <input id="shape-color" type="color" value={selectedShape.color} onChange={handleColorChange} className="w-10 h-10 p-1 bg-base-100 border border-base-300 rounded-md cursor-pointer" disabled={isLoading} />
-                        </div>
-                        <button onClick={onDeleteSelectedShape} disabled={isLoading || !selectedShapeId} className="w-full flex items-center justify-center gap-2 p-2 bg-red-600 hover:bg-red-700 text-white rounded-md disabled:opacity-50 transition text-sm" title="Delete selected shape"><ClearIcon /> Delete</button>
-                    </div>
-                    <div>
-                       <label htmlFor="shape-rotation" className="block text-sm font-medium text-text-secondary mb-1 flex items-center gap-2"><RotateIcon /> Rotation ({Math.round(selectedShape.rotation * 180 / Math.PI)}°)</label>
-                       <input id="shape-rotation" type="range" min="-180" max="180" value={Math.round(selectedShape.rotation * 180 / Math.PI)} onChange={handleRotationChange} className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer" disabled={isLoading} />
-                    </div>
+                     <button onClick={onDeleteSelectedShape} disabled={isLoading || !selectedShapeId} className="w-full flex items-center justify-center gap-2 p-2 bg-red-600 hover:bg-red-700 text-white rounded-md disabled:opacity-50 transition text-sm" title="Delete selected shape"><ClearIcon /> Delete</button>
                 </div>
             )}
             <div>
@@ -565,9 +557,9 @@ const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' |
         )}
         
         <div className="grid grid-cols-3 gap-2 pt-4 border-t border-base-300">
-            <button onClick={onClear} disabled={isLoading} className="w-full flex items-center justify-center gap-2 bg-base-300 hover:bg-base-300/80 disabled:bg-base-300/50 text-text-secondary font-bold py-2 px-4 rounded-md transition"><ClearIcon /> Clear</button>
+            <button onClick={onClear} disabled={isLoading || !isPixelLayerActive} className="w-full flex items-center justify-center gap-2 bg-base-300 hover:bg-base-300/80 disabled:bg-base-300/50 text-text-secondary font-bold py-2 px-4 rounded-md transition"><ClearIcon /> Clear Layer</button>
             <button onClick={onUndo} disabled={isLoading || !canUndo} className="w-full flex items-center justify-center gap-2 bg-base-300 hover:bg-base-300/80 disabled:bg-base-300/50 text-text-secondary font-bold py-2 px-4 rounded-md transition"><UndoIcon /> Undo</button>
-            <button onClick={onReset} disabled={isLoading} className="w-full flex items-center justify-center gap-2 bg-base-300 hover:bg-base-300/80 disabled:bg-base-300/50 text-text-secondary font-bold py-2 px-4 rounded-md transition"><ResetIcon /> Reset</button>
+            <button onClick={onReset} disabled={isLoading} className="w-full flex items-center justify-center gap-2 bg-base-300 hover:bg-base-300/80 disabled:bg-base-300/50 text-text-secondary font-bold py-2 px-4 rounded-md transition"><ResetIcon /> Reset All</button>
         </div>
     </div>
 )};

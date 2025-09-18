@@ -1,10 +1,11 @@
 import React, { useRef, useEffect, useState, useImperativeHandle, forwardRef, useCallback } from 'react';
-import { EditMode, PlacedShape, Stroke, Point, CanvasData, ImageAdjustments } from '../types';
+import { EditMode, PlacedShape, Stroke, Point, ImageAdjustments, Layer, LayerType } from '../types';
 import { Loader } from './Loader';
 import { UploadIcon } from './Icons';
 
 interface ImageCanvasProps {
-  imageSrc: string | null;
+  layers: Layer[];
+  activeLayerId: string | null;
   isLoading: boolean;
   loadingMessage: string;
   editMode: EditMode;
@@ -14,16 +15,14 @@ interface ImageCanvasProps {
   adjustments: ImageAdjustments;
   onUploadClick: () => void;
   setCropRectActive: (isActive: boolean) => void;
-  // New props for interactive elements
-  strokes: Stroke[];
-  placedShapes: PlacedShape[];
   selectedShapeId: string | null;
   onAddStroke: (stroke: Stroke) => void;
   onAddShape: (shape: Omit<PlacedShape, 'id' | 'rotation' | 'color'>) => void;
   onUpdateShape: (id: string, updates: Partial<Omit<PlacedShape, 'id'>>) => void;
   onSelectShape: (id: string | null) => void;
-  // New props for image dimensions
   onImageLoad: (dimensions: { width: number; height: number; }) => void;
+  onStrokeInteractionEnd: (stroke: Stroke) => void;
+  onShapeInteractionEnd: () => void;
 }
 
 interface Rect { x: number; y: number; width: number; height: number; }
@@ -31,30 +30,23 @@ type InteractionMode = 'idle' | 'drawing' | 'cropping' | 'moving' | 'resizing' |
 type ResizeHandle = 'tl' | 'tr' | 'bl' | 'br';
 type Handle = ResizeHandle | 'rotate';
 
-
 interface InteractionState {
   mode: InteractionMode;
   startPoint?: Point;
-  // for moving
   shapeStart?: PlacedShape;
-  // for resizing
   handle?: Handle;
   originalShape?: PlacedShape;
-  // for rotating
   shapeCenter?: Point;
   startAngle?: number;
-  // for drawing
   currentStroke?: Stroke;
 }
 
 export interface ImageCanvasMethods {
-  getCanvasData: (editMode: EditMode) => CanvasData;
+  getCanvasAsDataURL: (ignoreFilters?: boolean) => string | null;
+  getMaskData: () => string | null;
   getExpandedCanvasData: (direction: 'up' | 'down' | 'left' | 'right', amount: number) => { data: string; mimeType: string; maskData: string; };
-  getCanvasAsDataURL: () => string;
-  clearDrawing: () => void;
   applyCrop: () => string | null;
   clearCropSelection: () => void;
-  getDrawingAsDataURL: (strokes: Stroke[]) => string | null;
 }
 
 const HANDLE_SIZE = 10;
@@ -63,763 +55,509 @@ const ROTATION_HANDLE_OFFSET = 25;
 
 export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
   (props, ref) => {
-    const { imageSrc, isLoading, loadingMessage, editMode, brushSize, brushColor, activeFilters, adjustments, onUploadClick, setCropRectActive, strokes, placedShapes, selectedShapeId, onAddStroke, onAddShape, onUpdateShape, onSelectShape, onImageLoad } = props;
+    const { layers, activeLayerId, isLoading, loadingMessage, editMode, brushSize, brushColor, activeFilters, adjustments, onUploadClick, setCropRectActive, selectedShapeId, onAddStroke, onAddShape, onUpdateShape, onSelectShape, onImageLoad, onStrokeInteractionEnd, onShapeInteractionEnd } = props;
     
     const mainCanvasRef = useRef<HTMLCanvasElement>(null);
     const interactionCanvasRef = useRef<HTMLCanvasElement>(null);
-    const [cursorPos, setCursorPos] = useState<Point | null>(null);
-    const [canvasCursorPos, setCanvasCursorPos] = useState<Point | null>(null);
-    const [isMouseOver, setIsMouseOver] = useState(false);
-
-    // Cropping state
-    const [cropRect, setCropRect] = useState<Rect | null>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
     
-    // Interaction state
-    const interaction = useRef<InteractionState>({ mode: 'idle' });
-    const loadedImages = useRef<Map<string, HTMLImageElement>>(new Map());
-    const colorizedImageCache = useRef<Map<string, HTMLCanvasElement>>(new Map());
+    const offscreenCanvasesRef = useRef<Map<string, { canvas: HTMLCanvasElement, image?: HTMLImageElement, dirty: boolean }>>(new Map());
+    const interactionStateRef = useRef<InteractionState>({ mode: 'idle' });
+    const cropRectRef = useRef<Rect | null>(null);
+    const lastDrawnLayerState = useRef<string | null>(null);
 
+    const getCanvas = () => mainCanvasRef.current;
+    const getCtx = () => getCanvas()?.getContext('2d');
+    const getInteractionCanvas = () => interactionCanvasRef.current;
+    const getInteractionCtx = () => getInteractionCanvas()?.getContext('2d');
 
-    const MASK_COLOR = 'rgba(79, 70, 229, 0.5)';
-    const svgFilterId = "rgb-color-matrix";
-
-    const getCanvasContext = useCallback((canvasRef: React.RefObject<HTMLCanvasElement>) => {
-      const canvas = canvasRef.current;
-      return canvas ? canvas.getContext('2d', { willReadFrequently: true }) : null;
-    }, []);
-    
-    // Preload original shape images
-    useEffect(() => {
-        const allShapes = [...placedShapes.map(s => s.dataUrl)];
-        allShapes.forEach(dataUrl => {
-            if (!loadedImages.current.has(dataUrl)) {
-                const img = new Image();
-                img.src = dataUrl;
-                img.onload = () => {
-                    loadedImages.current.set(dataUrl, img);
-                    redrawInteractionCanvas(); // Redraw once image is ready for colorization
-                };
-            }
-        });
-    }, [placedShapes]);
-
-    // Create colorized versions of shapes when they change
-    useEffect(() => {
-      let needsRedraw = false;
-      placedShapes.forEach(shape => {
-          const originalImg = loadedImages.current.get(shape.dataUrl);
-          if (originalImg?.complete) {
-              const cacheKey = `${shape.id}_${shape.color}`;
-              if (!colorizedImageCache.current.has(cacheKey)) {
-                  const tempCanvas = document.createElement('canvas');
-                  tempCanvas.width = originalImg.naturalWidth;
-                  tempCanvas.height = originalImg.naturalHeight;
-                  const tempCtx = tempCanvas.getContext('2d');
-                  if (tempCtx) {
-                      tempCtx.drawImage(originalImg, 0, 0);
-                      tempCtx.globalCompositeOperation = 'source-in';
-                      tempCtx.fillStyle = shape.color;
-                      tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-                      colorizedImageCache.current.set(cacheKey, tempCanvas);
-                      needsRedraw = true;
-                  }
-              }
-          }
-      });
-      if (needsRedraw) {
-          redrawInteractionCanvas();
-      }
-    }, [placedShapes]);
-    
-    const drawStroke = (ctx: CanvasRenderingContext2D, stroke: Stroke) => {
-        if (stroke.points.length < 2) return;
-        ctx.beginPath();
-        ctx.strokeStyle = stroke.color;
-        ctx.lineWidth = stroke.size;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
-        for (let i = 1; i < stroke.points.length; i++) {
-            ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
-        }
-        ctx.stroke();
-    };
-    
-    const drawShape = (ctx: CanvasRenderingContext2D, shape: PlacedShape) => {
-        const cacheKey = `${shape.id}_${shape.color}`;
-        const colorizedCanvas = colorizedImageCache.current.get(cacheKey);
-        if (colorizedCanvas) {
-            ctx.save();
-            ctx.translate(shape.x + shape.width / 2, shape.y + shape.height / 2);
-            ctx.rotate(shape.rotation);
-            ctx.drawImage(colorizedCanvas, -shape.width / 2, -shape.height / 2, shape.width, shape.height);
-            ctx.restore();
-        }
-    };
-    
-    const drawSelectionBox = (ctx: CanvasRenderingContext2D, shape: PlacedShape) => {
-        ctx.save();
-        ctx.translate(shape.x + shape.width / 2, shape.y + shape.height / 2);
-        ctx.rotate(shape.rotation);
-        
-        ctx.strokeStyle = '#2f9fd0';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(-shape.width / 2, -shape.height / 2, shape.width, shape.height);
-        
-        ctx.fillStyle = '#fff';
-        
-        // Draw resize handles relative to the shape's center
-        const handles = getResizeHandles(shape);
-        Object.values(handles).forEach(handle => {
-             ctx.strokeRect(handle.x - shape.x - shape.width/2, handle.y - shape.y - shape.height/2, handle.width, handle.height);
-             ctx.fillRect(handle.x - shape.x - shape.width/2, handle.y - shape.y - shape.height/2, handle.width, handle.height);
-        });
-
-        // Draw rotation handle
-        const rotHandle = getRotationHandle(shape);
-        ctx.beginPath();
-        ctx.moveTo(0, -shape.height / 2);
-        ctx.lineTo(rotHandle.x - shape.x - shape.width / 2, rotHandle.y - shape.y - shape.height / 2);
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.arc(rotHandle.x - shape.x - shape.width / 2, rotHandle.y - shape.y - shape.height / 2, HANDLE_SIZE/1.5, 0, 2*Math.PI);
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.restore();
-    };
-
-    const drawCropRectangle = useCallback((rect: Rect) => {
-      const ctx = getCanvasContext(interactionCanvasRef);
-      if (!ctx) return;
-      ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-      ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-      ctx.clearRect(rect.x, rect.y, rect.width, rect.height);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
-    }, [getCanvasContext]);
-
-    const redrawInteractionCanvas = useCallback(() => {
-        const ctx = getCanvasContext(interactionCanvasRef);
-        const canvas = interactionCanvasRef.current;
+    // Interaction drawing
+    const drawInteractionLayer = useCallback(() => {
+        const ctx = getInteractionCtx();
+        const canvas = getInteractionCanvas();
         if (!ctx || !canvas) return;
-        
+
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        if (editMode === EditMode.SKETCH) {
-            strokes.forEach(stroke => drawStroke(ctx, stroke));
-            placedShapes.forEach(shape => drawShape(ctx, shape));
-            const selectedShape = placedShapes.find(s => s.id === selectedShapeId);
-            if (selectedShape) {
-                drawSelectionBox(ctx, selectedShape);
-            }
-        } else if (editMode === EditMode.MASK) {
-             strokes.forEach(stroke => drawStroke(ctx, { ...stroke, color: MASK_COLOR }));
-        } else if (editMode === EditMode.CROP && cropRect) {
-            drawCropRectangle(cropRect);
+        // Draw brush cursor
+        if (!selectedShapeId && (editMode === EditMode.MASK || editMode === EditMode.SKETCH)) {
+             const {x, y} = interactionStateRef.current.startPoint || {x: -100, y: -100};
+             ctx.beginPath();
+             ctx.arc(x, y, brushSize / 2, 0, 2 * Math.PI);
+             ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
+             ctx.lineWidth = 1;
+             ctx.stroke();
+             ctx.beginPath();
+             ctx.arc(x, y, brushSize / 2, 0, 2 * Math.PI);
+             ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+             ctx.stroke();
+        }
+        
+        // Draw crop rectangle
+        if (cropRectRef.current) {
+            const rect = cropRectRef.current;
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.clearRect(rect.x, rect.y, rect.width, rect.height);
         }
 
-    }, [editMode, strokes, placedShapes, selectedShapeId, cropRect, drawCropRectangle]);
+    }, [editMode, brushSize, selectedShapeId]);
 
-    useEffect(redrawInteractionCanvas, [redrawInteractionCanvas]);
+    // FIX: Define clearCropSelection before useImperativeHandle to resolve scope issues.
+    const clearCropSelection = useCallback(() => {
+      cropRectRef.current = null;
+      setCropRectActive(false);
+      drawInteractionLayer();
+    }, [setCropRectActive, drawInteractionLayer]);
 
-    const initCanvases = useCallback((img: HTMLImageElement) => {
-        const mainCanvas = mainCanvasRef.current;
-        const interactionCanvas = interactionCanvasRef.current;
-        if (mainCanvas && interactionCanvas) {
-            mainCanvas.width = img.naturalWidth;
-            mainCanvas.height = img.naturalHeight;
-            interactionCanvas.width = img.naturalWidth;
-            interactionCanvas.height = img.naturalHeight;
-            
-            onImageLoad({ width: img.naturalWidth, height: img.naturalHeight });
-
-            const mainCtx = getCanvasContext(mainCanvasRef);
-            if (mainCtx) {
-                mainCtx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
-                mainCtx.drawImage(img, 0, 0);
-            }
-            const interactionCtx = getCanvasContext(interactionCanvasRef);
-            if (interactionCtx) {
-                interactionCtx.clearRect(0, 0, interactionCanvas.width, interactionCanvas.height);
-            }
-        }
-    }, [onImageLoad, getCanvasContext]);
-
-    useEffect(() => {
-        if (imageSrc) {
-            const img = new Image();
-            img.crossOrigin = "anonymous";
-            img.src = imageSrc;
-            img.onload = () => initCanvases(img);
-            img.onerror = () => console.error("Failed to load image for canvas.");
-            setCropRect(null);
-            setCropRectActive(false);
-        } else {
-            const mainCtx = getCanvasContext(mainCanvasRef);
-            const interactionCtx = getCanvasContext(interactionCanvasRef);
-            if (mainCtx?.canvas) mainCtx.clearRect(0, 0, mainCtx.canvas.width, mainCtx.canvas.height);
-            if (interactionCtx?.canvas) interactionCtx.clearRect(0, 0, interactionCtx.canvas.width, interactionCtx.canvas.height);
-        }
-    }, [imageSrc, initCanvases]);
-
+    // --- Imperative Handle ---
     useImperativeHandle(ref, () => ({
-      getCanvasData: (editMode: EditMode): CanvasData => {
-        const mainCanvas = mainCanvasRef.current;
-        if (!mainCanvas) return { data: '', mimeType: '' };
-    
-        const mimeType = 'image/png';
-    
-        if (editMode === EditMode.MASK) {
-          const originalImageData = mainCanvas.toDataURL(mimeType).split(',')[1];
-    
-          const maskCanvas = document.createElement('canvas');
-          maskCanvas.width = mainCanvas.width;
-          maskCanvas.height = mainCanvas.height;
-          const maskCtx = maskCanvas.getContext('2d');
-          if (!maskCtx) return { data: originalImageData, mimeType }; 
-    
-          maskCtx.fillStyle = 'black'; // Unchanged area
-          maskCtx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
-          
-          // Draw strokes in white for the area to be edited
-          strokes.forEach(stroke => drawStroke(maskCtx, { ...stroke, color: 'white' }));
-          
-          const maskData = maskCanvas.toDataURL(mimeType).split(',')[1];
-          return { data: originalImageData, mimeType, maskData };
-        }
-    
-        // For SKETCH mode (and others as a fallback), composite everything.
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = mainCanvas.width;
-        tempCanvas.height = mainCanvas.height;
-        const tempCtx = tempCanvas.getContext('2d');
-        if (!tempCtx) return { data: '', mimeType: '' };
-    
-        tempCtx.drawImage(mainCanvas, 0, 0);
-    
-        if (editMode === EditMode.SKETCH) {
-          strokes.forEach(stroke => drawStroke(tempCtx, stroke));
-          placedShapes.forEach(shape => drawShape(tempCtx, shape));
-        }
+      getCanvasAsDataURL: (ignoreFilters = false) => {
+        const canvas = getCanvas();
+        if (!canvas) return null;
+        if (ignoreFilters) return canvas.toDataURL('image/png');
         
-        const data = tempCanvas.toDataURL(mimeType).split(',')[1];
-        return { data, mimeType };
+        const filteredCanvas = document.createElement('canvas');
+        filteredCanvas.width = canvas.width;
+        filteredCanvas.height = canvas.height;
+        const filteredCtx = filteredCanvas.getContext('2d');
+        if (!filteredCtx) return null;
+        
+        filteredCtx.filter = getCombinedFilterValue();
+        filteredCtx.drawImage(canvas, 0, 0);
+        return filteredCanvas.toDataURL('image/png');
       },
-      getExpandedCanvasData: (direction: 'up' | 'down' | 'left' | 'right', amount: number) => {
-        const originalCanvas = mainCanvasRef.current;
-        if (!originalCanvas) return { data: '', mimeType: '', maskData: '' };
+      getMaskData: () => {
+        const activeLayer = layers.find(l => l.id === activeLayerId);
+        if (!activeLayer || activeLayer.type !== LayerType.PIXEL || !activeLayer.strokes?.length) return null;
+        
+        const canvas = getCanvas();
+        if (!canvas) return null;
 
-        // Constants for the seamless blending effect
-        const MASK_BLUR_RADIUS = 8; // The softness of the mask edge
-        const IMAGE_BLEED_PIXELS = 4; // How many pixels the original image bleeds into the new area
-        
-        const EXPANSION_AMOUNT = Math.round(Math.min(originalCanvas.width, originalCanvas.height) * (amount / 100));
-        
-        const tempCanvas = document.createElement('canvas');
-        const tempCtx = tempCanvas.getContext('2d');
         const maskCanvas = document.createElement('canvas');
+        maskCanvas.width = canvas.width;
+        maskCanvas.height = canvas.height;
         const maskCtx = maskCanvas.getContext('2d');
-
-        if (!tempCtx || !maskCtx) return { data: '', mimeType: '', maskData: '' };
+        if (!maskCtx) return null;
         
-        let newWidth = originalCanvas.width, newHeight = originalCanvas.height;
-        let drawX = 0, drawY = 0;
-        let maskRect = { x: 0, y: 0, w: 0, h: 0 };
-
-        switch (direction) {
-          case 'up': 
-            newHeight += EXPANSION_AMOUNT; 
-            drawY = EXPANSION_AMOUNT; 
-            maskRect = { x: 0, y: 0, w: newWidth, h: EXPANSION_AMOUNT };
-            break;
-          case 'down': 
-            newHeight += EXPANSION_AMOUNT; 
-            maskRect = { x: 0, y: originalCanvas.height, w: newWidth, h: EXPANSION_AMOUNT };
-            break;
-          case 'left': 
-            newWidth += EXPANSION_AMOUNT; 
-            drawX = EXPANSION_AMOUNT; 
-            maskRect = { x: 0, y: 0, w: EXPANSION_AMOUNT, h: newHeight };
-            break;
-          case 'right': 
-            newWidth += EXPANSION_AMOUNT; 
-            maskRect = { x: originalCanvas.width, y: 0, w: EXPANSION_AMOUNT, h: newHeight };
-            break;
-        }
-
-        tempCanvas.width = newWidth; 
-        tempCanvas.height = newHeight;
-        maskCanvas.width = newWidth;
-        maskCanvas.height = newHeight;
-        
-        // Fill the new area with random noise.
-        const canvasImageData = tempCtx.createImageData(newWidth, newHeight);
-        const noiseData = canvasImageData.data;
-        for (let i = 0; i < noiseData.length; i += 4) {
-            const val = Math.floor(Math.random() * 256);
-            noiseData[i] = val; noiseData[i + 1] = val; noiseData[i + 2] = val; noiseData[i + 3] = 255;
-        }
-        tempCtx.putImageData(canvasImageData, 0, 0);
-
-        // Draw the original image, slightly expanded to "bleed" into the new area.
-        // This provides the model with more context at the seam.
-        tempCtx.drawImage(
-            originalCanvas, 
-            drawX - IMAGE_BLEED_PIXELS, 
-            drawY - IMAGE_BLEED_PIXELS, 
-            originalCanvas.width + (IMAGE_BLEED_PIXELS * 2), 
-            originalCanvas.height + (IMAGE_BLEED_PIXELS * 2)
-        );
-        const imageData = tempCanvas.toDataURL('image/png').split(',')[1];
-        
-        // Create the mask with a blurred edge for seamless blending.
-        maskCtx.fillStyle = 'black'; // Unchanged area
+        maskCtx.fillStyle = 'black';
         maskCtx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
         
-        // Apply a blur filter to the context.
-        maskCtx.filter = `blur(${MASK_BLUR_RADIUS}px)`;
+        activeLayer.strokes.forEach(stroke => {
+          maskCtx.strokeStyle = 'white';
+          maskCtx.lineWidth = stroke.size;
+          maskCtx.lineCap = 'round';
+          maskCtx.lineJoin = 'round';
+          maskCtx.beginPath();
+          maskCtx.moveTo(stroke.points[0].x, stroke.points[0].y);
+          for (let i = 1; i < stroke.points.length; i++) {
+            maskCtx.lineTo(stroke.points[i].x, stroke.points[i].y);
+          }
+          maskCtx.stroke();
+        });
         
-        maskCtx.fillStyle = 'white'; // Area to generate
-        // Draw the white rectangle. The blur filter will automatically create a soft edge.
-        maskCtx.fillRect(maskRect.x, maskRect.y, maskRect.w, maskRect.h);
+        return maskCanvas.toDataURL('image/png').split(',')[1];
+      },
+      applyCrop: () => {
+        const canvas = getCanvas();
+        const rect = cropRectRef.current;
+        if (!canvas || !rect) return null;
+
+        const croppedCanvas = document.createElement('canvas');
+        croppedCanvas.width = rect.width;
+        croppedCanvas.height = rect.height;
+        const croppedCtx = croppedCanvas.getContext('2d');
+        if (!croppedCtx) return null;
+
+        croppedCtx.drawImage(canvas, rect.x, rect.y, rect.width, rect.height, 0, 0, rect.width, rect.height);
         
-        // It's good practice to reset the filter when done.
+        clearCropSelection();
+        return croppedCanvas.toDataURL('image/png');
+      },
+      clearCropSelection: clearCropSelection,
+      getExpandedCanvasData: (direction, amount) => {
+        const canvas = getCanvas();
+        if (!canvas) throw new Error("Canvas not available");
+
+        const originalWidth = canvas.width;
+        const originalHeight = canvas.height;
+        const smallerDim = Math.min(originalWidth, originalHeight);
+        const expandSize = Math.floor(smallerDim * (amount / 100));
+
+        let newWidth = originalWidth;
+        let newHeight = originalHeight;
+        let pasteX = 0;
+        let pasteY = 0;
+        let maskRect: Rect = { x: 0, y: 0, width: 0, height: 0 };
+        
+        switch(direction) {
+          case 'up': newHeight += expandSize; pasteY = expandSize; maskRect = { x: 0, y: 0, width: newWidth, height: expandSize }; break;
+          case 'down': newHeight += expandSize; maskRect = { x: 0, y: originalHeight, width: newWidth, height: expandSize }; break;
+          case 'left': newWidth += expandSize; pasteX = expandSize; maskRect = { x: 0, y: 0, width: expandSize, height: newHeight }; break;
+          case 'right': newWidth += expandSize; maskRect = { x: originalWidth, y: 0, width: expandSize, height: newHeight }; break;
+        }
+
+        const expandedCanvas = document.createElement('canvas');
+        expandedCanvas.width = newWidth;
+        expandedCanvas.height = newHeight;
+        const expandedCtx = expandedCanvas.getContext('2d');
+        if (!expandedCtx) throw new Error("Could not create expanded canvas context");
+
+        const maskCanvas = document.createElement('canvas');
+        maskCanvas.width = newWidth;
+        maskCanvas.height = newHeight;
+        const maskCtx = maskCanvas.getContext('2d');
+        if (!maskCtx) throw new Error("Could not create mask canvas context");
+
+        maskCtx.fillStyle = 'black';
+        maskCtx.fillRect(0, 0, newWidth, newHeight);
+        maskCtx.fillStyle = 'white';
+        maskCtx.fillRect(maskRect.x, maskRect.y, maskRect.width, maskRect.height);
+
+        const featherSize = Math.max(10, Math.floor(expandSize * 0.1));
+        maskCtx.filter = `blur(${featherSize}px)`;
+        maskCtx.drawImage(maskCanvas, 0, 0);
         maskCtx.filter = 'none';
 
-        const maskData = maskCanvas.toDataURL('image/png').split(',')[1];
-
-        return { data: imageData, mimeType: 'image/png', maskData: maskData };
-      },
-      getCanvasAsDataURL: () => {
-        const originalCanvas = mainCanvasRef.current;
-        if (!originalCanvas) return '';
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = originalCanvas.width;
-        tempCanvas.height = originalCanvas.height;
-        const tempCtx = tempCanvas.getContext('2d');
-        if (tempCtx) {
-          tempCtx.filter = getCombinedFilterValue();
-          tempCtx.drawImage(originalCanvas, 0, 0);
-          const interactionCanvas = interactionCanvasRef.current;
-          if (interactionCanvas) tempCtx.drawImage(interactionCanvas, 0, 0);
-          return tempCanvas.toDataURL('image/png');
-        }
-        return originalCanvas.toDataURL('image/png');
-      },
-      clearDrawing: () => { /* Now handled by App state */ },
-      applyCrop: () => {
-        const canvas = mainCanvasRef.current;
-        if (!canvas || !cropRect || cropRect.width <= 0 || cropRect.height <= 0) return null;
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = cropRect.width;
-        tempCanvas.height = cropRect.height;
-        const tempCtx = tempCanvas.getContext('2d');
-        if (tempCtx) {
-          tempCtx.drawImage(canvas, cropRect.x, cropRect.y, cropRect.width, cropRect.height, 0, 0, cropRect.width, cropRect.height);
-          return tempCanvas.toDataURL('image/png');
-        }
-        return null;
-      },
-      clearCropSelection: () => {
-        setCropRect(null);
-        setCropRectActive(false);
-        redrawInteractionCanvas();
-      },
-      getDrawingAsDataURL: (currentStrokes: Stroke[]) => {
-        if (currentStrokes.length === 0) return null;
-        const canvas = interactionCanvasRef.current;
-        if (!canvas) return null;
-      
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        currentStrokes.forEach(stroke => {
-            stroke.points.forEach(p => {
-                minX = Math.min(minX, p.x - stroke.size / 2);
-                minY = Math.min(minY, p.y - stroke.size / 2);
-                maxX = Math.max(maxX, p.x + stroke.size / 2);
-                maxY = Math.max(maxY, p.y + stroke.size / 2);
-            });
-        });
-      
-        const width = maxX - minX;
-        const height = maxY - minY;
-        if (width <=0 || height <= 0) return null;
-
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = width;
-        tempCanvas.height = height;
-        const tempCtx = tempCanvas.getContext('2d');
-        if (!tempCtx) return null;
-
-        tempCtx.translate(-minX, -minY);
-        currentStrokes.forEach(s => drawStroke(tempCtx, s));
+        const bleed = 2;
+        expandedCtx.drawImage(canvas, pasteX - (direction === 'left' ? bleed : 0), pasteY - (direction === 'up' ? bleed : 0), originalWidth + (direction === 'left' || direction === 'right' ? bleed : 0), originalHeight + (direction === 'up' || direction === 'down' ? bleed : 0));
         
-        return tempCanvas.toDataURL('image/png');
-      }
+        return {
+          data: expandedCanvas.toDataURL('image/png').split(',')[1],
+          mimeType: 'image/png',
+          maskData: maskCanvas.toDataURL('image/png').split(',')[1]
+        };
+      },
     }));
+
+    const getCombinedFilterValue = useCallback(() => {
+        const adjustmentFilters = [
+            `brightness(${adjustments.brightness}%)`,
+            `contrast(${adjustments.contrast}%)`,
+        ];
+        // SVG filter handles RGB, so don't add CSS filters for it
+        const svgFilter = (adjustments.red !== 100 || adjustments.green !== 100 || adjustments.blue !== 100)
+            ? 'url(#color-matrix-filter)'
+            : '';
+        return [...activeFilters, ...adjustmentFilters, svgFilter].filter(Boolean).join(' ');
+    }, [activeFilters, adjustments]);
+
+    const drawLayers = useCallback(() => {
+        const canvas = getCanvas();
+        const ctx = getCtx();
+        if (!canvas || !ctx) return;
+        
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        layers.forEach(layer => {
+            if (!layer.isVisible) return;
+            
+            const offscreen = offscreenCanvasesRef.current.get(layer.id);
+            if (!offscreen || offscreen.dirty) {
+                renderLayerToOffscreen(layer);
+            }
+            
+            const sourceCanvas = offscreenCanvasesRef.current.get(layer.id)?.canvas;
+            if (sourceCanvas) {
+                ctx.globalAlpha = layer.opacity / 100;
+                ctx.drawImage(sourceCanvas, 0, 0);
+                ctx.globalAlpha = 1.0;
+            }
+        });
+    }, [layers]);
+
+    const initCanvases = useCallback(() => {
+        const canvas = getCanvas();
+        const interactionCanvas = getInteractionCanvas();
+        const container = containerRef.current;
+        if (!container || !canvas || !interactionCanvas) return;
+        
+        const firstImageLayer = layers.find(l => l.type === LayerType.IMAGE && l.src);
+        if (!firstImageLayer?.src) {
+             const { clientWidth, clientHeight } = container;
+             canvas.width = clientWidth;
+             canvas.height = clientHeight;
+             interactionCanvas.width = clientWidth;
+             interactionCanvas.height = clientHeight;
+             return;
+        };
+
+        const img = new Image();
+        img.onload = () => {
+            const containerRatio = container.clientWidth / container.clientHeight;
+            const imageRatio = img.width / img.height;
+            let width, height;
+
+            if (containerRatio > imageRatio) {
+                height = container.clientHeight;
+                width = height * imageRatio;
+            } else {
+                width = container.clientWidth;
+                height = width / imageRatio;
+            }
+            canvas.width = width;
+            canvas.height = height;
+            interactionCanvas.width = width;
+            interactionCanvas.height = height;
+
+            // Mark all layers as dirty to force redraw at new size
+            offscreenCanvasesRef.current.forEach(val => val.dirty = true);
+            drawLayers();
+            onImageLoad({ width: img.width, height: img.height });
+        };
+        img.src = firstImageLayer.src;
+    }, [layers, onImageLoad, drawLayers]);
+
+    useEffect(() => {
+        initCanvases();
+        const resizeObserver = new ResizeObserver(initCanvases);
+        if (containerRef.current) resizeObserver.observe(containerRef.current);
+        return () => resizeObserver.disconnect();
+    }, [initCanvases]);
+
+    useEffect(() => {
+        // Redraw when layers or filters change
+        const currentLayerState = JSON.stringify(layers.map(({ id, name, isVisible, opacity, strokes, placedShapes, src }) => ({ id, name, isVisible, opacity, strokes: strokes?.length, placedShapes: placedShapes?.length, src })));
+        if (lastDrawnLayerState.current !== currentLayerState) {
+            offscreenCanvasesRef.current.forEach(val => val.dirty = true);
+            lastDrawnLayerState.current = currentLayerState;
+        }
+        drawLayers();
+    }, [layers, drawLayers]);
+
+    const renderLayerToOffscreen = (layer: Layer) => {
+        let offscreenData = offscreenCanvasesRef.current.get(layer.id);
+        if (!offscreenData) {
+            offscreenData = { canvas: document.createElement('canvas'), dirty: true };
+            offscreenCanvasesRef.current.set(layer.id, offscreenData);
+        }
+
+        const { canvas: offscreenCanvas } = offscreenData;
+        const mainCanvas = getCanvas();
+        if (!mainCanvas) return;
+
+        offscreenCanvas.width = mainCanvas.width;
+        offscreenCanvas.height = mainCanvas.height;
+        const ctx = offscreenCanvas.getContext('2d');
+        if (!ctx) return;
+        ctx.clearRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
+
+        if (layer.type === LayerType.IMAGE && layer.src) {
+            let img = offscreenData.image;
+            if (!img || img.src !== layer.src) {
+                img = new Image();
+                img.src = layer.src;
+                offscreenData.image = img;
+                img.onload = () => {
+                    // This image might have loaded after the initial draw cycle
+                    offscreenData.dirty = true;
+                    drawLayers();
+                };
+            }
+            if (img.complete) {
+                ctx.drawImage(img, 0, 0, offscreenCanvas.width, offscreenCanvas.height);
+            }
+        } else if (layer.type === LayerType.PIXEL) {
+            layer.strokes?.forEach(stroke => {
+                ctx.strokeStyle = stroke.color;
+                ctx.lineWidth = stroke.size;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                ctx.beginPath();
+                if(stroke.points.length > 0) {
+                    ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+                    for (let i = 1; i < stroke.points.length; i++) {
+                        ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+                    }
+                    ctx.stroke();
+                }
+            });
+
+            layer.placedShapes?.forEach(shape => {
+                // Future optimization: Cache rendered shapes if they don't change
+                const shapeImg = new Image();
+                shapeImg.src = shape.dataUrl;
+                if (shapeImg.complete) {
+                    ctx.save();
+                    ctx.translate(shape.x, shape.y);
+                    ctx.rotate(shape.rotation);
+                    ctx.drawImage(shapeImg, -shape.width / 2, -shape.height / 2, shape.width, shape.height);
+                    ctx.restore();
+                } else {
+                    shapeImg.onload = () => { drawLayers(); };
+                }
+            });
+        }
+        offscreenData.dirty = false;
+    };
     
-    const getCanvasPosFromEvent = (e: React.MouseEvent<HTMLElement> | React.DragEvent<HTMLElement>): Point | null => {
-        const canvas = interactionCanvasRef.current;
-        if (!canvas) return null;
+    const getCanvasCoordinates = (e: React.MouseEvent | React.DragEvent): Point => {
+        const canvas = getCanvas();
+        if (!canvas) return { x: 0, y: 0 };
         const rect = canvas.getBoundingClientRect();
         return {
-          x: (e.clientX - rect.left) * (canvas.width / rect.width),
-          y: (e.clientY - rect.top) * (canvas.height / rect.height)
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top,
         };
     };
 
-    const getResizeHandles = (shape: PlacedShape): Record<ResizeHandle, Rect> => {
-        const { x, y, width, height } = shape;
-        const halfHandle = HANDLE_SIZE / 2;
-        return {
-            tl: { x: x - halfHandle, y: y - halfHandle, width: HANDLE_SIZE, height: HANDLE_SIZE },
-            tr: { x: x + width - halfHandle, y: y - halfHandle, width: HANDLE_SIZE, height: HANDLE_SIZE },
-            bl: { x: x - halfHandle, y: y + height - halfHandle, width: HANDLE_SIZE, height: HANDLE_SIZE },
-            br: { x: x + width - halfHandle, y: y + height - halfHandle, width: HANDLE_SIZE, height: HANDLE_SIZE },
-        };
-    };
-    
-    const getRotationHandle = (shape: PlacedShape): Point & { radius: number } => {
-        const centerX = shape.x + shape.width / 2;
-        const centerY = shape.y + shape.height / 2;
-        const handleX = centerX + Math.sin(shape.rotation) * (shape.height / 2 + ROTATION_HANDLE_OFFSET);
-        const handleY = centerY - Math.cos(shape.rotation) * (shape.height / 2 + ROTATION_HANDLE_OFFSET);
-        return { x: handleX, y: handleY, radius: HANDLE_SIZE / 1.5 };
+    const handleMouseDown = (e: React.MouseEvent) => {
+        const point = getCanvasCoordinates(e);
+        interactionStateRef.current.startPoint = point;
+
+        if (editMode === EditMode.CROP) {
+            interactionStateRef.current.mode = 'cropping';
+            cropRectRef.current = { x: point.x, y: point.y, width: 0, height: 0 };
+            return;
+        }
+
+        const activeLayer = layers.find(l => l.id === activeLayerId);
+        if (!activeLayer || activeLayer.type !== LayerType.PIXEL) return;
+
+        // For now, let's simplify and only handle drawing
+        if (editMode === EditMode.MASK || editMode === EditMode.SKETCH) {
+            interactionStateRef.current.mode = 'drawing';
+            const newStroke: Stroke = {
+                id: `stroke_${Date.now()}`,
+                points: [point],
+                color: editMode === EditMode.MASK ? '#FFFFFF' : brushColor,
+                size: brushSize,
+            };
+            interactionStateRef.current.currentStroke = newStroke;
+            onAddStroke(newStroke);
+        }
     };
 
-    const getHandleAtPoint = (point: Point, shape: PlacedShape): Handle | null => {
-        // Transform point into shape's local coordinate system
-        const centerX = shape.x + shape.width / 2;
-        const centerY = shape.y + shape.height / 2;
-        const dx = point.x - centerX;
-        const dy = point.y - centerY;
-        const localX = dx * Math.cos(-shape.rotation) - dy * Math.sin(-shape.rotation);
-        const localY = dx * Math.sin(-shape.rotation) + dy * Math.cos(-shape.rotation);
+    const handleMouseMove = (e: React.MouseEvent) => {
+        const point = getCanvasCoordinates(e);
+        const { mode, startPoint, currentStroke } = interactionStateRef.current;
 
-        const halfW = shape.width / 2;
-        const halfH = shape.height / 2;
-        const handleSize = HANDLE_SIZE / 2;
+        // Always update cursor position
+        interactionStateRef.current.startPoint = point;
         
-        // Check resize handles in local space
-        if (localX >= -halfW-handleSize && localX <= -halfW+handleSize && localY >= -halfH-handleSize && localY <= -halfH+handleSize) return 'tl';
-        if (localX >= halfW-handleSize && localX <= halfW+handleSize && localY >= -halfH-handleSize && localY <= -halfH+handleSize) return 'tr';
-        if (localX >= -halfW-handleSize && localX <= -halfW+handleSize && localY >= halfH-handleSize && localY <= halfH+handleSize) return 'bl';
-        if (localX >= halfW-handleSize && localX <= halfW+handleSize && localY >= halfH-handleSize && localY <= halfH+handleSize) return 'br';
+        if (mode === 'drawing' && currentStroke) {
+            const updatedStroke = { ...currentStroke, points: [...currentStroke.points, point] };
+            interactionStateRef.current.currentStroke = updatedStroke;
+            
+            // Directly manipulate the offscreen canvas for performance during drawing
+            const offscreen = offscreenCanvasesRef.current.get(activeLayerId!);
+            if (offscreen) {
+                const ctx = offscreen.canvas.getContext('2d');
+                if (ctx && currentStroke.points.length > 0) {
+                     ctx.strokeStyle = updatedStroke.color;
+                     ctx.lineWidth = updatedStroke.size;
+                     ctx.lineCap = 'round';
+                     ctx.lineJoin = 'round';
+                     ctx.beginPath();
+                     ctx.moveTo(currentStroke.points[currentStroke.points.length - 1].x, currentStroke.points[currentStroke.points.length - 1].y);
+                     ctx.lineTo(point.x, point.y);
+                     ctx.stroke();
+                     drawLayers(); // Re-composite
+                }
+            }
+        } else if (mode === 'cropping' && startPoint && cropRectRef.current) {
+            cropRectRef.current.width = point.x - startPoint.x;
+            cropRectRef.current.height = point.y - startPoint.y;
+            drawInteractionLayer();
+        }
         
-        // Check rotation handle (no need for local space transform)
-        const rotHandle = getRotationHandle(shape);
-        const distToRot = Math.sqrt((point.x - rotHandle.x)**2 + (point.y - rotHandle.y)**2);
-        if (distToRot <= rotHandle.radius) return 'rotate';
-
-        return null;
-    };
-    
-    const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-      if (!imageSrc || e.button !== 0) return;
-      const pos = getCanvasPosFromEvent(e);
-      if (!pos) return;
-      
-      if (editMode === EditMode.CROP) {
-        interaction.current = { mode: 'cropping', startPoint: pos };
-        setCropRect(null);
-        setCropRectActive(false);
-        redrawInteractionCanvas();
-        return;
-      }
-      
-      if (editMode === EditMode.SKETCH) {
-          const selectedShape = placedShapes.find(s => s.id === selectedShapeId);
-          if (selectedShape) {
-              const handle = getHandleAtPoint(pos, selectedShape);
-              if (handle) {
-                  const shapeCenter = { x: selectedShape.x + selectedShape.width / 2, y: selectedShape.y + selectedShape.height / 2 };
-                  if (handle === 'rotate') {
-                      interaction.current = { 
-                          mode: 'rotating', 
-                          startPoint: pos, 
-                          originalShape: selectedShape,
-                          shapeCenter,
-                          startAngle: Math.atan2(pos.y - shapeCenter.y, pos.x - shapeCenter.x)
-                      };
-                  } else {
-                      interaction.current = { mode: 'resizing', startPoint: pos, handle, originalShape: selectedShape };
-                  }
-                  return;
-              }
-          }
-          
-          // Check for moving a shape (check in reverse to get topmost)
-          for (let i = placedShapes.length - 1; i >= 0; i--) {
-              const shape = placedShapes[i];
-              if (pos.x >= shape.x && pos.x <= shape.x + shape.width &&
-                  pos.y >= shape.y && pos.y <= shape.y + shape.height) {
-                  onSelectShape(shape.id);
-                  interaction.current = { mode: 'moving', startPoint: pos, shapeStart: shape };
-                  return;
-              }
-          }
-      }
-
-      // If no shape interaction, start drawing
-      onSelectShape(null);
-      const strokeId = `stroke_${Date.now()}`;
-      const newStroke: Stroke = {
-          id: strokeId,
-          points: [pos],
-          color: brushColor,
-          size: brushSize,
-      };
-      interaction.current = { mode: 'drawing', currentStroke: newStroke };
-    };
-
-    const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-      const pos = getCanvasPosFromEvent(e);
-      setCanvasCursorPos(pos);
-      handleCursorMove(e);
-      
-      if (!pos) return;
-      
-      const { mode } = interaction.current;
-      if (mode === 'idle') return;
-
-      if (mode === 'drawing' && interaction.current.currentStroke) {
-          const ctx = getCanvasContext(interactionCanvasRef);
-          if (!ctx) return;
-          const currentPoints = interaction.current.currentStroke.points;
-          const lastPoint = currentPoints[currentPoints.length - 1];
-          drawStroke(ctx, { ...interaction.current.currentStroke, points: [lastPoint, pos] });
-          currentPoints.push(pos);
-      } else if (mode === 'cropping' && interaction.current.startPoint) {
-          const start = interaction.current.startPoint;
-          const x = Math.min(pos.x, start.x);
-          const y = Math.min(pos.y, start.y);
-          const width = Math.abs(pos.x - start.x);
-          const height = Math.abs(pos.y - start.y);
-          drawCropRectangle({ x, y, width, height });
-      } else if (mode === 'moving' && interaction.current.startPoint && interaction.current.shapeStart) {
-          const { startPoint, shapeStart } = interaction.current;
-          onUpdateShape(shapeStart.id, {
-              x: shapeStart.x + (pos.x - startPoint.x),
-              y: shapeStart.y + (pos.y - startPoint.y),
-          });
-      } else if (mode === 'resizing' && interaction.current.startPoint && interaction.current.originalShape && interaction.current.handle) {
-          const { originalShape, handle } = interaction.current;
-          const dx = pos.x - interaction.current.startPoint.x;
-          const dy = pos.y - interaction.current.startPoint.y;
-          
-          let { x, y, width, height } = originalShape;
-          const aspectRatio = originalShape.width / originalShape.height;
-
-          switch (handle) {
-              case 'br': width += dx; height = width / aspectRatio; break;
-              case 'bl': width -= dx; height = width / aspectRatio; x += dx; break;
-              case 'tr': width += dx; height = width / aspectRatio; y -= (height - originalShape.height); break;
-              case 'tl': width -= dx; height = width / aspectRatio; x += dx; y -= (height - originalShape.height); break;
-          }
-          if (width > MIN_SHAPE_SIZE && height > MIN_SHAPE_SIZE) {
-            onUpdateShape(originalShape.id, { x, y, width, height });
-          }
-      } else if (mode === 'rotating' && interaction.current.shapeCenter && interaction.current.startAngle && interaction.current.originalShape) {
-          const { shapeCenter, startAngle, originalShape } = interaction.current;
-          const currentAngle = Math.atan2(pos.y - shapeCenter.y, pos.x - shapeCenter.x);
-          const angleDelta = currentAngle - startAngle;
-          onUpdateShape(originalShape.id, { rotation: originalShape.rotation + angleDelta });
-      }
+        // Draw interaction layer continuously for cursor
+        drawInteractionLayer();
     };
 
     const handleMouseUp = () => {
-        const { mode } = interaction.current;
+        const { mode, currentStroke } = interactionStateRef.current;
 
-        if (mode === 'drawing' && interaction.current.currentStroke && interaction.current.currentStroke.points.length > 1) {
-            onAddStroke(interaction.current.currentStroke);
-        } else if (mode === 'cropping' && interaction.current.startPoint) {
-            const endPoint = canvasCursorPos;
-            if (endPoint) {
-                const start = interaction.current.startPoint;
-                const width = Math.abs(endPoint.x - start.x);
-                const height = Math.abs(endPoint.y - start.y);
-
-                if (width > 10 && height > 10) {
-                    const rect = { x: Math.min(endPoint.x, start.x), y: Math.min(endPoint.y, start.y), width, height };
-                    setCropRect(rect);
-                    setCropRectActive(true);
-                    // Draw the rectangle immediately to give the user feedback. The re-render triggered
-                    // by setCropRect will make it persist correctly via the useEffect hook.
-                    drawCropRectangle(rect);
-                    // Exit early to prevent the final redraw from clearing the just-drawn rectangle
-                    // due to stale state.
-                    interaction.current = { mode: 'idle' };
-                    return;
-                }
-            }
+        if (mode === 'cropping' && cropRectRef.current) {
+            // Normalize rect
+            const rect = cropRectRef.current;
+            if (rect.width < 0) { rect.x += rect.width; rect.width *= -1; }
+            if (rect.height < 0) { rect.y += rect.height; rect.height *= -1; }
+            setCropRectActive(rect.width > 10 && rect.height > 10);
         }
-
-        interaction.current = { mode: 'idle' };
-        // Redraw for all other cases, e.g., to clear an invalid (too small) crop selection
-        // or to finalize a drawing stroke.
-        redrawInteractionCanvas();
+        
+        if (mode === 'drawing' && currentStroke) {
+            onStrokeInteractionEnd(currentStroke);
+        } else if (mode === 'moving' || mode === 'resizing' || mode === 'rotating') {
+            onShapeInteractionEnd();
+        }
+        
+        interactionStateRef.current = { mode: 'idle' };
     };
-
-    const handleCursorMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-        const canvas = interactionCanvasRef.current;
-        const container = canvas?.parentElement;
-        if (!container) return;
-        const containerRect = container.getBoundingClientRect();
-        setCursorPos({ x: e.clientX - containerRect.left, y: e.clientY - containerRect.top });
-    };
-
-    const handleMouseEnter = () => setIsMouseOver(true);
+    
     const handleMouseLeave = () => {
-        setIsMouseOver(false);
-        setCanvasCursorPos(null);
-        if (interaction.current.mode !== 'idle') handleMouseUp();
-    };
-
-    const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-        if (editMode === EditMode.SKETCH) e.preventDefault();
+        interactionStateRef.current.startPoint = {x: -1000, y: -1000};
+        drawInteractionLayer();
+        if(interactionStateRef.current.mode !== 'idle') {
+            handleMouseUp();
+        }
     };
     
-    const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-        if (editMode !== EditMode.SKETCH) return;
+    const handleDrop = useCallback((e: React.DragEvent) => {
         e.preventDefault();
-    
+        e.stopPropagation();
+
+        const activeLayer = layers.find(l => l.id === activeLayerId);
+        if (!activeLayer || activeLayer.type !== LayerType.PIXEL || editMode !== EditMode.SKETCH) return;
+
         const dataUrl = e.dataTransfer.getData('text/plain');
-        const pos = getCanvasPosFromEvent(e);
-        const canvas = mainCanvasRef.current;
-    
-        if (dataUrl && pos && canvas) {
+        if (dataUrl.startsWith('data:image')) {
+            const point = getCanvasCoordinates(e);
             const img = new Image();
             img.onload = () => {
-                const aspectRatio = img.width / img.height;
-                const dropWidth = Math.min(img.width, canvas.width * 0.25); // Drop at 25% of canvas width
-                const dropHeight = dropWidth / aspectRatio;
-                onAddShape({
+                const size = 100;
+                const newShape: Omit<PlacedShape, 'id' | 'rotation' | 'color'> = {
                     dataUrl,
-                    x: pos.x - dropWidth / 2,
-                    y: pos.y - dropHeight / 2,
-                    width: dropWidth,
-                    height: dropHeight,
-                });
+                    x: point.x,
+                    y: point.y,
+                    width: size,
+                    height: size * (img.height / img.width),
+                };
+                onAddShape(newShape);
             };
             img.src = dataUrl;
         }
+    }, [layers, activeLayerId, editMode, onAddShape]);
+
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
     };
-
-    const showBrushCursor = isMouseOver && imageSrc && !isLoading && cursorPos && (editMode === EditMode.MASK || (editMode === EditMode.SKETCH && interaction.current.mode === 'drawing'));
-    
-    const getCanvasCursorStyle = () => {
-        if (!imageSrc || isLoading) return 'default';
-        if (isMouseOver && editMode === EditMode.SKETCH && canvasCursorPos) {
-            const selectedShape = placedShapes.find(s => s.id === selectedShapeId);
-            if (selectedShape) {
-                const handle = getHandleAtPoint(canvasCursorPos, selectedShape);
-                if (handle) {
-                    if (handle === 'rotate') return 'grab';
-                    if (handle === 'tl' || handle === 'br') return 'nwse-resize';
-                    if (handle === 'tr' || handle === 'bl') return 'nesw-resize';
-                }
-                if (canvasCursorPos.x >= selectedShape.x && canvasCursorPos.x <= selectedShape.x + selectedShape.width &&
-                    canvasCursorPos.y >= selectedShape.y && canvasCursorPos.y <= selectedShape.y + selectedShape.height) {
-                    return 'move';
-                }
-            }
-        }
-        if (showBrushCursor) return 'none';
-        switch(editMode) {
-            case EditMode.CROP: return 'crosshair';
-            case EditMode.MASK: return 'none';
-            case EditMode.SKETCH: return 'crosshair';
-            default: return 'default';
-        }
-    }
-
-    const getCombinedFilterValue = () => {
-        const presetFilterString = activeFilters.filter(f => f !== 'none').join(' ');
-        const adjustmentFilterString = `brightness(${adjustments.brightness}%) contrast(${adjustments.contrast}%)`;
-
-        const isRgbAdjusted = adjustments.red !== 100 || adjustments.green !== 100 || adjustments.blue !== 100;
-        const rgbFilterString = isRgbAdjusted ? `url(#${svgFilterId})` : '';
-
-        const combined = `${presetFilterString} ${adjustmentFilterString} ${rgbFilterString}`.trim();
-        const isDefault = combined === 'brightness(100%) contrast(100%)' || combined === '';
-        
-        return isDefault ? 'none' : combined;
-    };
-
-    const combinedFilter = getCombinedFilterValue();
 
     return (
-      <div 
-        className="w-full h-full bg-base-200 rounded-lg flex items-center justify-center relative overflow-hidden border-2 border-base-300"
-        onDragOver={handleDragOver}
-        onDrop={handleDrop}
-      >
-        <svg width="0" height="0" style={{ position: 'absolute' }}>
-            <defs>
-                <filter id={svgFilterId}>
-                    <feColorMatrix
-                        type="matrix"
-                        values={`
-                            ${adjustments.red / 100} 0 0 0 0
-                            0 ${adjustments.green / 100} 0 0 0
-                            0 0 ${adjustments.blue / 100} 0 0
+        <div ref={containerRef} className="w-full h-full flex items-center justify-center bg-base-300 rounded-lg overflow-hidden relative" onDrop={handleDrop} onDragOver={handleDragOver}>
+            <svg width="0" height="0" style={{ position: 'absolute' }}>
+                <defs>
+                    <filter id="color-matrix-filter">
+                        <feColorMatrix type="matrix" values={`
+                            ${adjustments.red/100} 0 0 0 0
+                            0 ${adjustments.green/100} 0 0 0
+                            0 0 ${adjustments.blue/100} 0 0
                             0 0 0 1 0
-                        `}
-                    />
-                </filter>
-            </defs>
-        </svg>
-
-        {!imageSrc && !isLoading && (
-            <div className="text-center text-text-secondary p-4">
-                <p className="text-lg font-semibold text-text-primary">Your Masterpiece Awaits</p>
-                <p className="mb-4">Use the 'Generate' tab to begin, or start by editing your own photo.</p>
-                <button
-                  onClick={onUploadClick}
-                  className="bg-brand-primary hover:bg-brand-primary/80 text-white font-bold py-2 px-4 rounded-md transition duration-200 flex items-center justify-center gap-2 mx-auto"
-                >
-                  <UploadIcon /> Upload an Image
-                </button>
-            </div>
-        )}
-        {isLoading && (
-          <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center z-30">
-            <Loader />
-            <p className="text-lg font-semibold mt-4 text-white animate-pulse-fast">{loadingMessage}</p>
-          </div>
-        )}
-        {showBrushCursor && (
-            <div
-                style={{
-                    position: 'absolute', left: `${cursorPos?.x}px`, top: `${cursorPos?.y}px`,
-                    width: `${brushSize}px`, height: `${brushSize}px`, borderRadius: '50%',
-                    backgroundColor: editMode === EditMode.MASK ? MASK_COLOR : brushColor,
-                    border: '1px solid rgba(120,120,120,0.7)',
-                    opacity: 0.7, transform: 'translate(-50%, -50%)', pointerEvents: 'none', zIndex: 30,
-                }}
-            />
-        )}
-        {imageSrc && (
-          <>
-            <canvas ref={mainCanvasRef} style={{ filter: combinedFilter, position: 'absolute' }} className="max-w-full max-h-full object-contain" />
-            <canvas
-                ref={interactionCanvasRef}
-                style={{ position: 'absolute', zIndex: 20, cursor: getCanvasCursorStyle() }}
-                className="max-w-full max-h-full object-contain"
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
-                onMouseEnter={handleMouseEnter}
-                onMouseLeave={handleMouseLeave}
-            />
-          </>
-        )}
-      </div>
+                        `} />
+                    </filter>
+                </defs>
+            </svg>
+            {isLoading && (
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm space-y-4">
+                    <Loader />
+                    <p className="text-white font-semibold text-lg animate-pulse-fast">{loadingMessage}</p>
+                </div>
+            )}
+            {layers.length === 0 && !isLoading && (
+                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center text-center p-4">
+                    <button onClick={onUploadClick} className="flex flex-col items-center justify-center p-8 border-2 border-dashed border-base-300 hover:border-brand-primary rounded-lg transition-colors group">
+                        <UploadIcon />
+                        <p className="mt-2 font-semibold text-text-secondary group-hover:text-brand-primary">Upload an Image to Start Editing</p>
+                        <p className="text-sm text-text-secondary">or generate one from the panel</p>
+                    </button>
+                </div>
+            )}
+            <canvas ref={mainCanvasRef} className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" style={{ filter: getCombinedFilterValue() }}/>
+            <canvas ref={interactionCanvasRef} className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10" onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseLeave} />
+        </div>
     );
   }
 );
-
-ImageCanvas.displayName = "ImageCanvas";
