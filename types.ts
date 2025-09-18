@@ -32,6 +32,14 @@ export interface Filter {
   value: string;
 }
 
+export interface ImageAdjustments {
+  brightness: number;
+  contrast: number;
+  red: number;
+  green: number;
+  blue: number;
+}
+
 export interface ClipArtShape {
   name: string;
   dataUrl: string;

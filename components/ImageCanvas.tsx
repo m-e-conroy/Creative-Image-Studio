@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useImperativeHandle, forwardRef, useCallback } from 'react';
-import { EditMode, PlacedShape, Stroke, Point, CanvasData } from '../types';
+import { EditMode, PlacedShape, Stroke, Point, CanvasData, ImageAdjustments } from '../types';
 import { Loader } from './Loader';
 import { UploadIcon } from './Icons';
 
@@ -11,6 +11,7 @@ interface ImageCanvasProps {
   brushSize: number;
   brushColor: string;
   activeFilters: string[];
+  adjustments: ImageAdjustments;
   onUploadClick: () => void;
   setCropRectActive: (isActive: boolean) => void;
   // New props for interactive elements
@@ -62,7 +63,7 @@ const ROTATION_HANDLE_OFFSET = 25;
 
 export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
   (props, ref) => {
-    const { imageSrc, isLoading, loadingMessage, editMode, brushSize, brushColor, activeFilters, onUploadClick, setCropRectActive, strokes, placedShapes, selectedShapeId, onAddStroke, onAddShape, onUpdateShape, onSelectShape, onImageLoad } = props;
+    const { imageSrc, isLoading, loadingMessage, editMode, brushSize, brushColor, activeFilters, adjustments, onUploadClick, setCropRectActive, strokes, placedShapes, selectedShapeId, onAddStroke, onAddShape, onUpdateShape, onSelectShape, onImageLoad } = props;
     
     const mainCanvasRef = useRef<HTMLCanvasElement>(null);
     const interactionCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -80,6 +81,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
 
 
     const MASK_COLOR = 'rgba(79, 70, 229, 0.5)';
+    const svgFilterId = "rgb-color-matrix";
 
     const getCanvasContext = useCallback((canvasRef: React.RefObject<HTMLCanvasElement>) => {
       const canvas = canvasRef.current;
@@ -400,7 +402,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         tempCanvas.height = originalCanvas.height;
         const tempCtx = tempCanvas.getContext('2d');
         if (tempCtx) {
-          tempCtx.filter = activeFilters.join(' ') || 'none';
+          tempCtx.filter = getCombinedFilterValue();
           tempCtx.drawImage(originalCanvas, 0, 0);
           const interactionCanvas = interactionCanvasRef.current;
           if (interactionCanvas) tempCtx.drawImage(interactionCanvas, 0, 0);
@@ -734,7 +736,20 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         }
     }
 
-    const combinedFilter = activeFilters.join(' ');
+    const getCombinedFilterValue = () => {
+        const presetFilterString = activeFilters.filter(f => f !== 'none').join(' ');
+        const adjustmentFilterString = `brightness(${adjustments.brightness}%) contrast(${adjustments.contrast}%)`;
+
+        const isRgbAdjusted = adjustments.red !== 100 || adjustments.green !== 100 || adjustments.blue !== 100;
+        const rgbFilterString = isRgbAdjusted ? `url(#${svgFilterId})` : '';
+
+        const combined = `${presetFilterString} ${adjustmentFilterString} ${rgbFilterString}`.trim();
+        const isDefault = combined === 'brightness(100%) contrast(100%)' || combined === '';
+        
+        return isDefault ? 'none' : combined;
+    };
+
+    const combinedFilter = getCombinedFilterValue();
 
     return (
       <div 
@@ -742,6 +757,22 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         onDragOver={handleDragOver}
         onDrop={handleDrop}
       >
+        <svg width="0" height="0" style={{ position: 'absolute' }}>
+            <defs>
+                <filter id={svgFilterId}>
+                    <feColorMatrix
+                        type="matrix"
+                        values={`
+                            ${adjustments.red / 100} 0 0 0 0
+                            0 ${adjustments.green / 100} 0 0 0
+                            0 0 ${adjustments.blue / 100} 0 0
+                            0 0 0 1 0
+                        `}
+                    />
+                </filter>
+            </defs>
+        </svg>
+
         {!imageSrc && !isLoading && (
             <div className="text-center text-text-secondary p-4">
                 <p className="text-lg font-semibold text-text-primary">Your Masterpiece Awaits</p>
@@ -773,7 +804,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         )}
         {imageSrc && (
           <>
-            <canvas ref={mainCanvasRef} style={{ filter: combinedFilter || 'none', position: 'absolute' }} className="max-w-full max-h-full object-contain" />
+            <canvas ref={mainCanvasRef} style={{ filter: combinedFilter, position: 'absolute' }} className="max-w-full max-h-full object-contain" />
             <canvas
                 ref={interactionCanvasRef}
                 style={{ position: 'absolute', zIndex: 20, cursor: getCanvasCursorStyle() }}

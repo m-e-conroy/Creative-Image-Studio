@@ -101,8 +101,8 @@ export async function editImage(
     const result: { text?: string; image?: string } = {};
     const candidate = response.candidates?.[0];
 
-    // Safely access parts to prevent crash on responses without content (e.g., safety blocks)
-    if (candidate?.content?.parts) {
+    // Safely access parts and ensure it's an array to prevent crashes.
+    if (candidate?.content?.parts && Array.isArray(candidate.content.parts)) {
         for (const part of candidate.content.parts) {
           if (part.text) {
             result.text = part.text;
@@ -114,7 +114,6 @@ export async function editImage(
 
     // If no image was found, provide a more detailed error message if possible.
     if (!result.image && candidate) {
-      // FIX: The `finishReason` enum value for unspecified is 'FINISH_REASON_UNSPECIFIED', not 'UNSPECIFIED'.
       if (candidate.finishReason && candidate.finishReason !== 'STOP' && candidate.finishReason !== 'FINISH_REASON_UNSPECIFIED') {
         const reason = candidate.finishReason.charAt(0).toUpperCase() + candidate.finishReason.slice(1).toLowerCase().replace(/_/g, ' ');
         result.text = `Image generation failed. Reason: ${reason}. Please adjust your prompt or mask.`;

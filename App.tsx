@@ -3,7 +3,7 @@ import { ControlPanel } from './components/ControlPanel';
 import { ImageCanvas } from './components/ImageCanvas';
 import { generateImage, editImage, rewritePrompt, generateRandomPrompt, describeImage, getPromptSuggestions } from './services/geminiService';
 import { ImageCanvasMethods } from './components/ImageCanvas';
-import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, Stroke, ClipArtCategory, TechnicalModifier } from './types';
+import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, Stroke, ClipArtCategory, TechnicalModifier, ImageAdjustments } from './types';
 import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, CLIP_ART_CATEGORIES, TECHNICAL_MODIFIERS } from './constants';
 import { DownloadIcon, SettingsIcon } from './components/Icons';
 import { ImageGallery } from './components/ImageGallery';
@@ -52,6 +52,7 @@ const App: React.FC = () => {
   
   const [activeTab, setActiveTab] = useState<Tab>('generate');
   const [activeFilters, setActiveFilters] = useState<Filter[]>([FILTERS[0]]);
+  const [adjustments, setAdjustments] = useState<ImageAdjustments>({ brightness: 100, contrast: 100, red: 100, green: 100, blue: 100 });
   const [rewritingPrompt, setRewritingPrompt] = useState<PromptPart | null>(null);
   const [randomizingPrompt, setRandomizingPrompt] = useState<PromptPart | 'edit' | null>(null);
   const [cropRectActive, setCropRectActive] = useState<boolean>(false);
@@ -395,6 +396,7 @@ const App: React.FC = () => {
     setHistory(originalImage ? [originalImage] : []);
     setEditPrompt('');
     setActiveFilters([FILTERS[0]]);
+    setAdjustments({ brightness: 100, contrast: 100, red: 100, green: 100, blue: 100 });
     setImageDimensions(null);
     if (canvasRef.current) {
       canvasRef.current.clearDrawing();
@@ -485,6 +487,15 @@ const App: React.FC = () => {
       return newFilters;
     });
   }, []);
+  
+  const handleAdjustmentChange = (adjustment: keyof ImageAdjustments, value: number) => {
+    setAdjustments(prev => ({ ...prev, [adjustment]: value }));
+  };
+  
+  const handleResetAdjustments = () => {
+    setAdjustments({ brightness: 100, contrast: 100, red: 100, green: 100, blue: 100 });
+  };
+
 
   // Handlers for interactive shapes and strokes
   const handleAddStroke = useCallback((stroke: Stroke) => {
@@ -582,6 +593,9 @@ const App: React.FC = () => {
             canUndo={canUndo}
             activeFilters={activeFilters}
             onToggleFilter={handleToggleFilter}
+            adjustments={adjustments}
+            onAdjustmentChange={handleAdjustmentChange}
+            onResetAdjustments={handleResetAdjustments}
             clipArtCategories={clipArtCategories}
             selectedClipArtCategoryName={selectedClipArtCategoryName}
             setSelectedClipArtCategoryName={setSelectedClipArtCategoryName}
@@ -636,6 +650,7 @@ const App: React.FC = () => {
                 brushSize={brushSize}
                 brushColor={brushColor}
                 activeFilters={activeFilters.map(f => f.value)}
+                adjustments={adjustments}
                 onUploadClick={handleUploadClick}
                 setCropRectActive={setCropRectActive}
                 strokes={strokes}

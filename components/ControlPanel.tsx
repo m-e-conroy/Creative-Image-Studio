@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, ClipArtCategory, TechnicalModifier } from '../types';
+import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, ClipArtCategory, TechnicalModifier, ImageAdjustments } from '../types';
 import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, TECHNICAL_MODIFIERS } from '../constants';
 import { BrushIcon, ClearIcon, DrawIcon, EditIcon, GenerateIcon, MaskIcon, ResetIcon, FilterIcon, RewriteIcon, RandomIcon, UploadIcon, OutpaintIcon, ArrowUpIcon, ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon, CropIcon, IdeaIcon, UndoIcon, SaveIcon, RotateIcon, SettingsIcon, CloseIcon, CopyIcon, CheckIcon, LogoIcon } from './Icons';
 import { ThemeSwitcher } from './ThemeSwitcher';
@@ -58,6 +58,9 @@ interface ControlPanelProps {
   canUndo: boolean;
   activeFilters: Filter[];
   onToggleFilter: (filter: Filter) => void;
+  adjustments: ImageAdjustments;
+  onAdjustmentChange: (adjustment: keyof ImageAdjustments, value: number) => void;
+  onResetAdjustments: () => void;
   clipArtCategories: ClipArtCategory[];
   selectedClipArtCategoryName: string;
   setSelectedClipArtCategoryName: (name: string) => void;
@@ -569,30 +572,126 @@ const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' |
     </div>
 )};
 
-const FiltersTab: React.FC<Pick<ControlPanelProps, 'activeFilters' | 'onToggleFilter' | 'isLoading'>> = ({
-    activeFilters, onToggleFilter, isLoading
+const AdjustmentControls: React.FC<Pick<ControlPanelProps, 'adjustments' | 'onAdjustmentChange' | 'onResetAdjustments' | 'isLoading'>> = ({
+    adjustments, onAdjustmentChange, onResetAdjustments, isLoading
 }) => (
-    <div className="flex flex-col space-y-4">
-         <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2">3. Apply Filters</h2>
-         <div className="grid grid-cols-2 gap-2">
-            {FILTERS.map(filter => {
-                const isActive = activeFilters.some(af => af.name === filter.name);
-                return (
-                    <button
-                        key={filter.name}
-                        onClick={() => onToggleFilter(filter)}
-                        disabled={isLoading}
-                        className={`py-2 px-3 rounded-md transition text-sm font-semibold text-center
-                            ${isActive ? 'bg-brand-secondary text-white ring-2 ring-offset-2 ring-offset-base-200 ring-brand-secondary' : 'bg-base-100 hover:bg-base-300 text-text-secondary'}
-                        `}
-                    >
-                        {filter.name}
-                    </button>
-                )
-            })}
-         </div>
+    <div className="space-y-3 pt-4 border-t border-base-300">
+        <h3 className="text-md font-semibold text-text-primary">Adjustments</h3>
+        <div>
+            <label htmlFor="brightness" className="block text-sm font-medium text-text-secondary mb-1">
+                Brightness ({adjustments.brightness}%)
+            </label>
+            <input
+                id="brightness"
+                type="range"
+                min="50"
+                max="150"
+                value={adjustments.brightness}
+                onChange={(e) => onAdjustmentChange('brightness', parseInt(e.target.value, 10))}
+                disabled={isLoading}
+                className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer"
+            />
+        </div>
+        <div>
+            <label htmlFor="contrast" className="block text-sm font-medium text-text-secondary mb-1">
+                Contrast ({adjustments.contrast}%)
+            </label>
+            <input
+                id="contrast"
+                type="range"
+                min="50"
+                max="200"
+                value={adjustments.contrast}
+                onChange={(e) => onAdjustmentChange('contrast', parseInt(e.target.value, 10))}
+                disabled={isLoading}
+                className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer"
+            />
+        </div>
+        <div>
+            <label htmlFor="red" className="block text-sm font-medium text-text-secondary mb-1">
+                Red ({adjustments.red}%)
+            </label>
+            <input
+                id="red"
+                type="range"
+                min="0"
+                max="200"
+                value={adjustments.red}
+                onChange={(e) => onAdjustmentChange('red', parseInt(e.target.value, 10))}
+                disabled={isLoading}
+                className="w-full h-2 bg-red-500/50 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:bg-red-500"
+            />
+        </div>
+        <div>
+            <label htmlFor="green" className="block text-sm font-medium text-text-secondary mb-1">
+                Green ({adjustments.green}%)
+            </label>
+            <input
+                id="green"
+                type="range"
+                min="0"
+                max="200"
+                value={adjustments.green}
+                onChange={(e) => onAdjustmentChange('green', parseInt(e.target.value, 10))}
+                disabled={isLoading}
+                className="w-full h-2 bg-green-500/50 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:bg-green-500"
+            />
+        </div>
+        <div>
+            <label htmlFor="blue" className="block text-sm font-medium text-text-secondary mb-1">
+                Blue ({adjustments.blue}%)
+            </label>
+            <input
+                id="blue"
+                type="range"
+                min="0"
+                max="200"
+                value={adjustments.blue}
+                onChange={(e) => onAdjustmentChange('blue', parseInt(e.target.value, 10))}
+                disabled={isLoading}
+                className="w-full h-2 bg-blue-500/50 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:bg-blue-500"
+            />
+        </div>
+        <button
+            onClick={onResetAdjustments}
+            disabled={isLoading}
+            className="w-full flex items-center justify-center gap-2 bg-base-300 hover:bg-base-300/80 disabled:opacity-50 text-text-secondary font-bold py-2 px-3 rounded-md transition text-sm"
+        >
+            <ResetIcon /> Reset Adjustments
+        </button>
     </div>
 );
+
+
+const FiltersTab: React.FC<Pick<ControlPanelProps, 'activeFilters' | 'onToggleFilter' | 'isLoading' | 'adjustments' | 'onAdjustmentChange' | 'onResetAdjustments'>> = (props) => {
+    const { activeFilters, onToggleFilter, isLoading } = props;
+    return (
+        <div className="flex flex-col space-y-4">
+            <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2">3. Apply Filters</h2>
+            <div>
+                <h3 className="text-md font-semibold text-text-primary mb-2">Presets</h3>
+                <div className="grid grid-cols-2 gap-2">
+                    {FILTERS.map(filter => {
+                        const isActive = activeFilters.some(af => af.name === filter.name);
+                        return (
+                            <button
+                                key={filter.name}
+                                onClick={() => onToggleFilter(filter)}
+                                disabled={isLoading}
+                                className={`py-2 px-3 rounded-md transition text-sm font-semibold text-center
+                                    ${isActive ? 'bg-brand-secondary text-white ring-2 ring-offset-2 ring-offset-base-200 ring-brand-secondary' : 'bg-base-100 hover:bg-base-300 text-text-secondary'}
+                                `}
+                            >
+                                {filter.name}
+                            </button>
+                        )
+                    })}
+                </div>
+            </div>
+            <AdjustmentControls {...props} />
+        </div>
+    );
+};
 
 const SettingsTab: React.FC<{
     onClearCustomShapes: () => void;
