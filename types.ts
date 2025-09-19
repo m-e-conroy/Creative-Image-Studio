@@ -1,4 +1,11 @@
-export type AspectRatioValue = "1:1" | "16:9" | "9:16" | "4:3" | "3:4";
+// FIX: Replaced incorrect file content with proper type definitions to resolve circular dependencies and export missing types.
+export type AspectRatioValue = "1:1" | "4:3" | "3:4" | "16:9" | "9:16";
+
+export enum EditMode {
+  MASK = 'mask',
+  SKETCH = 'sketch',
+  OUTPAINT = 'outpaint',
+}
 
 export interface ImageStyle {
   name: string;
@@ -25,8 +32,15 @@ export interface Filter {
   value: string;
 }
 
+export interface PromptState {
+  subject: string;
+  background: string;
+}
+
+export type PromptPart = keyof PromptState;
+
 export interface ClipArtShape {
-  name: string;
+  name:string;
   dataUrl: string;
 }
 
@@ -35,68 +49,73 @@ export interface ClipArtCategory {
   shapes: ClipArtShape[];
 }
 
-export enum EditMode {
-  MASK = 'mask',
-  SKETCH = 'sketch',
-  OUTPAINT = 'outpaint',
-  CROP = 'crop',
-}
-
-export type PromptPart = 'subject' | 'background';
-
-export interface PromptState {
-  subject: string;
-  background: string;
-}
-
 export interface Point {
-    x: number;
-    y: number;
+  x: number;
+  y: number;
 }
 
 export interface Stroke {
-    id: string;
-    points: Point[];
-    color: string;
-    size: number;
+  id: string;
+  points: Point[];
+  color: string;
+  size: number;
 }
 
 export interface PlacedShape {
-    id: string;
-    dataUrl: string;
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    rotation: number;
-    color: string;
+  id: string;
+  dataUrl: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  color: string;
 }
 
 export interface ImageAdjustments {
-    brightness: number;
-    contrast: number;
-    red: number;
-    green: number;
-    blue: number;
-    filter?: string;
+  brightness: number;
+  contrast: number;
+  red: number;
+  green: number;
+  blue: number;
+  filter: string;
 }
 
 export enum LayerType {
     IMAGE = 'image',
     PIXEL = 'pixel',
-    ADJUSTMENT = 'adjustment',
+    ADJUSTMENT = 'adjustment'
 }
 
 export interface Layer {
-    id: string;
-    name: string;
-    type: LayerType;
-    isVisible: boolean;
-    opacity: number;
-    src?: string;
-    strokes?: Stroke[];
-    placedShapes?: PlacedShape[];
-    adjustments?: ImageAdjustments;
-    maskSrc?: string;
-    maskEnabled?: boolean;
+  id: string;
+  name: string;
+  type: LayerType;
+  isVisible: boolean;
+  opacity: number;
+  src?: string; // For IMAGE layers
+  strokes?: Stroke[]; // For PIXEL layers
+  placedShapes?: PlacedShape[]; // For PIXEL layers
+  adjustments?: ImageAdjustments; // For ADJUSTMENT layers
+  maskSrc?: string;
+  maskEnabled?: boolean;
+}
+
+// Theme Types
+export interface ThemeColors {
+  primary: string;
+  secondary: string;
+  base100: string;
+  base200: string;
+  base300: string;
+  textPrimary: string;
+  textSecondary: string;
+}
+
+export interface Theme {
+  name: string;
+  colors: {
+    light: ThemeColors;
+    dark: ThemeColors;
+  };
 }

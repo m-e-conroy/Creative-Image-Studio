@@ -5,10 +5,19 @@ import { generateImage, editImage, rewritePrompt, generateRandomPrompt, describe
 import { ImageCanvasMethods } from './components/ImageCanvas';
 import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, Stroke, ClipArtCategory, TechnicalModifier, ImageAdjustments, Layer, LayerType } from './types';
 import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, CLIP_ART_CATEGORIES, TECHNICAL_MODIFIERS, INITIAL_COLOR_PRESETS, DEFAULT_ADJUSTMENTS } from './constants';
-import { DownloadIcon, SettingsIcon } from './components/Icons';
+import { THEMES, DEFAULT_THEME } from './themes';
+import { DownloadIcon, SettingsIcon, CropIcon, CheckIcon, CloseIcon, SaveProjectIcon, OpenProjectIcon, UploadIcon } from './components/Icons';
 import { ImageGallery } from './components/ImageGallery';
 
 type Tab = 'generate' | 'edit' | 'settings';
+type ExportFormat = 'png' | 'jpeg' | 'webp';
+
+// Extend the global Window interface
+declare global {
+  interface Window {
+    applyTheme: (themeName: string, isDark: boolean) => void;
+  }
+}
 
 const findDefault = <T extends { name: string }>(arr: T[], name: string): T => arr.find(item => item.name === name) || arr[0];
 
@@ -52,7 +61,6 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>('generate');
   const [rewritingPrompt, setRewritingPrompt] = useState<PromptPart | null>(null);
   const [randomizingPrompt, setRandomizingPrompt] = useState<PromptPart | 'edit' | null>(null);
-  const [cropRectActive, setCropRectActive] = useState<boolean>(false);
 
   const [subjectSuggestions, setSubjectSuggestions] = useState<string[]>([]);
   const [backgroundSuggestions, setBackgroundSuggestions] = useState<string[]>([]);
@@ -60,12 +68,47 @@ const App: React.FC = () => {
 
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [colorPresets, setColorPresets] = useState<string[]>(INITIAL_COLOR_PRESETS);
+  
+  // Cropping State
+  const [isCropping, setIsCropping] = useState<boolean>(false);
+  const [cropRequest, setCropRequest] = useState<number>(0);
+  
+  // Save/Export/Open State
+  const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('png');
+  const [jpegQuality, setJpegQuality] = useState<number>(92);
+  const [isOpenOptionsOpen, setIsOpenOptionsOpen] = useState<boolean>(false);
+
+  // Theme state
+  const [themeName, setThemeName] = useState(() => localStorage.getItem('themeName') || DEFAULT_THEME.name);
+  const [isDarkMode, setIsDarkMode] = useState(() => document.documentElement.classList.contains('dark'));
 
   const canvasRef = useRef<ImageCanvasMethods>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageFileInputRef = useRef<HTMLInputElement>(null);
+  const projectFileInputRef = useRef<HTMLInputElement>(null);
 
   const canUndo = history.length > 1;
-  const hasImage = layers.some(l => l.type === LayerType.IMAGE);
+  const hasImage = layers.some(l => l.type === LayerType.IMAGE || (l.type === LayerType.PIXEL && (l.strokes?.length || l.placedShapes?.length)));
+
+  useEffect(() => {
+    // Centralized theme management
+    const root = window.document.documentElement;
+    if (isDarkMode) {
+      root.classList.add('dark');
+      root.classList.remove('light');
+      localStorage.setItem('themeMode', 'dark');
+    } else {
+      root.classList.remove('dark');
+      root.classList.add('light');
+      localStorage.setItem('themeMode', 'light');
+    }
+    localStorage.setItem('themeName', themeName);
+    
+    // Apply colors using the globally defined function
+    if(window.applyTheme) {
+      window.applyTheme(themeName, isDarkMode);
+    }
+  }, [themeName, isDarkMode]);
 
   useEffect(() => {
     // Load custom clip art
@@ -289,32 +332,59 @@ const App: React.FC = () => {
     }
   }, [outpaintPrompt, outpaintAmount, layers, updateHistory]);
 
-  const handleCrop = useCallback(async () => {
-    if (!canvasRef.current || !cropRectActive) return;
-    setIsLoading(true);
-    setLoadingMessage('Cropping image...');
-    setError(null);
-    try {
-      const croppedDataUrl = canvasRef.current.applyCrop();
-      if (croppedDataUrl) {
-        const newLayer: Layer = { id: `layer_${Date.now()}`, name: 'Cropped Image', type: LayerType.IMAGE, src: croppedDataUrl, isVisible: true, opacity: 100 };
-        const newLayers = [newLayer];
-        setLayers(newLayers);
-        setActiveLayerId(newLayer.id);
-        updateHistory(newLayers);
-        setIsEditingMask(false);
-      } else {
-        throw new Error("Cropping failed to return image data.");
-      }
-    } catch (e: any) {
-      console.error(e);
-      setError(e.message || 'Failed to crop image.');
-    } finally {
-      setIsLoading(false);
-      setLoadingMessage('');
-      setCropRectActive(false);
+  // --- Cropping ---
+  const handleStartCrop = () => setIsCropping(true);
+  
+  const handleCancelCrop = () => {
+    canvasRef.current?.clearCropSelection();
+    setIsCropping(false);
+  };
+
+  const handleConfirmCrop = () => {
+    if (!canvasRef.current) return;
+    if (!window.confirm("This will merge all visible layers and crop the canvas. This action cannot be undone. Do you want to continue?")) {
+        return;
     }
-  }, [cropRectActive, updateHistory]);
+    setCropRequest(Date.now());
+  };
+  
+  useEffect(() => {
+    if (cropRequest === 0) return;
+
+    const performCrop = () => {
+        if (!canvasRef.current) return;
+
+        setIsLoading(true);
+        setLoadingMessage('Cropping canvas...');
+        
+        // This timeout ensures the loading state has a chance to render before the potentially blocking canvas operation
+        setTimeout(() => {
+            try {
+                const croppedDataUrl = canvasRef.current!.applyCrop();
+                if (croppedDataUrl) {
+                    const newLayer: Layer = { id: `layer_${Date.now()}`, name: 'Cropped Image', type: LayerType.IMAGE, src: croppedDataUrl, isVisible: true, opacity: 100 };
+                    const newLayers = [newLayer];
+                    setLayers(newLayers);
+                    setActiveLayerId(newLayer.id);
+                    updateHistory(newLayers);
+                    setIsEditingMask(false);
+                } else {
+                    throw new Error("Cropping failed. Please ensure you have selected a valid area.");
+                }
+            } catch (e: any) {
+                console.error(e);
+                setError(e.message || 'Failed to crop canvas.');
+            } finally {
+                setIsLoading(false);
+                setLoadingMessage('');
+                setIsCropping(false);
+            }
+        }, 50);
+    };
+
+    performCrop();
+  }, [cropRequest, updateHistory]);
+
 
   // --- Layer Management ---
   const handleAddLayer = useCallback((type: LayerType) => {
@@ -381,7 +451,6 @@ const App: React.FC = () => {
   }, [activeLayerId, updateHistory]);
 
 
-  // FIX: Moved resetImage before handleDeleteLayer to fix ReferenceError.
   const resetImage = useCallback(() => {
     setLayers([]);
     setActiveLayerId(null);
@@ -437,7 +506,7 @@ const App: React.FC = () => {
 
   // --- Mask Management ---
   const handleAddLayerMask = useCallback((layerId: string) => {
-    const whiteMask = canvasRef.current?.getCanvasAsDataURL(true, 'white');
+    const whiteMask = canvasRef.current?.getCanvasAsDataURL({ fillStyle: 'white' });
     if (!whiteMask) return;
     const newLayers = layers.map(l => l.id === layerId ? { ...l, maskSrc: whiteMask, maskEnabled: true } : l);
     setLayers(newLayers);
@@ -484,7 +553,7 @@ const App: React.FC = () => {
     const newLayers = layers.map(l => {
       if (l.id === activeLayerId) {
         if (isEditingMask) {
-          const whiteMask = canvasRef.current?.getCanvasAsDataURL(true, 'white');
+          const whiteMask = canvasRef.current?.getCanvasAsDataURL({ fillStyle: 'white' });
           return { ...l, maskSrc: whiteMask };
         } else if (l.type === LayerType.PIXEL) {
           return { ...l, strokes: [], placedShapes: [] };
@@ -570,6 +639,91 @@ const App: React.FC = () => {
   }, [selectedShapeId, activeLayerId, layers, updateHistory]);
 
 
+  // --- Save / Open / Export ---
+  const handleSaveProject = useCallback(() => {
+    if (layers.length === 0) {
+      setError("There's nothing to save yet. Create or upload an image first.");
+      return;
+    }
+    const projectState = {
+      version: '1.0.0',
+      layers,
+      themeName,
+      isDarkMode
+    };
+    const blob = new Blob([JSON.stringify(projectState, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const projectName = layers.find(l => l.type === LayerType.IMAGE)?.name.replace(/\s+/g, '-') || 'creative-studio-project';
+    link.download = `${projectName}.csp`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, [layers, themeName, isDarkMode]);
+
+  const handleExportImage = useCallback(() => {
+    if (!canvasRef.current) return;
+    const dataUrl = canvasRef.current.getCanvasAsDataURL({
+      format: exportFormat,
+      quality: jpegQuality / 100
+    });
+    if (dataUrl) {
+      const link = document.createElement('a');
+      link.href = dataUrl;
+      link.download = `creative-studio-export-${Date.now()}.${exportFormat}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+    setIsExportModalOpen(false);
+  }, [exportFormat, jpegQuality]);
+
+  const handleProjectFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const projectState = JSON.parse(e.target?.result as string);
+        if (projectState && projectState.version && Array.isArray(projectState.layers)) {
+          // A very basic validation passed, load the project.
+          setLayers(projectState.layers);
+          setThemeName(projectState.themeName || DEFAULT_THEME.name);
+          setIsDarkMode(projectState.isDarkMode || false);
+          
+          // Reset relevant state
+          updateHistory([projectState.layers]);
+          const newActiveId = projectState.layers[projectState.layers.length - 1]?.id || null;
+          setActiveLayerId(newActiveId);
+          setIsEditingMask(false);
+          setActiveTab('edit');
+        } else {
+          setError("Invalid or corrupted project file.");
+        }
+      } catch (err) {
+        console.error("Failed to load project:", err);
+        setError("Failed to read the project file. It may be corrupted.");
+      }
+    };
+    reader.readAsText(file);
+    if (event.target) event.target.value = ''; // Reset input
+    setIsOpenOptionsOpen(false);
+  };
+  
+  const handleImageFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) handleImageUpload(file);
+    if (event.target) event.target.value = '';
+    setIsOpenOptionsOpen(false);
+  };
+  
+  const handleOpenImageClick = () => imageFileInputRef.current?.click();
+  const handleOpenProjectClick = () => projectFileInputRef.current?.click();
+
+
   // --- Other handlers ---
   const handleAddColorPreset = useCallback(() => {
     if (!colorPresets.includes(brushColor) && colorPresets.length < 12) {
@@ -582,24 +736,7 @@ const App: React.FC = () => {
       }
     }
   }, [brushColor, colorPresets]);
-  const handleUploadClick = () => fileInputRef.current?.click();
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) handleImageUpload(file);
-    if (event.target) event.target.value = '';
-  };
-  const handleDownload = useCallback(() => {
-    if (!canvasRef.current) return;
-    const dataUrl = canvasRef.current.getCanvasAsDataURL();
-    if (dataUrl) {
-      const link = document.createElement('a');
-      link.href = dataUrl;
-      link.download = `creative-studio-image-${Date.now()}.png`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    }
-  }, []);
+
   const handleRewritePrompt = useCallback(async (part: PromptPart) => {
     const currentPrompt = prompt[part];
     if (!currentPrompt.trim()) return;
@@ -644,7 +781,10 @@ const App: React.FC = () => {
   const handleClearCustomShapes = useCallback(() => {
     try {
       localStorage.removeItem('userClipArtShapes');
-      localStorage.removeItem('colorPresets'); // Also clear color presets
+      localStorage.removeItem('colorPresets');
+      // Also reset theme to default
+      setThemeName(DEFAULT_THEME.name);
+      
       const defaultCategories = [...CLIP_ART_CATEGORIES];
       setClipArtCategories(defaultCategories);
       setSelectedClipArtCategoryName(defaultCategories[0].name);
@@ -656,10 +796,55 @@ const App: React.FC = () => {
   }, []);
 
   const handlePromptChange = (part: PromptPart, value: string) => setPrompt(prev => ({ ...prev, [part]: value }));
+  const handleToggleThemeMode = useCallback(() => setIsDarkMode(prev => !prev), []);
 
   return (
     <>
-      <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/png, image/jpeg, image/webp" className="hidden" />
+      <input type="file" ref={imageFileInputRef} onChange={handleImageFileChange} accept="image/png, image/jpeg, image/webp" className="hidden" />
+      <input type="file" ref={projectFileInputRef} onChange={handleProjectFileChange} accept=".csp" className="hidden" />
+
+      {/* Modals */}
+      {isOpenOptionsOpen && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={() => setIsOpenOptionsOpen(false)}>
+          <div className="bg-base-200 p-6 rounded-lg shadow-xl space-y-4 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+            <h2 className="text-xl font-bold text-text-primary">Open File</h2>
+            <button onClick={handleOpenProjectClick} className="w-full flex items-center justify-center gap-3 p-4 bg-base-100 hover:bg-base-300 rounded-md transition-colors text-text-primary font-semibold">
+              <OpenProjectIcon /> Open Project (.csp)
+            </button>
+            <button onClick={handleOpenImageClick} className="w-full flex items-center justify-center gap-3 p-4 bg-base-100 hover:bg-base-300 rounded-md transition-colors text-text-primary font-semibold">
+              <UploadIcon /> Open Image (JPG, PNG...)
+            </button>
+          </div>
+        </div>
+      )}
+      
+      {isExportModalOpen && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={() => setIsExportModalOpen(false)}>
+            <div className="bg-base-200 p-6 rounded-lg shadow-xl space-y-4 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+                <h2 className="text-xl font-bold text-text-primary">Export Image</h2>
+                <div>
+                    <label htmlFor="export-format" className="block text-sm font-medium text-text-secondary mb-1">Format</label>
+                    <select id="export-format" value={exportFormat} onChange={e => setExportFormat(e.target.value as ExportFormat)} className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary">
+                        <option value="png">PNG (Best Quality)</option>
+                        <option value="jpeg">JPEG (Good for Web)</option>
+                        <option value="webp">WebP (Modern Format)</option>
+                    </select>
+                </div>
+                {exportFormat === 'jpeg' && (
+                    <div>
+                        <label htmlFor="jpeg-quality" className="block text-sm font-medium text-text-secondary mb-1">JPEG Quality ({jpegQuality}%)</label>
+                        <input id="jpeg-quality" type="range" min="10" max="100" value={jpegQuality} onChange={e => setJpegQuality(Number(e.target.value))} className="w-full" />
+                    </div>
+                )}
+                <div className="flex justify-end gap-2">
+                    <button onClick={() => setIsExportModalOpen(false)} className="px-4 py-2 rounded-md bg-base-300 hover:bg-base-300/80 text-text-secondary font-semibold">Cancel</button>
+                    <button onClick={handleExportImage} className="px-4 py-2 rounded-md bg-brand-primary hover:bg-brand-primary/80 text-white font-semibold">Export</button>
+                </div>
+            </div>
+        </div>
+      )}
+
+
       <div className="min-h-screen bg-base-100 flex font-sans">
         {isPanelOpen && <div onClick={() => setIsPanelOpen(false)} className="fixed inset-0 bg-black/60 z-40 md:hidden" aria-hidden="true" />}
         <aside className={`fixed inset-y-0 left-0 z-50 w-11/12 max-w-md transform transition-transform duration-300 ease-in-out bg-base-200 p-6 flex-shrink-0 flex flex-col space-y-6 max-h-screen overflow-y-auto md:relative md:w-[400px] lg:w-[450px] md:translate-x-0 ${isPanelOpen ? 'translate-x-0' : '-translate-x-full'}`}>
@@ -672,14 +857,16 @@ const App: React.FC = () => {
             composition={composition} setComposition={setComposition} technicalModifier={technicalModifier} setTechnicalModifier={setTechnicalModifier}
             aspectRatio={aspectRatio} setAspectRatio={setAspectRatio} numImages={numImages} setNumImages={setNumImages}
             onGenerate={handleGenerate} onEdit={handleEdit} onOutpaint={handleOutpaint} outpaintPrompt={outpaintPrompt} setOutpaintPrompt={setOutpaintPrompt}
-            outpaintAmount={outpaintAmount} setOutpaintAmount={setOutpaintAmount} onCrop={handleCrop} cropRectActive={cropRectActive}
-            onUploadClick={handleUploadClick} isLoading={isLoading} hasImage={hasImage} editMode={editMode} setEditMode={setEditMode}
+            outpaintAmount={outpaintAmount} setOutpaintAmount={setOutpaintAmount} 
+            onOpenOptionsClick={() => setIsOpenOptionsOpen(true)} isLoading={isLoading} hasImage={hasImage} editMode={editMode} setEditMode={setEditMode}
             brushSize={brushSize} setBrushSize={setBrushSize} brushColor={brushColor} setBrushColor={setBrushColor} onClear={clearCanvas}
             onReset={resetImage} onUndo={handleUndo} canUndo={canUndo}
             clipArtCategories={clipArtCategories} selectedClipArtCategoryName={selectedClipArtCategoryName} setSelectedClipArtCategoryName={setSelectedClipArtCategoryName}
             onSaveShape={handleSaveShape} selectedShapeId={selectedShapeId} onDeleteSelectedShape={handleDeleteSelectedShape}
             onClearCustomShapes={handleClearCustomShapes}
             colorPresets={colorPresets} onAddColorPreset={handleAddColorPreset}
+            // Theme props
+            themes={THEMES} activeTheme={themeName} onThemeChange={setThemeName} isDarkMode={isDarkMode} onToggleThemeMode={handleToggleThemeMode}
             // Layer props
             layers={layers} activeLayerId={activeLayerId} onAddLayer={handleAddLayer} onDeleteLayer={handleDeleteLayer}
             onSelectLayer={handleSelectLayer} onUpdateLayer={handleUpdateLayer} onReorderLayers={handleReorderLayers}
@@ -696,10 +883,21 @@ const App: React.FC = () => {
           <button onClick={() => setIsPanelOpen(true)} className="md:hidden fixed bottom-4 left-4 z-30 bg-brand-primary text-white p-3 rounded-full shadow-lg hover:bg-brand-primary/80 transition-colors" aria-label="Open controls panel"><SettingsIcon /></button>
           <div className="w-full h-full max-w-[800px] max-h-[800px] flex items-center justify-center relative">
             {hasImage && !isLoading && (
-              <>
-                <button onClick={handleDownload} className="absolute top-3 right-3 z-30 bg-base-200/80 hover:bg-brand-primary text-text-primary hover:text-white p-2 rounded-full transition-colors duration-200" aria-label="Download image" title="Download image"><DownloadIcon /></button>
-                {imageDimensions && (<div className="absolute bottom-3 right-3 z-30 bg-black/60 text-white text-xs px-2 py-1 rounded-md pointer-events-none">{imageDimensions.width} x {imageDimensions.height}px</div>)}
-              </>
+              <div className="absolute top-3 right-3 z-30 flex items-center gap-2">
+                {isCropping ? (
+                  <>
+                    <button onClick={handleConfirmCrop} className="flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white font-bold px-4 py-2 rounded-lg shadow-lg transition-all duration-200 transform hover:scale-105" title="Apply Crop"><CheckIcon/> Apply</button>
+                    <button onClick={handleCancelCrop} className="flex items-center gap-2 bg-base-300 hover:bg-base-300/80 text-text-secondary font-bold px-4 py-2 rounded-lg shadow-lg transition-all duration-200 transform hover:scale-105" title="Cancel Crop"><CloseIcon/> Cancel</button>
+                  </>
+                ) : (
+                  <>
+                    <button onClick={handleSaveProject} className="bg-base-200/80 hover:bg-brand-primary text-text-primary hover:text-white p-2 rounded-full transition-colors duration-200" aria-label="Save Project" title="Save Project"><SaveProjectIcon /></button>
+                    <button onClick={() => setIsExportModalOpen(true)} className="bg-base-200/80 hover:bg-brand-primary text-text-primary hover:text-white p-2 rounded-full transition-colors duration-200" aria-label="Export Image" title="Export Image"><DownloadIcon /></button>
+                    <button onClick={handleStartCrop} className="bg-base-200/80 hover:bg-brand-primary text-text-primary hover:text-white p-2 rounded-full transition-colors duration-200" aria-label="Crop Canvas" title="Crop Canvas"><CropIcon /></button>
+                  </>
+                )}
+                 {imageDimensions && !isCropping && (<div className="absolute top-full right-0 mt-2 bg-black/60 text-white text-xs px-2 py-1 rounded-md pointer-events-none">{imageDimensions.width} x {imageDimensions.height}px</div>)}
+              </div>
             )}
             {generatedImages.length > 0 ? (
               <ImageGallery images={generatedImages} onSelectImage={handleSelectGalleryImage} />
@@ -710,8 +908,9 @@ const App: React.FC = () => {
                 activeLayerId={activeLayerId}
                 isEditingMask={isEditingMask}
                 isLoading={isLoading} loadingMessage={loadingMessage} editMode={editMode} brushSize={brushSize} brushColor={brushColor}
-                onUploadClick={handleUploadClick}
-                setCropRectActive={setCropRectActive} selectedShapeId={selectedShapeId} onAddStroke={handleAddStroke} onAddShape={handleAddShape}
+                onUploadClick={handleOpenImageClick}
+                isCropping={isCropping}
+                selectedShapeId={selectedShapeId} onAddStroke={handleAddStroke} onAddShape={handleAddShape}
                 onUpdateShape={handleUpdateShape} onSelectShape={setSelectedShapeId} onImageLoad={setImageDimensions}
                 onShapeInteractionEnd={handleShapeInteractionEnd}
                 onStrokeInteractionEnd={handleStrokeInteractionEnd}
