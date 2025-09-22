@@ -72,12 +72,14 @@ const App: React.FC = () => {
   // Cropping State
   const [isCropping, setIsCropping] = useState<boolean>(false);
   const [cropRequest, setCropRequest] = useState<number>(0);
+  const [collapseRequest, setCollapseRequest] = useState<number>(0);
   
   // Save/Export/Open State
   const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
   const [exportFormat, setExportFormat] = useState<ExportFormat>('png');
   const [jpegQuality, setJpegQuality] = useState<number>(92);
   const [isOpenOptionsOpen, setIsOpenOptionsOpen] = useState<boolean>(false);
+  const [isMergeConfirmModalOpen, setIsMergeConfirmModalOpen] = useState<boolean>(false);
 
   // Theme state
   const [themeName, setThemeName] = useState(() => localStorage.getItem('themeName') || DEFAULT_THEME.name);
@@ -447,6 +449,57 @@ const App: React.FC = () => {
 
     performCrop();
   }, [cropRequest, updateHistory]);
+  
+  useEffect(() => {
+    if (collapseRequest === 0) return;
+
+    const performCollapse = () => {
+        if (!canvasRef.current) return;
+
+        setIsLoading(true);
+        setLoadingMessage('Merging layers...');
+        setError(null);
+
+        setTimeout(() => {
+            try {
+                const dataUrl = canvasRef.current!.getCanvasAsDataURL();
+                const dimensions = canvasRef.current!.getCanvasDimensions();
+                
+                if (dataUrl && dimensions) {
+                    const newLayer: Layer = {
+                        id: `layer_${Date.now()}`,
+                        name: 'Merged Layer',
+                        type: LayerType.IMAGE,
+                        src: dataUrl,
+                        isVisible: true,
+                        opacity: 100,
+                        x: 0,
+                        y: 0,
+                        width: dimensions.width,
+                        height: dimensions.height,
+                    };
+                    const newLayers = [newLayer];
+                    setLayers(newLayers);
+                    setActiveLayerId(newLayer.id);
+                    updateHistory(newLayers);
+                    setIsEditingMask(false);
+                } else {
+                    throw new Error("Could not merge layers. The canvas may be empty.");
+                }
+            } catch (e: any) {
+                console.error("Failed to merge layers:", e);
+                setError(e.message || "An unexpected error occurred while merging layers.");
+            } finally {
+                setIsLoading(false);
+                setLoadingMessage('');
+                setCollapseRequest(0); // Reset trigger
+            }
+        }, 50);
+    };
+    
+    performCollapse();
+
+  }, [collapseRequest, updateHistory]);
 
 
   // --- Layer Management ---
@@ -476,51 +529,14 @@ const App: React.FC = () => {
   }, [layers, updateHistory]);
 
   const handleCollapseLayers = useCallback(() => {
-    if (!canvasRef.current || layers.length < 2) return;
-    if (!window.confirm("Are you sure you want to merge all visible layers? This is a destructive action and cannot be undone.")) {
-        return;
-    }
-
-    setIsLoading(true);
-    setLoadingMessage('Merging layers...');
-    setError(null);
-    
-    setTimeout(() => {
-        try {
-            const dataUrl = canvasRef.current!.getCanvasAsDataURL();
-            const dimensions = canvasRef.current!.getCanvasDimensions();
-            
-            if (dataUrl && dimensions) {
-                const newLayer: Layer = {
-                    id: `layer_${Date.now()}`,
-                    name: 'Merged Layer',
-                    type: LayerType.IMAGE,
-                    src: dataUrl,
-                    isVisible: true,
-                    opacity: 100,
-                    x: 0,
-                    y: 0,
-                    width: dimensions.width,
-                    height: dimensions.height,
-                };
-                const newLayers = [newLayer];
-                setLayers(newLayers);
-                setActiveLayerId(newLayer.id);
-                updateHistory(newLayers);
-                setIsEditingMask(false);
-            } else {
-                throw new Error("Could not merge layers. The canvas may be empty.");
-            }
-        } catch (e: any) {
-            console.error("Failed to merge layers:", e);
-            setError(e.message || "An unexpected error occurred while merging layers.");
-        } finally {
-            setIsLoading(false);
-            setLoadingMessage('');
-        }
-    }, 50);
-
-}, [layers, updateHistory]);
+    if (layers.length < 2) return;
+    setIsMergeConfirmModalOpen(true);
+  }, [layers]);
+  
+  const handleConfirmCollapse = useCallback(() => {
+    setCollapseRequest(Date.now());
+    setIsMergeConfirmModalOpen(false);
+  }, []);
 
   const handleLayerAdjustmentChange = useCallback((adjustment: keyof ImageAdjustments, value: number) => {
     if (!activeLayerId) return;
@@ -1090,6 +1106,19 @@ const App: React.FC = () => {
                 <div className="flex justify-end gap-2">
                     <button onClick={() => setIsExportModalOpen(false)} className="px-4 py-2 rounded-md bg-base-300 hover:bg-base-300/80 text-text-secondary font-semibold">Cancel</button>
                     <button onClick={handleExportImage} className="px-4 py-2 rounded-md bg-brand-primary hover:bg-brand-primary/80 text-white font-semibold">Export</button>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {isMergeConfirmModalOpen && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={() => setIsMergeConfirmModalOpen(false)}>
+            <div className="bg-base-200 p-6 rounded-lg shadow-xl space-y-4 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+                <h2 className="text-xl font-bold text-text-primary">Confirm Merge</h2>
+                <p className="text-text-secondary">Are you sure you want to merge all visible layers? This is a destructive action and cannot be undone.</p>
+                <div className="flex justify-end gap-2">
+                    <button onClick={() => setIsMergeConfirmModalOpen(false)} className="px-4 py-2 rounded-md bg-base-300 hover:bg-base-300/80 text-text-secondary font-semibold">Cancel</button>
+                    <button onClick={handleConfirmCollapse} className="px-4 py-2 rounded-md bg-red-600 hover:bg-red-700 text-white font-semibold">Merge Layers</button>
                 </div>
             </div>
         </div>

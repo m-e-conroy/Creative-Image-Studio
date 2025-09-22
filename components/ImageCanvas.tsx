@@ -513,13 +513,19 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                     matrixElement.setAttribute('values', matrix);
                 }
 
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                ctx.filter = `${cssFilters} url(#adjustment-filter)`;
-                ctx.drawImage(tempCanvas, 0, 0);
-                ctx.filter = 'none';
+                // Create a temporary canvas to hold the current state
+                const snapshotCanvas = document.createElement('canvas');
+                snapshotCanvas.width = tempCanvas.width;
+                snapshotCanvas.height = tempCanvas.height;
+                const snapshotCtx = snapshotCanvas.getContext('2d');
+                if (!snapshotCtx) continue; // Skip if context fails
+                snapshotCtx.drawImage(tempCanvas, 0, 0);
 
+                // Apply the filter to the main temp canvas by drawing the snapshot onto it with the filter
                 tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
-                tempCtx.drawImage(canvas, 0, 0);
+                tempCtx.filter = `${cssFilters} url(#adjustment-filter)`;
+                tempCtx.drawImage(snapshotCanvas, 0, 0);
+                tempCtx.filter = 'none'; // Reset for subsequent layers
             }
         }
         
