@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Modality, Type } from "@google/genai";
 import { PromptPart, PexelsPhoto } from "../types";
 
@@ -183,7 +182,7 @@ export async function rewritePrompt(prompt: string, part: PromptPart): Promise<s
 
 export async function getPromptSuggestions(prompt: string, part: PromptPart): Promise<string[]> {
     return handleApiCall(async () => {
-        const systemInstruction = `You are a creative assistant for an AI image generator. The user is writing a prompt for the '${part}' of their image. Based on their input, provide 3 short, inspiring phrases or questions to help them add more detail. The suggestions should be additive. For example, if the user types 'a dog', you could suggest ['wearing a tiny hat', 'on a skateboard', 'in the style of Van Gogh']. Return the suggestions as a JSON array of strings.`;
+        const systemInstruction = `You are a creative assistant for an AI image generator. The user is writing a prompt for the '${part}' of their image. Based on their input, provide 3 short, inspiring phrases to help them add more detail. The suggestions MUST be additive statements or descriptive phrases, NOT questions. For example, if the user types 'a dog', you could suggest ['wearing a tiny hat', 'on a skateboard', 'in the style of Van Gogh']. Return the suggestions as a JSON array of strings.`;
         
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
