@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Modality, Type } from "@google/genai";
-import { PromptPart } from "../types";
+import { PromptPart, PexelsPhoto } from "../types";
 
 if (!process.env.API_KEY) {
   throw new Error("API_KEY environment variable not set");
@@ -232,4 +232,31 @@ export async function generateRandomPrompt(part: PromptPart | 'edit'): Promise<s
 
         return response.text.trim().replace(/^"|"$/g, ''); // Trim quotes if model adds them
     });
+}
+
+export async function searchPexelsPhotos(apiKey: string, query: string, page: number = 1, perPage: number = 15): Promise<PexelsPhoto[]> {
+  if (!apiKey) {
+    throw new Error("Pexels API key is not configured. Please add it in the Settings tab.");
+  }
+  return handleApiCall(async () => {
+    const response = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&page=${page}&per_page=${perPage}`, {
+      headers: {
+        Authorization: apiKey,
+      },
+    });
+
+    if (!response.ok) {
+        if (response.status === 401) {
+            throw new Error("Invalid Pexels API Key provided. Please check it in the settings.");
+        }
+      const errorData = await response.json();
+      throw new Error(`Pexels API error: ${errorData.error || response.statusText}`);
+    }
+
+    const data = await response.json();
+    if (!data.photos || data.photos.length === 0) {
+        throw new Error("No photos found for your search term.");
+    }
+    return data.photos;
+  });
 }

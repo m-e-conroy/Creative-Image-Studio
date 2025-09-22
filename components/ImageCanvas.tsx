@@ -1,3 +1,4 @@
+
 import React, { useRef, useEffect, useState, useImperativeHandle, forwardRef, useCallback } from 'react';
 import { EditMode, PlacedShape, Stroke, Point, ImageAdjustments, Layer, LayerType } from '../types';
 import { Loader } from './Loader';
@@ -24,11 +25,12 @@ interface ImageCanvasProps {
   onStrokeInteractionEnd: (stroke: Stroke) => void;
   onShapeInteractionEnd: () => void;
   onUpdateLayerMask: (layerId: string, maskDataUrl: string) => void;
+  onUpdateLayer: (id: string, updates: Partial<Layer> | ((layer: Layer) => Partial<Layer>)) => void;
   onInteractionEndWithHistory: () => void;
 }
 
 interface Rect { x: number; y: number; width: number; height: number; }
-type InteractionMode = 'idle' | 'drawing' | 'masking' | 'cropping' | 'moving' | 'resizing' | 'rotating' | 'moving-crop' | 'resizing-crop';
+type InteractionMode = 'idle' | 'drawing' | 'masking' | 'cropping' | 'moving' | 'resizing' | 'rotating' | 'moving-crop' | 'resizing-crop' | 'moving-layer';
 type ResizeHandle = 'tl' | 'tr' | 'bl' | 'br';
 type Handle = ResizeHandle | 'rotate';
 type CropResizeHandle = 'tl' | 'tr' | 'bl' | 'br';
@@ -37,6 +39,7 @@ type CropResizeHandle = 'tl' | 'tr' | 'bl' | 'br';
 interface InteractionState {
   mode: InteractionMode;
   startPoint?: Point;
+  prevPoint?: Point;
   shapeStart?: PlacedShape;
   handle?: Handle;
   originalShape?: PlacedShape;
@@ -92,7 +95,7 @@ const isPointInRect = (point: Point, rect: Rect) => {
 
 export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
   (props, ref) => {
-    const { layers, activeLayerId, isEditingMask, isLoading, loadingMessage, editMode, brushSize, brushColor, onUploadClick, isCropping, selectedShapeId, onAddStroke, onAddShape, onUpdateShape, onSelectShape, onImageLoad, onStrokeInteractionEnd, onShapeInteractionEnd, onUpdateLayerMask, onInteractionEndWithHistory } = props;
+    const { layers, activeLayerId, isEditingMask, isLoading, loadingMessage, editMode, brushSize, brushColor, onUploadClick, isCropping, selectedShapeId, onAddStroke, onAddShape, onUpdateShape, onSelectShape, onImageLoad, onStrokeInteractionEnd, onShapeInteractionEnd, onUpdateLayerMask, onUpdateLayer, onInteractionEndWithHistory } = props;
     
     const mainCanvasRef = useRef<HTMLCanvasElement>(null);
     const interactionCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -171,7 +174,8 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
     };
 
     useImperativeHandle(ref, () => ({
-      getCanvasAsDataURL: (options = {}) => {
+      // FIX: Explicitly typed the `options` parameter to match the `ImageCanvasMethods` interface, resolving destructuring errors on an implicitly typed empty object.
+      getCanvasAsDataURL: (options: { format?: 'png' | 'jpeg' | 'webp'; quality?: number; ignoreFilters?: boolean; fillStyle?: string; } = {}) => {
         const { format = 'png', quality = 0.92, fillStyle } = options;
         const flatCanvas = getFlattenedCanvas();
         if (!flatCanvas) return null;
@@ -437,7 +441,10 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                 const sourceCanvas = offscreen?.canvas;
                 if (sourceCanvas) {
                     tempCtx.globalAlpha = layer.opacity / 100;
+                    tempCtx.save();
+                    tempCtx.translate(layer.x || 0, layer.y || 0);
                     tempCtx.drawImage(sourceCanvas, 0, 0);
+                    tempCtx.restore();
                     tempCtx.globalAlpha = 1.0;
                 }
             } else if (layer.type === LayerType.ADJUSTMENT && layer.adjustments) {
@@ -563,6 +570,15 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
 
     const handleMouseDown = (e: React.MouseEvent) => {
         const point = getCanvasCoordinates(e);
+        const activeLayer = layers.find(l => l.id === activeLayerId);
+        
+        if (editMode === EditMode.MOVE && activeLayer && (activeLayer.type === LayerType.IMAGE || activeLayer.type === LayerType.PIXEL)) {
+            interactionStateRef.current = {
+                mode: 'moving-layer',
+                prevPoint: point,
+            };
+            return;
+        }
 
         if (isCropping) {
              if (cropRectRef.current) {
@@ -586,7 +602,6 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             return;
         }
 
-        const activeLayer = layers.find(l => l.id === activeLayerId);
         if (!activeLayer) return;
 
         if (isEditingMask) {
@@ -606,7 +621,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                     maskCtx.lineCap = 'round';
                     maskCtx.lineJoin = 'round';
                     maskCtx.beginPath();
-                    maskCtx.moveTo(point.x, point.y);
+                    maskCtx.moveTo(point.x - activeLayer.x, point.y - activeLayer.y);
                 }
             }
 
@@ -614,7 +629,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             interactionStateRef.current.mode = 'drawing';
             const newStroke: Stroke = {
                 id: `stroke_${Date.now()}`,
-                points: [point],
+                points: [{x: point.x - activeLayer.x, y: point.y - activeLayer.y}],
                 color: editMode === EditMode.MASK ? '#FFFFFF' : brushColor,
                 size: brushSize,
             };
@@ -625,9 +640,10 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
 
     const handleMouseMove = (e: React.MouseEvent) => {
         const point = getCanvasCoordinates(e);
-        const { mode, startPoint, currentStroke } = interactionStateRef.current;
+        const { mode, startPoint, prevPoint, currentStroke } = interactionStateRef.current;
         const canvas = getInteractionCanvas();
         if (!canvas) return;
+        const activeLayer = layers.find(l => l.id === activeLayerId);
 
         // Update cursor
         if (isCropping && cropRectRef.current) {
@@ -642,13 +658,25 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             }
         } else if (isCropping) {
             canvas.style.cursor = 'crosshair';
+        } else if (editMode === EditMode.MOVE && activeLayerId) {
+            canvas.style.cursor = mode === 'moving-layer' ? 'grabbing' : 'grab';
         } else if (!isLoading) {
             canvas.style.cursor = 'auto';
         }
 
         interactionStateRef.current.startPoint = point;
         
-        if (mode === 'cropping' && startPoint && cropRectRef.current) {
+        if (mode === 'moving-layer' && prevPoint && activeLayerId) {
+            const dx = point.x - prevPoint.x;
+            const dy = point.y - prevPoint.y;
+            if (dx !== 0 || dy !== 0) {
+                onUpdateLayer(activeLayerId, (currentLayer: Layer) => ({
+                    x: (currentLayer.x || 0) + dx,
+                    y: (currentLayer.y || 0) + dy,
+                }));
+            }
+            interactionStateRef.current.prevPoint = point;
+        } else if (mode === 'cropping' && startPoint && cropRectRef.current) {
             const x1 = startPoint.x;
             const y1 = startPoint.y;
             const x2 = point.x;
@@ -698,18 +726,19 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                     break;
             }
             drawInteractionLayer();
-        } else if (mode === 'masking' && activeLayerId) {
+        } else if (mode === 'masking' && activeLayerId && activeLayer) {
             const maskData = offscreenMasksRef.current.get(activeLayerId);
             const maskCtx = maskData?.canvas.getContext('2d');
             if (maskCtx) {
-                maskCtx.lineTo(point.x, point.y);
+                maskCtx.lineTo(point.x - activeLayer.x, point.y - activeLayer.y);
                 maskCtx.stroke();
                 const layerData = offscreenCanvasesRef.current.get(activeLayerId);
                 if (layerData) layerData.dirty = true;
                 drawLayers();
             }
-        } else if (mode === 'drawing' && currentStroke) {
-            const updatedStroke = { ...currentStroke, points: [...currentStroke.points, point] };
+        } else if (mode === 'drawing' && currentStroke && activeLayer) {
+            const localPoint = { x: point.x - activeLayer.x, y: point.y - activeLayer.y };
+            const updatedStroke = { ...currentStroke, points: [...currentStroke.points, localPoint] };
             interactionStateRef.current.currentStroke = updatedStroke;
             
             const offscreen = offscreenCanvasesRef.current.get(activeLayerId!);
@@ -722,7 +751,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                      ctx.lineJoin = 'round';
                      ctx.beginPath();
                      ctx.moveTo(currentStroke.points[currentStroke.points.length - 1].x, currentStroke.points[currentStroke.points.length - 1].y);
-                     ctx.lineTo(point.x, point.y);
+                     ctx.lineTo(localPoint.x, localPoint.y);
                      ctx.stroke();
                      drawLayers();
                 }
@@ -736,6 +765,8 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
 
     const handleMouseUp = () => {
         const { mode, currentStroke } = interactionStateRef.current;
+        const canvas = getInteractionCanvas();
+        if (canvas) canvas.style.cursor = 'auto';
 
         if (mode === 'resizing-crop' && cropRectRef.current) {
             const rect = cropRectRef.current;
@@ -761,8 +792,8 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             onInteractionEndWithHistory();
         } else if (mode === 'drawing' && currentStroke) {
             onStrokeInteractionEnd(currentStroke);
-        } else if (mode === 'moving' || mode === 'resizing' || mode === 'rotating') {
-            onShapeInteractionEnd();
+        } else if (mode === 'moving' || mode === 'resizing' || mode === 'rotating' || mode === 'moving-layer') {
+            onInteractionEndWithHistory();
         }
         
         interactionStateRef.current = { mode: 'idle' };
@@ -791,8 +822,8 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                 const size = 100;
                 const newShape: Omit<PlacedShape, 'id' | 'rotation' | 'color'> = {
                     dataUrl,
-                    x: point.x,
-                    y: point.y,
+                    x: point.x - activeLayer.x,
+                    y: point.y - activeLayer.y,
                     width: size,
                     height: size * (img.height / img.width),
                 };

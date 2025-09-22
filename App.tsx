@@ -1,9 +1,10 @@
+
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { ControlPanel } from './components/ControlPanel';
 import { ImageCanvas } from './components/ImageCanvas';
-import { generateImage, editImage, rewritePrompt, generateRandomPrompt, describeImage, getPromptSuggestions } from './services/geminiService';
+import { generateImage, editImage, rewritePrompt, generateRandomPrompt, describeImage, getPromptSuggestions, searchPexelsPhotos } from './services/geminiService';
 import { ImageCanvasMethods } from './components/ImageCanvas';
-import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, Stroke, ClipArtCategory, TechnicalModifier, ImageAdjustments, Layer, LayerType } from './types';
+import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, Stroke, ClipArtCategory, TechnicalModifier, ImageAdjustments, Layer, LayerType, PexelsPhoto } from './types';
 import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, CLIP_ART_CATEGORIES, TECHNICAL_MODIFIERS, INITIAL_COLOR_PRESETS, DEFAULT_ADJUSTMENTS } from './constants';
 import { THEMES, DEFAULT_THEME } from './themes';
 import { DownloadIcon, SettingsIcon, CropIcon, CheckIcon, CloseIcon, SaveProjectIcon, OpenProjectIcon, UploadIcon } from './components/Icons';
@@ -82,6 +83,23 @@ const App: React.FC = () => {
   // Theme state
   const [themeName, setThemeName] = useState(() => localStorage.getItem('themeName') || DEFAULT_THEME.name);
   const [isDarkMode, setIsDarkMode] = useState(() => document.documentElement.classList.contains('dark'));
+
+  // Pexels State
+  const [pexelsPhotos, setPexelsPhotos] = useState<PexelsPhoto[]>([]);
+  const [isPexelsLoading, setIsPexelsLoading] = useState<boolean>(false);
+  const [pexelsError, setPexelsError] = useState<string | null>(null);
+  const [pexelsPage, setPexelsPage] = useState<number>(1);
+  const [currentPexelsQuery, setCurrentPexelsQuery] = useState<string>('');
+  const [pexelsApiKey, setPexelsApiKey] = useState<string>(() => {
+    const savedKey = localStorage.getItem('pexelsApiKey');
+    return savedKey || process.env.PEXELS_API_KEY || '';
+  });
+
+  const handleSetPexelsApiKey = (key: string) => {
+      setPexelsApiKey(key);
+      localStorage.setItem('pexelsApiKey', key);
+  };
+
 
   const canvasRef = useRef<ImageCanvasMethods>(null);
   const imageFileInputRef = useRef<HTMLInputElement>(null);
@@ -166,7 +184,7 @@ const App: React.FC = () => {
 
       if (imageB64s.length === 1) {
         const imageUrl = `data:image/jpeg;base64,${imageB64s[0]}`;
-        const newLayer: Layer = { id: `layer_${Date.now()}`, name: 'Background', type: LayerType.IMAGE, src: imageUrl, isVisible: true, opacity: 100 };
+        const newLayer: Layer = { id: `layer_${Date.now()}`, name: 'Background', type: LayerType.IMAGE, src: imageUrl, isVisible: true, opacity: 100, x: 0, y: 0 };
         setLayers([newLayer]);
         setActiveLayerId(newLayer.id);
         updateHistory([newLayer]);
@@ -194,10 +212,11 @@ const App: React.FC = () => {
       const imageUrl = e.target?.result as string;
       if (!imageUrl) return;
       
-      const newLayer: Layer = { id: `layer_${Date.now()}`, name: 'Imported Image', type: LayerType.IMAGE, src: imageUrl, isVisible: true, opacity: 100 };
-      setLayers([newLayer]);
+      const newLayer: Layer = { id: `layer_${Date.now()}`, name: 'Imported Image', type: LayerType.IMAGE, src: imageUrl, isVisible: true, opacity: 100, x: 0, y: 0 };
+      const newLayers = [ ...layers, newLayer ];
+      setLayers(newLayers);
       setActiveLayerId(newLayer.id);
-      updateHistory([newLayer]);
+      updateHistory(newLayers);
       setActiveTab('edit');
       
       setIsLoading(true);
@@ -217,10 +236,10 @@ const App: React.FC = () => {
       }
     };
     reader.readAsDataURL(file);
-  }, [updateHistory]);
+  }, [layers, updateHistory]);
 
   const handleSelectGalleryImage = useCallback((imageUrl: string) => {
-    const newLayer: Layer = { id: `layer_${Date.now()}`, name: 'Background', type: LayerType.IMAGE, src: imageUrl, isVisible: true, opacity: 100 };
+    const newLayer: Layer = { id: `layer_${Date.now()}`, name: 'Background', type: LayerType.IMAGE, src: imageUrl, isVisible: true, opacity: 100, x: 0, y: 0 };
     setLayers([newLayer]);
     setActiveLayerId(newLayer.id);
     updateHistory([newLayer]);
@@ -260,7 +279,7 @@ const App: React.FC = () => {
       
       if (result.image) {
         const imageUrl = `data:${mimeType};base64,${result.image}`;
-        const newLayer: Layer = { id: `layer_${Date.now()}`, name: `Edit: ${editPrompt.substring(0, 15)}...`, type: LayerType.IMAGE, src: imageUrl, isVisible: true, opacity: 100 };
+        const newLayer: Layer = { id: `layer_${Date.now()}`, name: `Edit: ${editPrompt.substring(0, 15)}...`, type: LayerType.IMAGE, src: imageUrl, isVisible: true, opacity: 100, x: 0, y: 0 };
         const newLayers = [...layers, newLayer];
         setLayers(newLayers);
         setActiveLayerId(newLayer.id);
@@ -295,10 +314,11 @@ const App: React.FC = () => {
         const imageUrl = `data:image/png;base64,${result.image}`;
         
         // Create the new outpainted layer
-        const newBackgroundLayer: Layer = { id: `layer_${Date.now()}`, name: `Outpaint ${direction}`, type: LayerType.IMAGE, src: imageUrl, isVisible: true, opacity: 100 };
+        const newBackgroundLayer: Layer = { id: `layer_${Date.now()}`, name: `Outpaint ${direction}`, type: LayerType.IMAGE, src: imageUrl, isVisible: true, opacity: 100, x: 0, y: 0 };
         
         // Translate existing layers to fit on the new canvas
         const translatedLayers = layers.map(layer => {
+            const newPos = { x: layer.x + pasteX, y: layer.y + pasteY };
             if (layer.type === LayerType.PIXEL) {
                 const translatedStrokes = layer.strokes?.map(stroke => ({
                     ...stroke,
@@ -309,9 +329,9 @@ const App: React.FC = () => {
                     x: shape.x + pasteX,
                     y: shape.y + pasteY
                 }));
-                return { ...layer, strokes: translatedStrokes, placedShapes: translatedShapes };
+                return { ...layer, ...newPos, strokes: translatedStrokes, placedShapes: translatedShapes };
             }
-            return layer;
+            return { ...layer, ...newPos };
         });
         
         // Place the new outpainted layer at the bottom and the translated layers on top
@@ -362,7 +382,7 @@ const App: React.FC = () => {
             try {
                 const croppedDataUrl = canvasRef.current!.applyCrop();
                 if (croppedDataUrl) {
-                    const newLayer: Layer = { id: `layer_${Date.now()}`, name: 'Cropped Image', type: LayerType.IMAGE, src: croppedDataUrl, isVisible: true, opacity: 100 };
+                    const newLayer: Layer = { id: `layer_${Date.now()}`, name: 'Cropped Image', type: LayerType.IMAGE, src: croppedDataUrl, isVisible: true, opacity: 100, x: 0, y: 0 };
                     const newLayers = [newLayer];
                     setLayers(newLayers);
                     setActiveLayerId(newLayer.id);
@@ -395,6 +415,8 @@ const App: React.FC = () => {
       type: type,
       isVisible: true,
       opacity: 100,
+      x: 0,
+      y: 0,
     };
     if (type === LayerType.PIXEL) {
         newLayer.strokes = [];
@@ -488,11 +510,16 @@ const App: React.FC = () => {
     setBrushColor('#000000'); // Default to black for masking
   }, []);
 
-  const handleUpdateLayer = useCallback((id: string, updates: Partial<Layer>) => {
-    const newLayers = layers.map(l => l.id === id ? { ...l, ...updates } : l);
-    setLayers(newLayers);
-    // Do not add to history for continuous updates like opacity change
-  }, [layers]);
+  const handleUpdateLayer = useCallback((id: string, updates: Partial<Layer> | ((layer: Layer) => Partial<Layer>)) => {
+      setLayers(currentLayers => currentLayers.map(l => {
+        if (l.id === id) {
+          const newUpdates = typeof updates === 'function' ? updates(l) : updates;
+          return { ...l, ...newUpdates };
+        }
+        return l;
+      }));
+      // Do not add to history for continuous updates like opacity change or movement
+  }, []);
 
   const handleReorderLayers = useCallback((dragId: string, dropId: string) => {
     const dragIndex = layers.findIndex(l => l.id === dragId);
@@ -595,16 +622,14 @@ const App: React.FC = () => {
   }, [layers, activeLayerId, brushColor, updateHistory]);
 
   const handleUpdateShape = useCallback((id: string, updates: Partial<Omit<PlacedShape, 'id'>>) => {
-    if (!activeLayerId) return;
-    const newLayers = layers.map(l => {
-      if (l.id === activeLayerId && l.type === LayerType.PIXEL) {
-        const updatedShapes = l.placedShapes?.map(s => s.id === id ? { ...s, ...updates } : s);
-        return { ...l, placedShapes: updatedShapes };
-      }
-      return l;
-    });
-    setLayers(newLayers);
-  }, [layers, activeLayerId]);
+      setLayers(currentLayers => currentLayers.map(l => {
+          if (l.id === activeLayerId && l.type === LayerType.PIXEL) {
+              const updatedShapes = l.placedShapes?.map(s => s.id === id ? { ...s, ...updates } : s);
+              return { ...l, placedShapes: updatedShapes };
+          }
+          return l;
+      }));
+  }, [activeLayerId]);
   
   const handleShapeInteractionEnd = useCallback(() => {
     updateHistory(layers);
@@ -723,6 +748,80 @@ const App: React.FC = () => {
   const handleOpenImageClick = () => imageFileInputRef.current?.click();
   const handleOpenProjectClick = () => projectFileInputRef.current?.click();
 
+  // --- Pexels Handlers ---
+  const handlePexelsSearch = useCallback(async (query: string, mode: 'new' | 'more') => {
+    if (!pexelsApiKey) {
+        setPexelsError("Pexels API Key is not set. Please add it in the Settings tab.");
+        return;
+    }
+    setIsPexelsLoading(true);
+    setPexelsError(null);
+    const pageToFetch = mode === 'new' ? 1 : pexelsPage + 1;
+    if (mode === 'new') {
+        setCurrentPexelsQuery(query);
+        setPexelsPhotos([]);
+    }
+
+    try {
+        const results = await searchPexelsPhotos(pexelsApiKey, query, pageToFetch);
+        setPexelsPhotos(prev => mode === 'new' ? results : [...prev, ...results]);
+        setPexelsPage(pageToFetch);
+    } catch (e: any) {
+        console.error("Pexels search failed:", e);
+        setPexelsError(e.message || "Failed to search for photos.");
+    } finally {
+        setIsPexelsLoading(false);
+    }
+  }, [pexelsPage, pexelsApiKey]);
+
+  const handleSelectPexelsImage = useCallback(async (photo: PexelsPhoto) => {
+    setIsLoading(true);
+    setLoadingMessage('Importing image...');
+    setError(null);
+    try {
+        const img = new Image();
+        img.crossOrigin = "Anonymous"; // Important for CORS
+        img.src = photo.src.large2x; // Using a high-quality version
+
+        await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = () => reject(new Error("Could not load image due to network or CORS issue."));
+        });
+
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error("Could not create canvas context to import image.");
+        
+        ctx.drawImage(img, 0, 0);
+        const dataUrl = canvas.toDataURL('image/png');
+        
+        const newLayer: Layer = {
+            id: `layer_${Date.now()}`,
+            name: photo.alt || `Pexels Image ${photo.id}`,
+            type: LayerType.IMAGE,
+            src: dataUrl,
+            isVisible: true,
+            opacity: 100,
+            x: 0,
+            y: 0,
+        };
+
+        const newLayers = [...layers, newLayer];
+        setLayers(newLayers);
+        setActiveLayerId(newLayer.id);
+        updateHistory(newLayers);
+        setActiveTab('edit');
+
+    } catch (e: any) {
+        console.error("Failed to import Pexels image:", e);
+        setError(e.message || 'An unexpected error occurred while importing the image.');
+    } finally {
+        setIsLoading(false);
+        setLoadingMessage('');
+    }
+}, [layers, updateHistory]);
 
   // --- Other handlers ---
   const handleAddColorPreset = useCallback(() => {
@@ -782,6 +881,7 @@ const App: React.FC = () => {
     try {
       localStorage.removeItem('userClipArtShapes');
       localStorage.removeItem('colorPresets');
+      localStorage.removeItem('pexelsApiKey');
       // Also reset theme to default
       setThemeName(DEFAULT_THEME.name);
       
@@ -789,6 +889,8 @@ const App: React.FC = () => {
       setClipArtCategories(defaultCategories);
       setSelectedClipArtCategoryName(defaultCategories[0].name);
       setColorPresets(INITIAL_COLOR_PRESETS);
+      setPexelsApiKey('');
+
     } catch (e) {
       console.error("Failed to clear custom data:", e);
       setError("Could not clear custom data. There might be a browser issue.");
@@ -876,6 +978,14 @@ const App: React.FC = () => {
             // Mask props
             isEditingMask={isEditingMask} onSelectLayerMask={handleSelectLayerMask} onAddLayerMask={handleAddLayerMask}
             onDeleteLayerMask={handleDeleteLayerMask}
+            // Pexels Props
+            onPexelsSearch={handlePexelsSearch}
+            pexelsPhotos={pexelsPhotos}
+            isPexelsLoading={isPexelsLoading}
+            pexelsError={pexelsError}
+            onSelectPexelsImage={handleSelectPexelsImage}
+            pexelsApiKey={pexelsApiKey}
+            onSetPexelsApiKey={handleSetPexelsApiKey}
           />
           {error && (<div className="bg-red-500/20 border border-red-500 text-red-300 p-3 rounded-md text-sm"><p className="font-semibold">Error</p><p>{error}</p></div>)}
         </aside>
@@ -915,6 +1025,7 @@ const App: React.FC = () => {
                 onShapeInteractionEnd={handleShapeInteractionEnd}
                 onStrokeInteractionEnd={handleStrokeInteractionEnd}
                 onUpdateLayerMask={handleUpdateLayerMask}
+                onUpdateLayer={handleUpdateLayer}
                 onInteractionEndWithHistory={() => updateHistory(layers)}
               />
             )}

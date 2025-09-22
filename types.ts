@@ -2,6 +2,7 @@
 export type AspectRatioValue = "1:1" | "4:3" | "3:4" | "16:9" | "9:16";
 
 export enum EditMode {
+  MOVE = 'move',
   MASK = 'mask',
   SKETCH = 'sketch',
   OUTPAINT = 'outpaint',
@@ -93,6 +94,8 @@ export interface Layer {
   type: LayerType;
   isVisible: boolean;
   opacity: number;
+  x: number;
+  y: number;
   src?: string; // For IMAGE layers
   strokes?: Stroke[]; // For PIXEL layers
   placedShapes?: PlacedShape[]; // For PIXEL layers
@@ -118,4 +121,15 @@ export interface Theme {
     light: ThemeColors;
     dark: ThemeColors;
   };
+}
+
+// Pexels API Type
+export interface PexelsPhoto {
+  id: number;
+  src: {
+    medium: string;
+    large2x: string;
+    original: string;
+  };
+  alt: string;
 }

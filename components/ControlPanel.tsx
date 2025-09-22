@@ -1,7 +1,8 @@
+
 import React, { useState, useEffect } from 'react';
-import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, ClipArtCategory, TechnicalModifier, ImageAdjustments, Layer, LayerType, Theme } from '../types';
+import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, ClipArtCategory, TechnicalModifier, ImageAdjustments, Layer, LayerType, Theme, PexelsPhoto } from '../types';
 import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, TECHNICAL_MODIFIERS } from '../constants';
-import { BrushIcon, ClearIcon, DrawIcon, EditIcon, GenerateIcon, MaskIcon, ResetIcon, FilterIcon, RewriteIcon, RandomIcon, UploadIcon, OutpaintIcon, ArrowUpIcon, ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon, CropIcon, IdeaIcon, UndoIcon, SaveIcon, RotateIcon, SettingsIcon, CloseIcon, CopyIcon, CheckIcon, LogoIcon, AddIcon, OpenProjectIcon } from './Icons';
+import { BrushIcon, ClearIcon, DrawIcon, EditIcon, GenerateIcon, MaskIcon, ResetIcon, FilterIcon, RewriteIcon, RandomIcon, UploadIcon, OutpaintIcon, ArrowUpIcon, ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon, CropIcon, IdeaIcon, UndoIcon, SaveIcon, RotateIcon, SettingsIcon, CloseIcon, CopyIcon, CheckIcon, LogoIcon, AddIcon, OpenProjectIcon, PexelsIcon, ChevronDownIcon, SearchIcon, MoveIcon } from './Icons';
 import { ThemeSwitcher } from './ThemeSwitcher';
 import { LayersPanel } from './LayersPanel';
 
@@ -76,7 +77,7 @@ interface ControlPanelProps {
   onAddLayer: (type: LayerType) => void;
   onDeleteLayer: (id: string) => void;
   onSelectLayer: (id: string) => void;
-  onUpdateLayer: (id: string, updates: Partial<Layer>) => void;
+  onUpdateLayer: (id: string, updates: Partial<Layer> | ((layer: Layer) => Partial<Layer>)) => void;
   onReorderLayers: (dragId: string, dropId: string) => void;
   onLayerAdjustmentChange: (adjustment: keyof ImageAdjustments, value: number) => void;
   onResetLayerAdjustments: () => void;
@@ -87,6 +88,14 @@ interface ControlPanelProps {
   onSelectLayerMask: (id: string) => void;
   onAddLayerMask: (id: string) => void;
   onDeleteLayerMask: (id: string) => void;
+  // Pexels props
+  onPexelsSearch: (query: string, mode: 'new' | 'more') => void;
+  pexelsPhotos: PexelsPhoto[];
+  isPexelsLoading: boolean;
+  pexelsError: string | null;
+  onSelectPexelsImage: (photo: PexelsPhoto) => void;
+  pexelsApiKey: string;
+  onSetPexelsApiKey: (key: string) => void;
 }
 
 const useDebounce = <T,>(value: T, delay: number): T => {
@@ -332,6 +341,74 @@ const GenerateTab: React.FC<Pick<ControlPanelProps, 'prompt' | 'onPromptChange' 
   </div>
 );
 
+const PexelsPanel: React.FC<Pick<ControlPanelProps, 'onPexelsSearch' | 'pexelsPhotos' | 'isPexelsLoading' | 'pexelsError' | 'onSelectPexelsImage' | 'isLoading'>> = 
+({ onPexelsSearch, pexelsPhotos, isPexelsLoading, pexelsError, onSelectPexelsImage, isLoading }) => {
+  const [query, setQuery] = useState('');
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (query.trim()) {
+      onPexelsSearch(query, 'new');
+    }
+  };
+  
+  const handleLoadMore = () => {
+    if (query.trim()) {
+      onPexelsSearch(query, 'more');
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+        <form onSubmit={handleSearch} className="flex gap-2">
+            <input 
+                type="text" 
+                value={query} 
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search for photos..."
+                className="flex-grow bg-base-100 border border-base-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-brand-secondary"
+                disabled={isLoading}
+            />
+            <button type="submit" disabled={isLoading || !query.trim()} className="p-2 bg-brand-secondary text-white rounded-md disabled:opacity-50 transition" title="Search Pexels">
+                <SearchIcon />
+            </button>
+        </form>
+
+        {isPexelsLoading && pexelsPhotos.length === 0 && (
+            <div className="flex justify-center items-center h-32">
+                <MiniLoader />
+            </div>
+        )}
+
+        {pexelsError && (
+             <div className="bg-red-500/20 border border-red-500 text-red-300 p-2 rounded-md text-xs">
+                <p>{pexelsError}</p>
+             </div>
+        )}
+
+        {pexelsPhotos.length > 0 && (
+            <div className="grid grid-cols-3 gap-2 max-h-56 overflow-y-auto p-1 bg-base-100 rounded">
+                {pexelsPhotos.map(photo => (
+                    <div key={photo.id} className="relative group cursor-pointer aspect-square" onClick={() => onSelectPexelsImage(photo)} title={photo.alt}>
+                        <img src={photo.src.medium} alt={photo.alt} className="rounded-md w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" loading="lazy" />
+                        <div className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-md">
+                            <AddIcon />
+                        </div>
+                    </div>
+                ))}
+            </div>
+        )}
+
+        {pexelsPhotos.length > 0 && (
+            <button onClick={handleLoadMore} disabled={isPexelsLoading} className="w-full text-sm py-2 px-3 bg-base-300 hover:bg-base-300/80 rounded-md disabled:opacity-50">
+                {isPexelsLoading ? 'Loading...' : 'Load More'}
+            </button>
+        )}
+    </div>
+  );
+};
+
+
 const OutpaintControls: React.FC<{ 
     onOutpaint: ControlPanelProps['onOutpaint'], 
     isLoading: boolean,
@@ -526,10 +603,12 @@ const AdjustmentControls: React.FC<{
 );
 
 
-const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' | 'editMode' | 'setEditMode' | 'brushSize' | 'setBrushSize' | 'brushColor' | 'setBrushColor' | 'onEdit' | 'onClear' | 'onReset' | 'onUndo' | 'canUndo' | 'isLoading' | 'onRandomPrompt' | 'randomizingPrompt' | 'onOutpaint' | 'outpaintPrompt' | 'setOutpaintPrompt' | 'outpaintAmount' | 'setOutpaintAmount' | 'clipArtCategories' | 'selectedClipArtCategoryName' | 'setSelectedClipArtCategoryName' | 'onSaveShape' | 'selectedShapeId' | 'onDeleteSelectedShape' | 'layers' | 'activeLayerId' | 'onAddLayer' | 'onDeleteLayer' | 'onSelectLayer' | 'onUpdateLayer' | 'onReorderLayers' | 'isEditingMask' | 'onSelectLayerMask' | 'onAddLayerMask' | 'onDeleteLayerMask' | 'colorPresets' | 'onAddColorPreset' | 'hasImage' | 'onLayerAdjustmentChange' | 'onResetLayerAdjustments' | 'onLayerFilterChange' | 'onInteractionEndWithHistory'>> = (props) => {
-    const { editPrompt, setEditPrompt, editMode, setEditMode, brushSize, setBrushSize, brushColor, setBrushColor, onEdit, onClear, onReset, onUndo, canUndo, isLoading, onRandomPrompt, randomizingPrompt, onOutpaint, outpaintPrompt, setOutpaintPrompt, outpaintAmount, setOutpaintAmount, clipArtCategories, selectedClipArtCategoryName, setSelectedClipArtCategoryName, onSaveShape, selectedShapeId, onDeleteSelectedShape, isEditingMask, colorPresets, onAddColorPreset, hasImage, onLayerAdjustmentChange, onResetLayerAdjustments, onLayerFilterChange, onInteractionEndWithHistory } = props;
+const EditTab: React.FC<Omit<ControlPanelProps, 'prompt' | 'onPromptChange' | 'onRewritePrompt' | 'rewritingPrompt' | 'onGetSuggestions' | 'subjectSuggestions' | 'backgroundSuggestions' | 'suggestionsLoading' | 'style' | 'setStyle' | 'lighting' | 'setLighting' | 'composition' | 'setComposition' | 'technicalModifier' | 'setTechnicalModifier' | 'aspectRatio' | 'setAspectRatio' | 'numImages' | 'setNumImages' | 'onGenerate' | 'onClose' | 'activeTab' | 'setActiveTab' | 'themes' | 'activeTheme' | 'onThemeChange' | 'isDarkMode' | 'onToggleThemeMode' | 'onClearCustomShapes' | 'onOpenOptionsClick' | 'pexelsApiKey' | 'onSetPexelsApiKey'>> = (props) => {
+    const { editPrompt, setEditPrompt, editMode, setEditMode, brushSize, setBrushSize, brushColor, setBrushColor, onEdit, onClear, onReset, onUndo, canUndo, isLoading, onRandomPrompt, randomizingPrompt, onOutpaint, outpaintPrompt, setOutpaintPrompt, outpaintAmount, setOutpaintAmount, clipArtCategories, selectedClipArtCategoryName, setSelectedClipArtCategoryName, onSaveShape, selectedShapeId, onDeleteSelectedShape, isEditingMask, colorPresets, onAddColorPreset, hasImage, onLayerAdjustmentChange, onResetLayerAdjustments, onLayerFilterChange } = props;
     const [newShapeName, setNewShapeName] = useState('');
     const [isEditPromptCopied, setIsEditPromptCopied] = useState(false);
+    const [isPexelsOpen, setIsPexelsOpen] = useState(false);
+
 
     const activeLayer = props.layers.find(l => l.id === props.activeLayerId);
     const selectedShape = activeLayer?.type === LayerType.PIXEL ? activeLayer.placedShapes?.find(s => s.id === selectedShapeId) : null;
@@ -566,6 +645,18 @@ const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' |
 
         <LayersPanel {...props} />
 
+        <div className="bg-base-100/50 rounded-md">
+            <button onClick={() => setIsPexelsOpen(!isPexelsOpen)} className="w-full flex justify-between items-center p-3 text-left">
+                <h3 className="text-md font-semibold text-text-primary flex items-center gap-2"><PexelsIcon/> Stock Photos</h3>
+                <ChevronDownIcon className={`transition-transform ${isPexelsOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {isPexelsOpen && (
+                <div className="p-3 border-t border-base-300">
+                    <PexelsPanel {...props} />
+                </div>
+            )}
+        </div>
+
         {isEditingMask ? (
             <MaskingTools {...props} />
         ) : isAdjustmentLayerActive && activeLayer.adjustments ? (
@@ -580,7 +671,8 @@ const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' |
         <>
           <div>
               <label className="block text-sm font-medium text-text-secondary mb-2">Editing Mode</label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-4 gap-2">
+                  <button onClick={() => setEditMode(EditMode.MOVE)} disabled={isLoading || !hasImage} className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md transition text-sm ${editMode === EditMode.MOVE ? 'bg-brand-secondary text-white' : 'bg-base-100 hover:bg-base-300'}`}><MoveIcon /> Move</button>
                   <button onClick={() => setEditMode(EditMode.MASK)} disabled={isLoading || !hasImage} className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md transition text-sm ${editMode === EditMode.MASK ? 'bg-brand-secondary text-white' : 'bg-base-100 hover:bg-base-300'}`}><MaskIcon /> Mask</button>
                   <button onClick={() => setEditMode(EditMode.SKETCH)} disabled={isLoading || !hasImage} className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md transition text-sm ${editMode === EditMode.SKETCH ? 'bg-brand-secondary text-white' : 'bg-base-100 hover:bg-base-300'}`}><DrawIcon /> Sketch</button>
                   <button onClick={() => setEditMode(EditMode.OUTPAINT)} disabled={isLoading || !hasImage} className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md transition text-sm ${editMode === EditMode.OUTPAINT ? 'bg-brand-secondary text-white' : 'bg-base-100 hover:bg-base-300'}`}><OutpaintIcon /> Outpaint</button>
@@ -589,6 +681,11 @@ const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' |
           
           {editMode === EditMode.OUTPAINT ? (
               <OutpaintControls onOutpaint={onOutpaint} isLoading={isLoading} outpaintPrompt={outpaintPrompt} setOutpaintPrompt={setOutpaintPrompt} outpaintAmount={outpaintAmount} setOutpaintAmount={setOutpaintAmount} />
+          ) : editMode === EditMode.MOVE ? (
+                <div className="text-center text-sm text-text-secondary p-4 bg-base-100 rounded-md">
+                    <p className="font-semibold">Move Tool</p>
+                    <p>Select a layer and drag it on the canvas to change its position.</p>
+                </div>
           ) : (
           <>
               <div className={`space-y-3 ${!isPixelLayerActive ? 'opacity-50' : ''}`}>
@@ -699,12 +796,12 @@ const EditTab: React.FC<Pick<ControlPanelProps, 'editPrompt' | 'setEditPrompt' |
     </div>
 )};
 
-const SettingsTab: React.FC<Pick<ControlPanelProps, 'onClearCustomShapes' | 'themes' | 'activeTheme' | 'onThemeChange' | 'isDarkMode' | 'onToggleThemeMode'>> = ({ 
-    onClearCustomShapes, themes, activeTheme, onThemeChange, isDarkMode, onToggleThemeMode
+const SettingsTab: React.FC<Pick<ControlPanelProps, 'onClearCustomShapes' | 'themes' | 'activeTheme' | 'onThemeChange' | 'isDarkMode' | 'onToggleThemeMode' | 'pexelsApiKey' | 'onSetPexelsApiKey'>> = ({ 
+    onClearCustomShapes, themes, activeTheme, onThemeChange, isDarkMode, onToggleThemeMode, pexelsApiKey, onSetPexelsApiKey
 }) => {
 
     const handleClearClick = () => {
-        if (window.confirm("Are you sure you want to delete all your saved custom clip art, colors, and reset the theme? This action cannot be undone.")) {
+        if (window.confirm("Are you sure you want to delete all your saved custom clip art, colors, API keys and reset the theme? This action cannot be undone.")) {
             onClearCustomShapes();
         }
     };
@@ -729,11 +826,29 @@ const SettingsTab: React.FC<Pick<ControlPanelProps, 'onClearCustomShapes' | 'the
                     ))}
                 </select>
             </div>
+
+            <div className="p-3 bg-base-100/50 rounded-md space-y-2">
+                <h3 className="text-md font-semibold text-text-primary">API Keys</h3>
+                <div>
+                    <label htmlFor="pexels-api-key" className="block text-sm font-medium text-text-secondary">Pexels API Key</label>
+                    <input
+                        id="pexels-api-key"
+                        type="password"
+                        value={pexelsApiKey}
+                        onChange={(e) => onSetPexelsApiKey(e.target.value)}
+                        placeholder="Enter your Pexels API key"
+                        className="mt-1 w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary focus:border-brand-primary transition text-sm"
+                    />
+                    <p className="mt-1 text-xs text-text-secondary">
+                        Used for the "Stock Photos" feature. Get a free key from <a href="https://www.pexels.com/api/" target="_blank" rel="noopener noreferrer" className="underline hover:text-brand-primary">pexels.com/api</a>.
+                    </p>
+                </div>
+            </div>
             
             <div className="p-3 bg-base-100/50 rounded-md">
                 <label className="block text-sm font-medium text-text-secondary">Manage Data</label>
                 <div className="mt-2 flex items-center justify-between">
-                    <p className="text-sm text-text-primary">Clear custom clip art & colors.</p>
+                    <p className="text-sm text-text-primary">Clear custom data & settings.</p>
                     <button 
                         onClick={handleClearClick}
                         className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-3 rounded-md transition text-sm">
@@ -767,7 +882,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = (props) => {
 
       <div className="grid grid-cols-3 gap-2 p-1 bg-base-100 rounded-lg">
         <TabButton label="Generate" icon={<GenerateIcon />} isActive={activeTab === 'generate'} onClick={() => setActiveTab('generate')} />
-        <TabButton label="Edit" icon={<EditIcon />} isActive={activeTab === 'edit'} onClick={() => setActiveTab('edit')} disabled={!hasImage} />
+        <TabButton label="Edit" icon={<EditIcon />} isActive={activeTab === 'edit'} onClick={() => setActiveTab('edit')} />
         <TabButton label="Settings" icon={<SettingsIcon />} isActive={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
       </div>
       
@@ -783,7 +898,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = (props) => {
 
       <div className="p-4 bg-base-100/50 rounded-lg">
         {activeTab === 'generate' && <GenerateTab {...props} />}
-        {activeTab === 'edit' && hasImage && <EditTab {...props} />}
+        {activeTab === 'edit' && <EditTab {...props} />}
         {activeTab === 'settings' && <SettingsTab {...props} />}
       </div>
     </div>
