@@ -198,6 +198,7 @@ const App: React.FC = () => {
             y: (imageDimensions?.height ?? height) / 2 - height / 2,
             width,
             height,
+            rotation: 0,
         };
         const newLayers = [...layers, newLayer];
         setLayers(newLayers);
@@ -358,7 +359,7 @@ const App: React.FC = () => {
         const imageUrl = `data:image/png;base64,${result.image}`;
         
         // Create the new outpainted layer
-        const newBackgroundLayer: Layer = { id: `layer_${Date.now()}`, name: `Outpaint ${direction}`, type: LayerType.IMAGE, src: imageUrl, isVisible: true, opacity: 100, x: 0, y: 0, width: newWidth, height: newHeight };
+        const newBackgroundLayer: Layer = { id: `layer_${Date.now()}`, name: `Outpaint ${direction}`, type: LayerType.IMAGE, src: imageUrl, isVisible: true, opacity: 100, x: 0, y: 0, width: newWidth, height: newHeight, rotation: 0 };
         
         // Translate existing layers to fit on the new canvas
         const translatedLayers = layers.map(layer => {
@@ -427,7 +428,7 @@ const App: React.FC = () => {
                 const cropResult = canvasRef.current!.applyCrop();
                 if (cropResult) {
                     const { dataUrl, width, height } = cropResult;
-                    const newLayer: Layer = { id: `layer_${Date.now()}`, name: 'Cropped Image', type: LayerType.IMAGE, src: dataUrl, isVisible: true, opacity: 100, x: 0, y: 0, width, height };
+                    const newLayer: Layer = { id: `layer_${Date.now()}`, name: 'Cropped Image', type: LayerType.IMAGE, src: dataUrl, isVisible: true, opacity: 100, x: 0, y: 0, width, height, rotation: 0 };
                     const newLayers = [newLayer];
                     setLayers(newLayers);
                     setActiveLayerId(newLayer.id);
@@ -477,6 +478,7 @@ const App: React.FC = () => {
                         y: 0,
                         width: dimensions.width,
                         height: dimensions.height,
+                        rotation: 0,
                     };
                     const newLayers = [newLayer];
                     setLayers(newLayers);
@@ -513,6 +515,7 @@ const App: React.FC = () => {
       opacity: 100,
       x: 0,
       y: 0,
+      rotation: 0,
     };
     if (type === LayerType.PIXEL) {
         newLayer.strokes = [];
@@ -637,24 +640,24 @@ const App: React.FC = () => {
     updateHistory(newLayers);
   }, [layers, updateHistory]);
   
-  const handleLayerResizeEnd = useCallback(async (layerId: string) => {
+  const handleLayerTransformEnd = useCallback(async (layerId: string) => {
       setIsLoading(true);
       setLoadingMessage('Rasterizing layer...');
       setError(null);
-
+  
       try {
           const layer = layers.find(l => l.id === layerId);
           if (!layer || layer.type !== LayerType.IMAGE || !layer.width || !layer.height) {
               throw new Error('Invalid layer for rasterization.');
           }
-
+  
           const imagePromise = new Promise<HTMLImageElement>((resolve, reject) => {
               const img = new Image();
               img.onload = () => resolve(img);
               img.onerror = () => reject(new Error(`Could not load layer image: ${layer.src?.substring(0, 100)}`));
               img.src = layer.src!;
           });
-
+  
           const maskPromise = layer.maskSrc ? new Promise<HTMLImageElement>((resolve, reject) => {
               const maskImg = new Image();
               maskImg.onload = () => resolve(maskImg);
@@ -663,26 +666,34 @@ const App: React.FC = () => {
           }) : Promise.resolve(null);
           
           const [image, maskImage] = await Promise.all([imagePromise, maskPromise]);
-
-          // Rasterize image
-          const canvas = document.createElement('canvas');
-          canvas.width = Math.round(layer.width);
-          canvas.height = Math.round(layer.height);
-          const ctx = canvas.getContext('2d');
-          if (!ctx) throw new Error('Could not create canvas context.');
-          ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-          const newImageDataUrl = canvas.toDataURL('image/png');
-
-          // Rasterize mask if it exists
-          let newMaskDataUrl: string | undefined = undefined;
+  
+          const { width, height, rotation = 0 } = layer;
+          const rad = rotation;
+          const cos = Math.cos(rad);
+          const sin = Math.sin(rad);
+  
+          // Calculate the bounding box of the rotated image
+          const newWidth = Math.round(Math.abs(width * cos) + Math.abs(height * sin));
+          const newHeight = Math.round(Math.abs(width * sin) + Math.abs(height * cos));
+  
+          const rasterize = (imgToRasterize: HTMLImageElement) => {
+              const canvas = document.createElement('canvas');
+              canvas.width = newWidth;
+              canvas.height = newHeight;
+              const ctx = canvas.getContext('2d');
+              if (!ctx) throw new Error('Could not create canvas context.');
+  
+              // Translate to the center, rotate, and draw the image centered
+              ctx.translate(newWidth / 2, newHeight / 2);
+              ctx.rotate(rad);
+              ctx.drawImage(imgToRasterize, -width / 2, -height / 2, width, height);
+              return canvas.toDataURL('image/png');
+          };
+          
+          const newImageDataUrl = rasterize(image);
+          let newMaskDataUrl: string | undefined = layer.maskSrc;
           if (maskImage) {
-              const maskCanvas = document.createElement('canvas');
-              maskCanvas.width = canvas.width;
-              maskCanvas.height = canvas.height;
-              const maskCtx = maskCanvas.getContext('2d');
-              if (!maskCtx) throw new Error('Could not create mask canvas context.');
-              maskCtx.drawImage(maskImage, 0, 0, maskCanvas.width, maskCanvas.height);
-              newMaskDataUrl = maskCanvas.toDataURL('image/png');
+              newMaskDataUrl = rasterize(maskImage);
           }
           
           const newLayers = layers.map(l => {
@@ -690,25 +701,30 @@ const App: React.FC = () => {
                   return {
                       ...l,
                       src: newImageDataUrl,
-                      maskSrc: newMaskDataUrl === undefined ? l.maskSrc : newMaskDataUrl,
+                      maskSrc: newMaskDataUrl,
+                      // Adjust position to keep the center of the new bounding box where the old center was
+                      x: l.x + (l.width! - newWidth) / 2,
+                      y: l.y + (l.height! - newHeight) / 2,
+                      width: newWidth,
+                      height: newHeight,
+                      rotation: 0, // Rotation is now baked into the image
                   };
               }
               return l;
           });
-
+  
           setLayers(newLayers);
           updateHistory(newLayers);
-
+  
       } catch(e: any) {
           console.error("Failed to rasterize layer:", e);
-          setError(e.message || "An error occurred while finalizing the resize.");
+          setError(e.message || "An error occurred while finalizing the transformation.");
           // If it fails, at least save the pre-rasterization state to history
           updateHistory(layers);
       } finally {
           setIsLoading(false);
           setLoadingMessage('');
       }
-
   }, [layers, updateHistory]);
 
   // --- Mask Management ---
@@ -843,6 +859,156 @@ const App: React.FC = () => {
     setSelectedShapeId(null);
   }, [selectedShapeId, activeLayerId, layers, updateHistory]);
 
+  const handleSaveShape = useCallback((name: string) => {
+    if (!activeLayerId) return;
+    const activeLayer = layers.find(l => l.id === activeLayerId);
+
+    if (!activeLayer || activeLayer.type !== LayerType.PIXEL) {
+        setError("Please select a pixel layer to save as clip art.");
+        return;
+    }
+
+    const { strokes = [], placedShapes = [] } = activeLayer;
+    if (strokes.length === 0 && placedShapes.length === 0) {
+        setError("The selected layer is empty. Please draw something to save.");
+        return;
+    }
+    
+    setIsLoading(true);
+    setLoadingMessage('Saving clip art...');
+    setError(null);
+
+    // This async block allows us to load images for placed shapes before calculating bounds.
+    const saveAsync = async () => {
+        try {
+            // 1. Calculate bounding box of all elements on the layer
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+            strokes.forEach(stroke => {
+                stroke.points.forEach(point => {
+                    const buffer = stroke.size / 2;
+                    minX = Math.min(minX, point.x - buffer);
+                    minY = Math.min(minY, point.y - buffer);
+                    maxX = Math.max(maxX, point.x + buffer);
+                    maxY = Math.max(maxY, point.y + buffer);
+                });
+            });
+
+            // Asynchronously load images to get their dimensions for accurate bounding box
+            const shapeImages = await Promise.all(
+                placedShapes.map(shape => new Promise<HTMLImageElement>((resolve, reject) => {
+                    const img = new Image();
+                    img.onload = () => resolve(img);
+                    img.onerror = () => reject(new Error('Could not load shape image.'));
+                    img.src = shape.dataUrl;
+                }))
+            );
+
+            placedShapes.forEach((shape) => {
+                const halfWidth = shape.width / 2;
+                const halfHeight = shape.height / 2;
+                const corners = [
+                    { x: -halfWidth, y: -halfHeight }, { x: halfWidth, y: -halfHeight },
+                    { x: halfWidth, y: halfHeight }, { x: -halfWidth, y: halfHeight },
+                ];
+                
+                const cosR = Math.cos(shape.rotation);
+                const sinR = Math.sin(shape.rotation);
+
+                corners.forEach(corner => {
+                    const rotatedX = shape.x + corner.x * cosR - corner.y * sinR;
+                    const rotatedY = shape.y + corner.x * sinR + corner.y * cosR;
+                    minX = Math.min(minX, rotatedX);
+                    minY = Math.min(minY, rotatedY);
+                    maxX = Math.max(maxX, rotatedX);
+                    maxY = Math.max(maxY, rotatedY);
+                });
+            });
+
+            if (minX === Infinity) { // This case handles empty layers
+                throw new Error("Cannot save an empty drawing.");
+            }
+
+            const padding = 10; // Add some padding around the content
+            const width = Math.round(maxX - minX) + padding * 2;
+            const height = Math.round(maxY - minY) + padding * 2;
+            const offsetX = -minX + padding;
+            const offsetY = -minY + padding;
+
+            if (width <= 0 || height <= 0) {
+              throw new Error("Cannot save content with no dimensions.");
+            }
+
+            // 2. Create a temporary canvas and draw the layer's content onto it
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = width;
+            tempCanvas.height = height;
+            const ctx = tempCanvas.getContext('2d');
+            if (!ctx) throw new Error("Could not create canvas to save shape.");
+
+            strokes.forEach(stroke => {
+                ctx.strokeStyle = stroke.color;
+                ctx.lineWidth = stroke.size;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                ctx.beginPath();
+                if (stroke.points.length > 0) {
+                    ctx.moveTo(stroke.points[0].x + offsetX, stroke.points[0].y + offsetY);
+                    for (let i = 1; i < stroke.points.length; i++) {
+                        ctx.lineTo(stroke.points[i].x + offsetX, stroke.points[i].y + offsetY);
+                    }
+                    ctx.stroke();
+                }
+            });
+
+            placedShapes.forEach((shape, index) => {
+                ctx.save();
+                ctx.translate(shape.x + offsetX, shape.y + offsetY);
+                ctx.rotate(shape.rotation);
+                ctx.drawImage(shapeImages[index], -shape.width / 2, -shape.height / 2, shape.width, shape.height);
+                ctx.restore();
+            });
+
+            // 3. Get the dataURL from the temporary canvas
+            const dataUrl = tempCanvas.toDataURL('image/png');
+
+            // 4. Update the clip art categories state and save to localStorage
+            const newShape: ClipArtShape = { name, dataUrl };
+
+            setClipArtCategories(prevCategories => {
+                const newCategories = JSON.parse(JSON.stringify(prevCategories));
+                let customCategory = newCategories.find((c: ClipArtCategory) => c.name === 'Custom');
+
+                if (customCategory) {
+                    customCategory.shapes.push(newShape);
+                } else {
+                    customCategory = { name: 'Custom', shapes: [newShape] };
+                    newCategories.push(customCategory);
+                }
+                
+                try {
+                    localStorage.setItem('userClipArtShapes', JSON.stringify(customCategory.shapes));
+                } catch (e) {
+                    console.error("Failed to save custom clip art:", e);
+                    setError("Could not save the custom shape due to a browser storage issue.");
+                }
+
+                return newCategories;
+            });
+            
+            setSelectedClipArtCategoryName('Custom');
+
+        } catch (err: any) {
+            console.error("Error saving shape:", err);
+            setError(err.message || "An unexpected error occurred while saving the shape.");
+        } finally {
+            setIsLoading(false);
+            setLoadingMessage('');
+        }
+    };
+
+    saveAsync();
+  }, [layers, activeLayerId]);
 
   // --- Save / Open / Export ---
   const handleSaveProject = useCallback(() => {
@@ -1041,7 +1207,7 @@ const App: React.FC = () => {
       setError(e.message || `Failed to generate a random ${part} prompt. Please try again.`);
     } finally { setRandomizingPrompt(null); }
   }, []);
-  const handleSaveShape = useCallback(() => { /* TODO: Re-implement if needed for layers */ }, []);
+  
   const handleClearCustomShapes = useCallback(() => {
     try {
       localStorage.removeItem('userClipArtShapes');
@@ -1206,7 +1372,7 @@ const App: React.FC = () => {
                 onUpdateLayerMask={handleUpdateLayerMask}
                 onUpdateLayer={handleUpdateLayer}
                 onInteractionEndWithHistory={() => updateHistory(layers)}
-                onLayerResizeEnd={handleLayerResizeEnd}
+                onLayerTransformEnd={handleLayerTransformEnd}
               />
             )}
           </div>

@@ -26,7 +26,7 @@ interface ImageCanvasProps {
   onUpdateLayerMask: (layerId: string, maskDataUrl: string) => void;
   onUpdateLayer: (id: string, updates: Partial<Layer> | ((layer: Layer) => Partial<Layer>)) => void;
   onInteractionEndWithHistory: () => void;
-  onLayerResizeEnd: (layerId: string) => void;
+  onLayerTransformEnd: (layerId: string) => void;
 }
 
 interface Rect { x: number; y: number; width: number; height: number; }
@@ -43,8 +43,8 @@ interface InteractionState {
   shapeStart?: PlacedShape;
   handle?: Handle;
   originalShape?: PlacedShape;
-  layerStart?: { x: number; y: number; width: number; height: number };
-  shapeCenter?: Point;
+  layerStart?: { x: number; y: number; width: number; height: number, rotation: number };
+  layerCenter?: Point;
   startAngle?: number;
   currentStroke?: Stroke;
   cropResizeHandle?: CropResizeHandle | null;
@@ -62,6 +62,7 @@ export interface ImageCanvasMethods {
 
 const HANDLE_SIZE = 10;
 const MIN_LAYER_SIZE = 20;
+const ROTATE_HANDLE_OFFSET = 20;
 
 type OffscreenCanvasEntry = { canvas: HTMLCanvasElement; image?: HTMLImageElement; dirty: boolean; };
 
@@ -75,14 +76,36 @@ const getCropHandles = (rect: Rect): Record<CropResizeHandle, Rect> => {
         br: { x: x + width - size / 2, y: y + height - size / 2, width: size, height: size },
     };
 };
-const getResizeHandles = (layer: Layer): Record<ResizeHandle, Rect> => {
-    const { x = 0, y = 0, width = 0, height = 0 } = layer;
-    const size = HANDLE_SIZE;
+
+const rotatePoint = (point: Point, center: Point, angle: number): Point => {
+    const dx = point.x - center.x;
+    const dy = point.y - center.y;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
     return {
-        tl: { x: x - size / 2, y: y - size / 2, width: size, height: size },
-        tr: { x: x + width - size / 2, y: y - size / 2, width: size, height: size },
-        bl: { x: x - size / 2, y: y + height - size / 2, width: size, height: size },
-        br: { x: x + width - size / 2, y: y + height - size / 2, width: size, height: size },
+        x: center.x + dx * cos - dy * sin,
+        y: center.y + dx * sin + dy * cos,
+    };
+};
+
+const getTransformHandles = (layer: Layer): Record<Handle, Point> => {
+    const { x = 0, y = 0, width = 0, height = 0, rotation = 0 } = layer;
+    const center = { x: x + width / 2, y: y + height / 2 };
+    
+    const unrotatedHandles = {
+        tl: { x, y },
+        tr: { x: x + width, y },
+        bl: { x, y: y + height },
+        br: { x: x + width, y: y + height },
+        rotate: { x: x + width / 2, y: y - ROTATE_HANDLE_OFFSET }
+    };
+
+    return {
+        tl: rotatePoint(unrotatedHandles.tl, center, rotation),
+        tr: rotatePoint(unrotatedHandles.tr, center, rotation),
+        bl: rotatePoint(unrotatedHandles.bl, center, rotation),
+        br: rotatePoint(unrotatedHandles.br, center, rotation),
+        rotate: rotatePoint(unrotatedHandles.rotate, center, rotation),
     };
 };
 
@@ -97,13 +120,15 @@ const getHandleAtPoint = (point: Point, rect: Rect): CropResizeHandle | null => 
     }
     return null;
 };
-const getHandleAtPointForLayer = (point: Point, layer: Layer): ResizeHandle | null => {
-    const handles = getResizeHandles(layer);
+
+const getHandleAtPointForLayer = (point: Point, layer: Layer): Handle | null => {
+    const handles = getTransformHandles(layer);
+    const size = HANDLE_SIZE;
     for (const key in handles) {
-        const handleRect = handles[key as ResizeHandle];
-        if (point.x >= handleRect.x && point.x <= handleRect.x + handleRect.width &&
-            point.y >= handleRect.y && point.y <= handleRect.y + handleRect.height) {
-            return key as ResizeHandle;
+        const handlePoint = handles[key as Handle];
+        const handleRect = { x: handlePoint.x - size/2, y: handlePoint.y - size/2, width: size, height: size };
+        if (isPointInRect(point, handleRect)) {
+            return key as Handle;
         }
     }
     return null;
@@ -117,7 +142,7 @@ const isPointInRect = (point: Point, rect: Rect) => {
 
 export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
   (props, ref) => {
-    const { layers, activeLayerId, isEditingMask, isLoading, loadingMessage, editMode, brushSize, brushColor, onUploadClick, isCropping, selectedShapeId, onAddStroke, onAddShape, onUpdateShape, onSelectShape, onImageLoad, onStrokeInteractionEnd, onShapeInteractionEnd, onUpdateLayerMask, onUpdateLayer, onInteractionEndWithHistory, onLayerResizeEnd } = props;
+    const { layers, activeLayerId, isEditingMask, isLoading, loadingMessage, editMode, brushSize, brushColor, onUploadClick, isCropping, selectedShapeId, onAddStroke, onAddShape, onUpdateShape, onSelectShape, onImageLoad, onStrokeInteractionEnd, onShapeInteractionEnd, onUpdateLayerMask, onUpdateLayer, onInteractionEndWithHistory, onLayerTransformEnd } = props;
     
     const mainCanvasRef = useRef<HTMLCanvasElement>(null);
     const interactionCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -176,18 +201,33 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             });
         }
         
-        if (editMode === EditMode.MOVE && activeLayer && (activeLayer.type === LayerType.IMAGE || activeLayer.type === LayerType.PIXEL) && activeLayer.width && activeLayer.height) {
+        if (editMode === EditMode.MOVE && activeLayer && (activeLayer.type === LayerType.IMAGE) && activeLayer.width && activeLayer.height) {
+            const { x = 0, y = 0, width = 0, height = 0, rotation = 0 } = activeLayer;
+            const center = { x: x + width / 2, y: y + height / 2 };
+            const handles = getTransformHandles(activeLayer);
+            
+            ctx.save();
+            ctx.translate(center.x, center.y);
+            ctx.rotate(rotation);
+            ctx.translate(-center.x, -center.y);
+            
             ctx.strokeStyle = 'rgba(47, 159, 208, 0.9)';
             ctx.lineWidth = 2;
-            ctx.strokeRect(activeLayer.x, activeLayer.y, activeLayer.width, activeLayer.height);
+            ctx.strokeRect(x, y, width, height);
+            ctx.restore();
             
-            if (activeLayer.type === LayerType.IMAGE) {
-                const handles = getResizeHandles(activeLayer);
-                ctx.fillStyle = 'rgba(47, 159, 208, 0.9)';
-                Object.values(handles).forEach(handle => {
-                    ctx.fillRect(handle.x, handle.y, handle.width, handle.height);
-                });
-            }
+            ctx.fillStyle = 'rgba(47, 159, 208, 0.9)';
+            Object.values(handles).forEach(handle => {
+                ctx.fillRect(handle.x - HANDLE_SIZE / 2, handle.y - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE);
+            });
+
+            // Draw line to rotation handle
+            const topMiddle = rotatePoint({x: x + width/2, y: y}, center, rotation);
+            ctx.beginPath();
+            ctx.moveTo(topMiddle.x, topMiddle.y);
+            ctx.lineTo(handles.rotate.x, handles.rotate.y);
+            ctx.strokeStyle = 'rgba(47, 159, 208, 0.9)';
+            ctx.stroke();
         }
 
     }, [editMode, brushSize, selectedShapeId, isEditingMask, isCropping, layers, activeLayerId]);
@@ -483,23 +523,26 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             if (layer.type !== LayerType.ADJUSTMENT && (!offscreen || offscreen.dirty)) {
                 renderLayerToOffscreen(layer);
             }
-
-            if (layer.type === LayerType.IMAGE) {
-                const sourceCanvas = offscreen?.canvas;
+            
+            const { x = 0, y = 0, width, height, rotation = 0, opacity = 100 } = layer;
+            const sourceCanvas = offscreen?.canvas;
+            
+            tempCtx.save();
+            tempCtx.globalAlpha = opacity / 100;
+            
+            if (layer.type === LayerType.IMAGE || layer.type === LayerType.PIXEL) {
                 if (sourceCanvas && sourceCanvas.width > 0) {
-                    tempCtx.globalAlpha = layer.opacity / 100;
-                    const w = layer.width || sourceCanvas.width;
-                    const h = layer.height || sourceCanvas.height;
-                    tempCtx.drawImage(sourceCanvas, layer.x || 0, layer.y || 0, w, h);
-                    tempCtx.globalAlpha = 1.0;
+                    const layerWidth = width ?? sourceCanvas.width;
+                    const layerHeight = height ?? sourceCanvas.height;
+                    const centerX = x + layerWidth / 2;
+                    const centerY = y + layerHeight / 2;
+
+                    tempCtx.translate(centerX, centerY);
+                    tempCtx.rotate(rotation);
+                    tempCtx.translate(-centerX, -centerY);
+                    
+                    tempCtx.drawImage(sourceCanvas, x, y, layerWidth, layerHeight);
                 }
-            } else if (layer.type === LayerType.PIXEL) {
-                 const sourceCanvas = offscreen?.canvas;
-                 if (sourceCanvas) {
-                    tempCtx.globalAlpha = layer.opacity / 100;
-                    tempCtx.drawImage(sourceCanvas, layer.x || 0, layer.y || 0);
-                    tempCtx.globalAlpha = 1.0;
-                 }
             } else if (layer.type === LayerType.ADJUSTMENT && layer.adjustments) {
                 const { brightness, contrast, red, green, blue, filter: filterName } = layer.adjustments;
                 const filterPreset = FILTERS.find(f => f.name === filterName);
@@ -509,7 +552,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                 const matrixElement = document.getElementById('color-matrix-element');
                 if (matrixElement) {
                     const r = red / 100; const g = green / 100; const b = blue / 100;
-                    const matrix = `${r} 0 0 0 0 0 ${g} 0 0 0 0 0 ${b} 0 0 0 0 0 1 0`;
+                    const matrix = `${r} 0 0 0 0 0 ${g} 0 0 0 0 0 ${b} 0 0 0 0 0 0 1 0`;
                     matrixElement.setAttribute('values', matrix);
                 }
 
@@ -518,7 +561,10 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                 snapshotCanvas.width = tempCanvas.width;
                 snapshotCanvas.height = tempCanvas.height;
                 const snapshotCtx = snapshotCanvas.getContext('2d');
-                if (!snapshotCtx) continue; // Skip if context fails
+                if (!snapshotCtx) {
+                    tempCtx.restore();
+                    continue;
+                };
                 snapshotCtx.drawImage(tempCanvas, 0, 0);
 
                 // Apply the filter to the main temp canvas by drawing the snapshot onto it with the filter
@@ -527,6 +573,8 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                 tempCtx.drawImage(snapshotCanvas, 0, 0);
                 tempCtx.filter = 'none'; // Reset for subsequent layers
             }
+            
+            tempCtx.restore();
         }
         
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -624,6 +672,16 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         if (editMode === EditMode.MOVE) {
             if (activeLayer.type === LayerType.IMAGE) {
                 const handle = getHandleAtPointForLayer(point, activeLayer);
+                if (handle === 'rotate') {
+                    const center = { x: activeLayer.x + activeLayer.width! / 2, y: activeLayer.y + activeLayer.height! / 2 };
+                    interactionStateRef.current = {
+                        mode: 'rotating',
+                        layerCenter: center,
+                        startAngle: Math.atan2(point.y - center.y, point.x - center.x),
+                        layerStart: { ...activeLayer, rotation: activeLayer.rotation || 0 } as any,
+                    };
+                    return;
+                }
                 if (handle) {
                     interactionStateRef.current = {
                         mode: 'resizing',
@@ -711,7 +769,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
 
     const handleMouseMove = (e: React.MouseEvent) => {
         const point = getCanvasCoordinates(e);
-        const { mode, startPoint, prevPoint, currentStroke, layerStart, handle } = interactionStateRef.current;
+        const { mode, startPoint, prevPoint, currentStroke, layerStart, handle, layerCenter, startAngle } = interactionStateRef.current;
         const canvas = getInteractionCanvas();
         if (!canvas) return;
         const activeLayer = layers.find(l => l.id === activeLayerId);
@@ -727,10 +785,12 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             } else {
                 cursorStyle = 'crosshair';
             }
-        } else if (editMode === EditMode.MOVE && activeLayer) {
-            const resizeHandle = activeLayer.type === LayerType.IMAGE ? getHandleAtPointForLayer(point, activeLayer) : null;
-            if (resizeHandle) {
-                cursorStyle = (resizeHandle === 'tl' || resizeHandle === 'br') ? 'nwse-resize' : 'nesw-resize';
+        } else if (editMode === EditMode.MOVE && activeLayer && activeLayer.type === LayerType.IMAGE) {
+            const transformHandle = getHandleAtPointForLayer(point, activeLayer);
+            if (transformHandle === 'rotate') {
+                cursorStyle = 'grabbing'; // Or a custom rotate cursor
+            } else if (transformHandle) {
+                cursorStyle = (transformHandle === 'tl' || transformHandle === 'br') ? 'nwse-resize' : 'nesw-resize';
             } else {
                 cursorStyle = mode === 'moving-layer' ? 'grabbing' : 'grab';
             }
@@ -741,7 +801,11 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
 
         interactionStateRef.current.startPoint = point;
         
-        if (mode === 'resizing' && activeLayerId && prevPoint && handle) {
+        if (mode === 'rotating' && activeLayerId && layerCenter && startAngle && layerStart) {
+            const currentAngle = Math.atan2(point.y - layerCenter.y, point.x - layerCenter.x);
+            const angleDelta = currentAngle - startAngle;
+            onUpdateLayer(activeLayerId, { rotation: layerStart.rotation + angleDelta });
+        } else if (mode === 'resizing' && activeLayerId && prevPoint && handle) {
             const dx = point.x - prevPoint.x;
             if (dx !== 0) {
                 onUpdateLayer(activeLayerId, (currentLayer: Layer) => {
@@ -886,8 +950,8 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             onStrokeInteractionEnd(currentStroke);
         } else if (mode === 'moving-layer') {
             onInteractionEndWithHistory();
-        } else if (mode === 'resizing' && activeLayerId) {
-            onLayerResizeEnd(activeLayerId);
+        } else if ((mode === 'resizing' || mode === 'rotating') && activeLayerId) {
+            onLayerTransformEnd(activeLayerId);
         }
         
         interactionStateRef.current = { mode: 'idle' };

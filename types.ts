@@ -97,6 +97,7 @@ export interface Layer {
   y: number;
   width?: number;
   height?: number;
+  rotation?: number;
   src?: string; // For IMAGE layers
   strokes?: Stroke[]; // For PIXEL layers
   placedShapes?: PlacedShape[]; // For PIXEL layers
