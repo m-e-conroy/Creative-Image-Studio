@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { ControlPanel } from './components/ControlPanel';
 import { ImageCanvas } from './components/ImageCanvas';
@@ -55,7 +54,7 @@ const App: React.FC = () => {
   const [aspectRatio, setAspectRatio] = useState<string>(SUPPORTED_ASPECT_RATIOS[0].value);
   const [numImages, setNumImages] = useState<number>(1);
   
-  const [editMode, setEditMode] = useState<EditMode>(EditMode.MASK);
+  const [editMode, setEditMode] = useState<EditMode>(EditMode.MOVE);
   const [brushSize, setBrushSize] = useState<number>(40);
   const [brushColor, setBrushColor] = useState<string>('#FFFFFF');
   
@@ -161,6 +160,52 @@ const App: React.FC = () => {
       setHistory(prev => [...prev, newLayers]);
   }, []);
   
+  const calculateInitialLayerDimensions = (img: { width: number, height: number }) => {
+    const maxWidth = imageDimensions?.width ? imageDimensions.width * 0.9 : 800;
+    const maxHeight = imageDimensions?.height ? imageDimensions.height * 0.9 : 800;
+
+    const imageRatio = img.width / img.height;
+    let initialWidth = img.width;
+    let initialHeight = img.height;
+
+    if (initialWidth > maxWidth) {
+      initialWidth = maxWidth;
+      initialHeight = initialWidth / imageRatio;
+    }
+
+    if (initialHeight > maxHeight) {
+      initialHeight = maxHeight;
+      initialWidth = initialHeight * imageRatio;
+    }
+
+    return { width: initialWidth, height: initialHeight };
+  };
+
+  const addImageLayer = useCallback((imageUrl: string, name: string) => {
+    const img = new Image();
+    img.onload = () => {
+        const { width, height } = calculateInitialLayerDimensions(img);
+        const newLayer: Layer = {
+            id: `layer_${Date.now()}`,
+            name,
+            type: LayerType.IMAGE,
+            src: imageUrl,
+            isVisible: true,
+            opacity: 100,
+            x: (imageDimensions?.width ?? width) / 2 - width / 2,
+            y: (imageDimensions?.height ?? height) / 2 - height / 2,
+            width,
+            height,
+        };
+        const newLayers = [...layers, newLayer];
+        setLayers(newLayers);
+        setActiveLayerId(newLayer.id);
+        updateHistory(newLayers);
+        setActiveTab('edit');
+    };
+    img.src = imageUrl;
+  }, [layers, updateHistory, imageDimensions]);
+  
   const handleGenerate = useCallback(async () => {
     if (!prompt.subject) {
       setError('Please enter a subject to generate an image.');
@@ -184,11 +229,7 @@ const App: React.FC = () => {
 
       if (imageB64s.length === 1) {
         const imageUrl = `data:image/jpeg;base64,${imageB64s[0]}`;
-        const newLayer: Layer = { id: `layer_${Date.now()}`, name: 'Background', type: LayerType.IMAGE, src: imageUrl, isVisible: true, opacity: 100, x: 0, y: 0 };
-        setLayers([newLayer]);
-        setActiveLayerId(newLayer.id);
-        updateHistory([newLayer]);
-        setActiveTab('edit');
+        addImageLayer(imageUrl, 'Background');
       } else {
         const imageUrls = imageB64s.map(b64 => `data:image/jpeg;base64,${b64}`);
         setGeneratedImages(imageUrls);
@@ -200,7 +241,7 @@ const App: React.FC = () => {
       setIsLoading(false);
       setLoadingMessage('');
     }
-  }, [prompt, style, aspectRatio, numImages, lighting, composition, technicalModifier, updateHistory]);
+  }, [prompt, style, aspectRatio, numImages, lighting, composition, technicalModifier, addImageLayer]);
 
   const handleImageUpload = useCallback((file: File) => {
     setError(null);
@@ -208,46 +249,46 @@ const App: React.FC = () => {
     setImageDimensions(null);
     setIsEditingMask(false);
     const reader = new FileReader();
-    reader.onload = async (e) => {
+    reader.onload = (e) => {
       const imageUrl = e.target?.result as string;
       if (!imageUrl) return;
-      
-      const newLayer: Layer = { id: `layer_${Date.now()}`, name: 'Imported Image', type: LayerType.IMAGE, src: imageUrl, isVisible: true, opacity: 100, x: 0, y: 0 };
-      const newLayers = [ ...layers, newLayer ];
-      setLayers(newLayers);
-      setActiveLayerId(newLayer.id);
-      updateHistory(newLayers);
-      setActiveTab('edit');
-      
-      setIsLoading(true);
-      setLoadingMessage('Analyzing your image...');
-      try {
-        const [meta, data] = imageUrl.split(',');
-        const mimeType = meta.split(';')[0].split(':')[1];
-        const description = await describeImage(data, mimeType);
-        setEditPrompt(description);
-      } catch (e: any) {
-        console.error(e);
-        setError(e.message || 'Failed to analyze the image. Please provide your own edit prompt.');
-        setEditPrompt('');
-      } finally {
-        setIsLoading(false);
-        setLoadingMessage('');
-      }
+      addImageLayer(imageUrl, file.name);
+      setEditPrompt(''); // Clear prompt, let user analyze if they want
     };
     reader.readAsDataURL(file);
-  }, [layers, updateHistory]);
+  }, [addImageLayer]);
 
   const handleSelectGalleryImage = useCallback((imageUrl: string) => {
-    const newLayer: Layer = { id: `layer_${Date.now()}`, name: 'Background', type: LayerType.IMAGE, src: imageUrl, isVisible: true, opacity: 100, x: 0, y: 0 };
-    setLayers([newLayer]);
-    setActiveLayerId(newLayer.id);
-    updateHistory([newLayer]);
+    setLayers([]); // Start fresh with the selected image
+    addImageLayer(imageUrl, 'Background');
     setGeneratedImages([]);
-    setActiveTab('edit');
     setImageDimensions(null);
     setIsEditingMask(false);
-  }, [updateHistory]);
+  }, [addImageLayer]);
+
+  const handleAnalyzeImage = useCallback(async () => {
+    if (!canvasRef.current) return;
+    setIsLoading(true);
+    setLoadingMessage('Analyzing image...');
+    setError(null);
+    try {
+        const flatImageData = canvasRef.current.getCanvasAsDataURL();
+        if (!flatImageData) throw new Error("Could not get canvas data to analyze.");
+
+        const [meta, data] = flatImageData.split(',');
+        const mimeType = meta.split(';')[0].split(':')[1];
+        
+        const description = await describeImage(data, mimeType);
+        setEditPrompt(description);
+
+    } catch (e: any) {
+        console.error(e);
+        setError(e.message || 'Failed to analyze the image.');
+    } finally {
+        setIsLoading(false);
+        setLoadingMessage('');
+    }
+}, []);
 
   const handleEdit = useCallback(async () => {
     if (!editPrompt || !canvasRef.current) {
@@ -265,25 +306,26 @@ const App: React.FC = () => {
       const [meta, data] = flatImageData.split(',');
       const mimeType = meta.split(';')[0].split(':')[1];
       
-      // Get the mask from the active layer
-      const maskData = editMode === EditMode.MASK ? canvasRef.current.getMaskData() : undefined;
+      const activeLayer = layers.find(l => l.id === activeLayerId);
+      const hasEnabledMask = activeLayer?.maskSrc && activeLayer.maskEnabled;
+      let maskData: string | undefined;
+
+      if (hasEnabledMask) {
+          maskData = activeLayer.maskSrc!.split(',')[1];
+      }
       
       let finalPrompt = editPrompt;
-      if (editMode === EditMode.MASK && maskData) {
-        finalPrompt = `Apply the following change ONLY to the masked (white) area of the image: ${editPrompt}. Blend the new content seamlessly with the existing image.`;
-      } else if (editMode === EditMode.SKETCH) {
+      if (editMode === EditMode.SKETCH) {
         finalPrompt = `Using the user's drawing and shapes on the top layer as a guide, ${editPrompt}.`;
+      } else if (hasEnabledMask) {
+        finalPrompt = `Apply the following change ONLY to the masked (white) area of the image: ${editPrompt}. Blend the new content seamlessly with the existing image.`;
       }
 
       const result = await editImage(data, mimeType, finalPrompt, maskData);
       
       if (result.image) {
         const imageUrl = `data:${mimeType};base64,${result.image}`;
-        const newLayer: Layer = { id: `layer_${Date.now()}`, name: `Edit: ${editPrompt.substring(0, 15)}...`, type: LayerType.IMAGE, src: imageUrl, isVisible: true, opacity: 100, x: 0, y: 0 };
-        const newLayers = [...layers, newLayer];
-        setLayers(newLayers);
-        setActiveLayerId(newLayer.id);
-        updateHistory(newLayers);
+        addImageLayer(imageUrl, `Edit: ${editPrompt.substring(0, 15)}...`);
         setIsEditingMask(false);
       } else {
          setError(result.text || 'The model did not return an image. Try a different prompt.');
@@ -295,7 +337,7 @@ const App: React.FC = () => {
       setIsLoading(false);
       setLoadingMessage('');
     }
-  }, [editPrompt, editMode, layers, updateHistory]);
+  }, [editPrompt, editMode, layers, activeLayerId, addImageLayer]);
 
   const handleOutpaint = useCallback(async (direction: 'up' | 'down' | 'left' | 'right') => {
     if (!canvasRef.current) return;
@@ -306,7 +348,7 @@ const App: React.FC = () => {
       const flatImageData = canvasRef.current.getCanvasAsDataURL();
       if (!flatImageData) throw new Error("Could not get flattened canvas data.");
 
-      const { data, mimeType, maskData, pasteX, pasteY } = await canvasRef.current.getExpandedCanvasData(flatImageData, direction, outpaintAmount);
+      const { data, mimeType, maskData, pasteX, pasteY, newWidth, newHeight } = await canvasRef.current.getExpandedCanvasData(flatImageData, direction, outpaintAmount);
       const finalOutpaintPrompt = `The masked (white) area indicates new empty space to be filled. ${outpaintPrompt}`;
       const result = await editImage(data, mimeType, finalOutpaintPrompt, maskData);
       
@@ -314,7 +356,7 @@ const App: React.FC = () => {
         const imageUrl = `data:image/png;base64,${result.image}`;
         
         // Create the new outpainted layer
-        const newBackgroundLayer: Layer = { id: `layer_${Date.now()}`, name: `Outpaint ${direction}`, type: LayerType.IMAGE, src: imageUrl, isVisible: true, opacity: 100, x: 0, y: 0 };
+        const newBackgroundLayer: Layer = { id: `layer_${Date.now()}`, name: `Outpaint ${direction}`, type: LayerType.IMAGE, src: imageUrl, isVisible: true, opacity: 100, x: 0, y: 0, width: newWidth, height: newHeight };
         
         // Translate existing layers to fit on the new canvas
         const translatedLayers = layers.map(layer => {
@@ -380,9 +422,10 @@ const App: React.FC = () => {
         // This timeout ensures the loading state has a chance to render before the potentially blocking canvas operation
         setTimeout(() => {
             try {
-                const croppedDataUrl = canvasRef.current!.applyCrop();
-                if (croppedDataUrl) {
-                    const newLayer: Layer = { id: `layer_${Date.now()}`, name: 'Cropped Image', type: LayerType.IMAGE, src: croppedDataUrl, isVisible: true, opacity: 100, x: 0, y: 0 };
+                const cropResult = canvasRef.current!.applyCrop();
+                if (cropResult) {
+                    const { dataUrl, width, height } = cropResult;
+                    const newLayer: Layer = { id: `layer_${Date.now()}`, name: 'Cropped Image', type: LayerType.IMAGE, src: dataUrl, isVisible: true, opacity: 100, x: 0, y: 0, width, height };
                     const newLayers = [newLayer];
                     setLayers(newLayers);
                     setActiveLayerId(newLayer.id);
@@ -431,6 +474,53 @@ const App: React.FC = () => {
     updateHistory(newLayers);
     setIsEditingMask(false);
   }, [layers, updateHistory]);
+
+  const handleCollapseLayers = useCallback(() => {
+    if (!canvasRef.current || layers.length < 2) return;
+    if (!window.confirm("Are you sure you want to merge all visible layers? This is a destructive action and cannot be undone.")) {
+        return;
+    }
+
+    setIsLoading(true);
+    setLoadingMessage('Merging layers...');
+    setError(null);
+    
+    setTimeout(() => {
+        try {
+            const dataUrl = canvasRef.current!.getCanvasAsDataURL();
+            const dimensions = canvasRef.current!.getCanvasDimensions();
+            
+            if (dataUrl && dimensions) {
+                const newLayer: Layer = {
+                    id: `layer_${Date.now()}`,
+                    name: 'Merged Layer',
+                    type: LayerType.IMAGE,
+                    src: dataUrl,
+                    isVisible: true,
+                    opacity: 100,
+                    x: 0,
+                    y: 0,
+                    width: dimensions.width,
+                    height: dimensions.height,
+                };
+                const newLayers = [newLayer];
+                setLayers(newLayers);
+                setActiveLayerId(newLayer.id);
+                updateHistory(newLayers);
+                setIsEditingMask(false);
+            } else {
+                throw new Error("Could not merge layers. The canvas may be empty.");
+            }
+        } catch (e: any) {
+            console.error("Failed to merge layers:", e);
+            setError(e.message || "An unexpected error occurred while merging layers.");
+        } finally {
+            setIsLoading(false);
+            setLoadingMessage('');
+        }
+    }, 50);
+
+}, [layers, updateHistory]);
 
   const handleLayerAdjustmentChange = useCallback((adjustment: keyof ImageAdjustments, value: number) => {
     if (!activeLayerId) return;
@@ -529,6 +619,80 @@ const App: React.FC = () => {
     newLayers.splice(dropIndex, 0, draggedItem);
     setLayers(newLayers);
     updateHistory(newLayers);
+  }, [layers, updateHistory]);
+  
+  const handleLayerResizeEnd = useCallback(async (layerId: string) => {
+      setIsLoading(true);
+      setLoadingMessage('Rasterizing layer...');
+      setError(null);
+
+      try {
+          const layer = layers.find(l => l.id === layerId);
+          if (!layer || layer.type !== LayerType.IMAGE || !layer.width || !layer.height) {
+              throw new Error('Invalid layer for rasterization.');
+          }
+
+          const imagePromise = new Promise<HTMLImageElement>((resolve, reject) => {
+              const img = new Image();
+              img.onload = () => resolve(img);
+              img.onerror = () => reject(new Error(`Could not load layer image: ${layer.src?.substring(0, 100)}`));
+              img.src = layer.src!;
+          });
+
+          const maskPromise = layer.maskSrc ? new Promise<HTMLImageElement>((resolve, reject) => {
+              const maskImg = new Image();
+              maskImg.onload = () => resolve(maskImg);
+              maskImg.onerror = () => reject(new Error('Could not load layer mask image.'));
+              maskImg.src = layer.maskSrc!;
+          }) : Promise.resolve(null);
+          
+          const [image, maskImage] = await Promise.all([imagePromise, maskPromise]);
+
+          // Rasterize image
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.round(layer.width);
+          canvas.height = Math.round(layer.height);
+          const ctx = canvas.getContext('2d');
+          if (!ctx) throw new Error('Could not create canvas context.');
+          ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+          const newImageDataUrl = canvas.toDataURL('image/png');
+
+          // Rasterize mask if it exists
+          let newMaskDataUrl: string | undefined = undefined;
+          if (maskImage) {
+              const maskCanvas = document.createElement('canvas');
+              maskCanvas.width = canvas.width;
+              maskCanvas.height = canvas.height;
+              const maskCtx = maskCanvas.getContext('2d');
+              if (!maskCtx) throw new Error('Could not create mask canvas context.');
+              maskCtx.drawImage(maskImage, 0, 0, maskCanvas.width, maskCanvas.height);
+              newMaskDataUrl = maskCanvas.toDataURL('image/png');
+          }
+          
+          const newLayers = layers.map(l => {
+              if (l.id === layerId) {
+                  return {
+                      ...l,
+                      src: newImageDataUrl,
+                      maskSrc: newMaskDataUrl === undefined ? l.maskSrc : newMaskDataUrl,
+                  };
+              }
+              return l;
+          });
+
+          setLayers(newLayers);
+          updateHistory(newLayers);
+
+      } catch(e: any) {
+          console.error("Failed to rasterize layer:", e);
+          setError(e.message || "An error occurred while finalizing the resize.");
+          // If it fails, at least save the pre-rasterization state to history
+          updateHistory(layers);
+      } finally {
+          setIsLoading(false);
+          setLoadingMessage('');
+      }
+
   }, [layers, updateHistory]);
 
   // --- Mask Management ---
@@ -797,22 +961,7 @@ const App: React.FC = () => {
         ctx.drawImage(img, 0, 0);
         const dataUrl = canvas.toDataURL('image/png');
         
-        const newLayer: Layer = {
-            id: `layer_${Date.now()}`,
-            name: photo.alt || `Pexels Image ${photo.id}`,
-            type: LayerType.IMAGE,
-            src: dataUrl,
-            isVisible: true,
-            opacity: 100,
-            x: 0,
-            y: 0,
-        };
-
-        const newLayers = [...layers, newLayer];
-        setLayers(newLayers);
-        setActiveLayerId(newLayer.id);
-        updateHistory(newLayers);
-        setActiveTab('edit');
+        addImageLayer(dataUrl, photo.alt || `Pexels Image ${photo.id}`);
 
     } catch (e: any) {
         console.error("Failed to import Pexels image:", e);
@@ -821,7 +970,7 @@ const App: React.FC = () => {
         setIsLoading(false);
         setLoadingMessage('');
     }
-}, [layers, updateHistory]);
+}, [addImageLayer]);
 
   // --- Other handlers ---
   const handleAddColorPreset = useCallback(() => {
@@ -958,7 +1107,7 @@ const App: React.FC = () => {
             editPrompt={editPrompt} setEditPrompt={setEditPrompt} style={style} setStyle={setStyle} lighting={lighting} setLighting={setLighting}
             composition={composition} setComposition={setComposition} technicalModifier={technicalModifier} setTechnicalModifier={setTechnicalModifier}
             aspectRatio={aspectRatio} setAspectRatio={setAspectRatio} numImages={numImages} setNumImages={setNumImages}
-            onGenerate={handleGenerate} onEdit={handleEdit} onOutpaint={handleOutpaint} outpaintPrompt={outpaintPrompt} setOutpaintPrompt={setOutpaintPrompt}
+            onGenerate={handleGenerate} onEdit={handleEdit} onAnalyzeImage={handleAnalyzeImage} onOutpaint={handleOutpaint} outpaintPrompt={outpaintPrompt} setOutpaintPrompt={setOutpaintPrompt}
             outpaintAmount={outpaintAmount} setOutpaintAmount={setOutpaintAmount} 
             onOpenOptionsClick={() => setIsOpenOptionsOpen(true)} isLoading={isLoading} hasImage={hasImage} editMode={editMode} setEditMode={setEditMode}
             brushSize={brushSize} setBrushSize={setBrushSize} brushColor={brushColor} setBrushColor={setBrushColor} onClear={clearCanvas}
@@ -972,6 +1121,7 @@ const App: React.FC = () => {
             // Layer props
             layers={layers} activeLayerId={activeLayerId} onAddLayer={handleAddLayer} onDeleteLayer={handleDeleteLayer}
             onSelectLayer={handleSelectLayer} onUpdateLayer={handleUpdateLayer} onReorderLayers={handleReorderLayers}
+            onCollapseLayers={handleCollapseLayers}
             onLayerAdjustmentChange={handleLayerAdjustmentChange} onResetLayerAdjustments={handleResetLayerAdjustments}
             onLayerFilterChange={handleLayerFilterChange}
             onInteractionEndWithHistory={() => updateHistory(layers)}
@@ -1027,6 +1177,7 @@ const App: React.FC = () => {
                 onUpdateLayerMask={handleUpdateLayerMask}
                 onUpdateLayer={handleUpdateLayer}
                 onInteractionEndWithHistory={() => updateHistory(layers)}
+                onLayerResizeEnd={handleLayerResizeEnd}
               />
             )}
           </div>

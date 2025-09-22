@@ -1,4 +1,3 @@
-
 import React, { useRef, useEffect, useState, useImperativeHandle, forwardRef, useCallback } from 'react';
 import { EditMode, PlacedShape, Stroke, Point, ImageAdjustments, Layer, LayerType } from '../types';
 import { Loader } from './Loader';
@@ -27,6 +26,7 @@ interface ImageCanvasProps {
   onUpdateLayerMask: (layerId: string, maskDataUrl: string) => void;
   onUpdateLayer: (id: string, updates: Partial<Layer> | ((layer: Layer) => Partial<Layer>)) => void;
   onInteractionEndWithHistory: () => void;
+  onLayerResizeEnd: (layerId: string) => void;
 }
 
 interface Rect { x: number; y: number; width: number; height: number; }
@@ -43,6 +43,7 @@ interface InteractionState {
   shapeStart?: PlacedShape;
   handle?: Handle;
   originalShape?: PlacedShape;
+  layerStart?: { x: number; y: number; width: number; height: number };
   shapeCenter?: Point;
   startAngle?: number;
   currentStroke?: Stroke;
@@ -53,20 +54,30 @@ interface InteractionState {
 export interface ImageCanvasMethods {
   getCanvasAsDataURL: (options?: { format?: 'png' | 'jpeg' | 'webp'; quality?: number; ignoreFilters?: boolean; fillStyle?: string; }) => string | null;
   getMaskData: () => string | null;
-  getExpandedCanvasData: (baseImageDataUrl: string, direction: 'up' | 'down' | 'left' | 'right', amount: number) => Promise<{ data: string; mimeType: string; maskData: string; pasteX: number; pasteY: number }>;
-  applyCrop: () => string | null;
+  getExpandedCanvasData: (baseImageDataUrl: string, direction: 'up' | 'down' | 'left' | 'right', amount: number) => Promise<{ data: string; mimeType: string; maskData: string; pasteX: number; pasteY: number; newWidth: number; newHeight: number; }>;
+  applyCrop: () => { dataUrl: string; width: number; height: number; } | null;
   clearCropSelection: () => void;
+  getCanvasDimensions: () => { width: number; height: number } | null;
 }
 
-const CROP_HANDLE_SIZE = 10;
-const MIN_SHAPE_SIZE = 20;
-const ROTATION_HANDLE_OFFSET = 25;
+const HANDLE_SIZE = 10;
+const MIN_LAYER_SIZE = 20;
 
 type OffscreenCanvasEntry = { canvas: HTMLCanvasElement; image?: HTMLImageElement; dirty: boolean; };
 
 const getCropHandles = (rect: Rect): Record<CropResizeHandle, Rect> => {
     const { x, y, width, height } = rect;
-    const size = CROP_HANDLE_SIZE;
+    const size = HANDLE_SIZE;
+    return {
+        tl: { x: x - size / 2, y: y - size / 2, width: size, height: size },
+        tr: { x: x + width - size / 2, y: y - size / 2, width: size, height: size },
+        bl: { x: x - size / 2, y: y + height - size / 2, width: size, height: size },
+        br: { x: x + width - size / 2, y: y + height - size / 2, width: size, height: size },
+    };
+};
+const getResizeHandles = (layer: Layer): Record<ResizeHandle, Rect> => {
+    const { x = 0, y = 0, width = 0, height = 0 } = layer;
+    const size = HANDLE_SIZE;
     return {
         tl: { x: x - size / 2, y: y - size / 2, width: size, height: size },
         tr: { x: x + width - size / 2, y: y - size / 2, width: size, height: size },
@@ -86,6 +97,17 @@ const getHandleAtPoint = (point: Point, rect: Rect): CropResizeHandle | null => 
     }
     return null;
 };
+const getHandleAtPointForLayer = (point: Point, layer: Layer): ResizeHandle | null => {
+    const handles = getResizeHandles(layer);
+    for (const key in handles) {
+        const handleRect = handles[key as ResizeHandle];
+        if (point.x >= handleRect.x && point.x <= handleRect.x + handleRect.width &&
+            point.y >= handleRect.y && point.y <= handleRect.y + handleRect.height) {
+            return key as ResizeHandle;
+        }
+    }
+    return null;
+};
 
 const isPointInRect = (point: Point, rect: Rect) => {
     return point.x >= rect.x && point.x <= rect.x + rect.width &&
@@ -95,7 +117,7 @@ const isPointInRect = (point: Point, rect: Rect) => {
 
 export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
   (props, ref) => {
-    const { layers, activeLayerId, isEditingMask, isLoading, loadingMessage, editMode, brushSize, brushColor, onUploadClick, isCropping, selectedShapeId, onAddStroke, onAddShape, onUpdateShape, onSelectShape, onImageLoad, onStrokeInteractionEnd, onShapeInteractionEnd, onUpdateLayerMask, onUpdateLayer, onInteractionEndWithHistory } = props;
+    const { layers, activeLayerId, isEditingMask, isLoading, loadingMessage, editMode, brushSize, brushColor, onUploadClick, isCropping, selectedShapeId, onAddStroke, onAddShape, onUpdateShape, onSelectShape, onImageLoad, onStrokeInteractionEnd, onShapeInteractionEnd, onUpdateLayerMask, onUpdateLayer, onInteractionEndWithHistory, onLayerResizeEnd } = props;
     
     const mainCanvasRef = useRef<HTMLCanvasElement>(null);
     const interactionCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -120,8 +142,11 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         if (!ctx || !canvas) return;
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        const activeLayer = layers.find(l => l.id === activeLayerId);
+        const isPixelLayerActive = activeLayer?.type === LayerType.PIXEL;
 
-        const showBrushCursor = !selectedShapeId && (editMode === EditMode.MASK || editMode === EditMode.SKETCH || isEditingMask);
+        const showBrushCursor = (editMode === EditMode.SKETCH && isPixelLayerActive && !selectedShapeId) || isEditingMask;
         if (showBrushCursor && !isCropping) {
              const {x, y} = interactionStateRef.current.startPoint || {x: -100, y: -100};
              ctx.beginPath();
@@ -144,15 +169,28 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             ctx.clearRect(rect.x, rect.y, rect.width, rect.height);
             
-            // Draw handles
             const handles = getCropHandles(rect);
             ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
             Object.values(handles).forEach(handle => {
                 ctx.fillRect(handle.x, handle.y, handle.width, handle.height);
             });
         }
+        
+        if (editMode === EditMode.MOVE && activeLayer && (activeLayer.type === LayerType.IMAGE || activeLayer.type === LayerType.PIXEL) && activeLayer.width && activeLayer.height) {
+            ctx.strokeStyle = 'rgba(47, 159, 208, 0.9)';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(activeLayer.x, activeLayer.y, activeLayer.width, activeLayer.height);
+            
+            if (activeLayer.type === LayerType.IMAGE) {
+                const handles = getResizeHandles(activeLayer);
+                ctx.fillStyle = 'rgba(47, 159, 208, 0.9)';
+                Object.values(handles).forEach(handle => {
+                    ctx.fillRect(handle.x, handle.y, handle.width, handle.height);
+                });
+            }
+        }
 
-    }, [editMode, brushSize, selectedShapeId, isEditingMask, isCropping]);
+    }, [editMode, brushSize, selectedShapeId, isEditingMask, isCropping, layers, activeLayerId]);
 
     const clearCropSelection = useCallback(() => {
       cropRectRef.current = null;
@@ -163,18 +201,14 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         const canvas = getCanvas();
         if (!canvas) return null;
 
-        // The tempCompositeCanvasRef holds the final rendered image before it's drawn to the main canvas.
-        // This is the most reliable source for a flattened image of all layers.
         const flatCanvas = tempCompositeCanvasRef.current;
         if (!flatCanvas || flatCanvas.width === 0 || flatCanvas.height === 0) {
-            // Fallback to the main canvas if the temp one isn't ready, which might happen on initial load.
             return canvas;
         }
         return flatCanvas;
     };
 
     useImperativeHandle(ref, () => ({
-      // FIX: Explicitly typed the `options` parameter to match the `ImageCanvasMethods` interface, resolving destructuring errors on an implicitly typed empty object.
       getCanvasAsDataURL: (options: { format?: 'png' | 'jpeg' | 'webp'; quality?: number; ignoreFilters?: boolean; fillStyle?: string; } = {}) => {
         const { format = 'png', quality = 0.92, fillStyle } = options;
         const flatCanvas = getFlattenedCanvas();
@@ -232,17 +266,23 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         if (!flatCanvas || !rect || rect.width <= 0 || rect.height <= 0) return null;
 
         const croppedCanvas = document.createElement('canvas');
-        croppedCanvas.width = rect.width;
-        croppedCanvas.height = rect.height;
+        const finalWidth = Math.round(rect.width);
+        const finalHeight = Math.round(rect.height);
+        croppedCanvas.width = finalWidth;
+        croppedCanvas.height = finalHeight;
         const croppedCtx = croppedCanvas.getContext('2d');
         if (!croppedCtx) return null;
 
-        croppedCtx.drawImage(flatCanvas, rect.x, rect.y, rect.width, rect.height, 0, 0, rect.width, rect.height);
+        croppedCtx.drawImage(flatCanvas, rect.x, rect.y, rect.width, rect.height, 0, 0, finalWidth, finalHeight);
         
         clearCropSelection();
-        return croppedCanvas.toDataURL('image/png');
+        return { dataUrl: croppedCanvas.toDataURL('image/png'), width: finalWidth, height: finalHeight };
       },
       clearCropSelection: clearCropSelection,
+      getCanvasDimensions: () => {
+        const canvas = getCanvas();
+        return canvas ? { width: canvas.width, height: canvas.height } : null;
+      },
       getExpandedCanvasData: async (baseImageDataUrl, direction, amount) => {
         const img = new Image();
         img.src = baseImageDataUrl;
@@ -296,7 +336,9 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
           mimeType: 'image/png',
           maskData: maskCanvas.toDataURL('image/png').split(',')[1],
           pasteX,
-          pasteY
+          pasteY,
+          newWidth,
+          newHeight
         };
       },
     }));
@@ -313,11 +355,13 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
       const { canvas: offscreenCanvas } = offscreenData;
       const mainCanvas = getCanvas();
       if (!mainCanvas?.width) return;
-
-      if (offscreenCanvas.width !== mainCanvas.width || offscreenCanvas.height !== mainCanvas.height) {
-          offscreenCanvas.width = mainCanvas.width;
-          offscreenCanvas.height = mainCanvas.height;
-          offscreenData.dirty = true;
+  
+      if (layer.type !== LayerType.IMAGE) { // Pixel and other layers use main canvas size
+        if (offscreenCanvas.width !== mainCanvas.width || offscreenCanvas.height !== mainCanvas.height) {
+            offscreenCanvas.width = mainCanvas.width;
+            offscreenCanvas.height = mainCanvas.height;
+            offscreenData.dirty = true;
+        }
       }
   
       const ctx = offscreenCanvas.getContext('2d');
@@ -337,8 +381,12 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             offscreenData.image = img;
             img.onload = () => { drawLayersRef.current(); };
         }
-        if (img.complete) {
-            ctx.drawImage(img, 0, 0, offscreenCanvas.width, offscreenCanvas.height);
+        if (img.complete && img.width > 0) {
+            if (offscreenCanvas.width !== img.width || offscreenCanvas.height !== img.height) {
+                offscreenCanvas.width = img.width;
+                offscreenCanvas.height = img.height;
+            }
+            ctx.drawImage(img, 0, 0);
         }
       } else if (layer.type === LayerType.PIXEL) {
         layer.strokes?.forEach(stroke => {
@@ -416,7 +464,6 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         const ctx = getCtx();
         if (!canvas || !ctx) return;
 
-        // Ensure temp composite canvas exists and is the right size
         if (!tempCompositeCanvasRef.current) tempCompositeCanvasRef.current = document.createElement('canvas');
         const tempCanvas = tempCompositeCanvasRef.current;
         if (tempCanvas.width !== canvas.width || tempCanvas.height !== canvas.height) {
@@ -437,50 +484,45 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                 renderLayerToOffscreen(layer);
             }
 
-            if (layer.type === LayerType.IMAGE || layer.type === LayerType.PIXEL) {
+            if (layer.type === LayerType.IMAGE) {
                 const sourceCanvas = offscreen?.canvas;
-                if (sourceCanvas) {
+                if (sourceCanvas && sourceCanvas.width > 0) {
                     tempCtx.globalAlpha = layer.opacity / 100;
-                    tempCtx.save();
-                    tempCtx.translate(layer.x || 0, layer.y || 0);
-                    tempCtx.drawImage(sourceCanvas, 0, 0);
-                    tempCtx.restore();
+                    const w = layer.width || sourceCanvas.width;
+                    const h = layer.height || sourceCanvas.height;
+                    tempCtx.drawImage(sourceCanvas, layer.x || 0, layer.y || 0, w, h);
                     tempCtx.globalAlpha = 1.0;
                 }
+            } else if (layer.type === LayerType.PIXEL) {
+                 const sourceCanvas = offscreen?.canvas;
+                 if (sourceCanvas) {
+                    tempCtx.globalAlpha = layer.opacity / 100;
+                    tempCtx.drawImage(sourceCanvas, layer.x || 0, layer.y || 0);
+                    tempCtx.globalAlpha = 1.0;
+                 }
             } else if (layer.type === LayerType.ADJUSTMENT && layer.adjustments) {
                 const { brightness, contrast, red, green, blue, filter: filterName } = layer.adjustments;
-                
                 const filterPreset = FILTERS.find(f => f.name === filterName);
                 const presetFilterValue = filterPreset && filterPreset.name !== 'None' ? filterPreset.value : '';
-
                 const cssFilters = `${presetFilterValue} brightness(${brightness}%) contrast(${contrast}%)`;
 
-                // Update the SVG filter matrix for RGB adjustments.
                 const matrixElement = document.getElementById('color-matrix-element');
                 if (matrixElement) {
-                    const r = red / 100;
-                    const g = green / 100;
-                    const b = blue / 100;
-                    const matrix = `${r} 0 0 0 0 ` +
-                                   `0 ${g} 0 0 0 ` +
-                                   `0 0 ${b} 0 0 ` +
-                                   `0 0 0 1 0`;
+                    const r = red / 100; const g = green / 100; const b = blue / 100;
+                    const matrix = `${r} 0 0 0 0 0 ${g} 0 0 0 0 0 ${b} 0 0 0 0 0 1 0`;
                     matrixElement.setAttribute('values', matrix);
                 }
 
-                // Apply adjustment to what's been drawn so far.
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 ctx.filter = `${cssFilters} url(#adjustment-filter)`;
                 ctx.drawImage(tempCanvas, 0, 0);
                 ctx.filter = 'none';
 
-                // Copy the adjusted result back to the temp canvas to stack further effects.
                 tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
                 tempCtx.drawImage(canvas, 0, 0);
             }
         }
         
-        // Draw the final composite to the main canvas
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(tempCanvas, 0, 0);
 
@@ -571,13 +613,24 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
     const handleMouseDown = (e: React.MouseEvent) => {
         const point = getCanvasCoordinates(e);
         const activeLayer = layers.find(l => l.id === activeLayerId);
+        if (!activeLayer) return;
         
-        if (editMode === EditMode.MOVE && activeLayer && (activeLayer.type === LayerType.IMAGE || activeLayer.type === LayerType.PIXEL)) {
-            interactionStateRef.current = {
-                mode: 'moving-layer',
-                prevPoint: point,
-            };
-            return;
+        if (editMode === EditMode.MOVE) {
+            if (activeLayer.type === LayerType.IMAGE) {
+                const handle = getHandleAtPointForLayer(point, activeLayer);
+                if (handle) {
+                    interactionStateRef.current = {
+                        mode: 'resizing',
+                        handle,
+                        prevPoint: point,
+                    };
+                    return;
+                }
+            }
+            if ((activeLayer.type === LayerType.IMAGE || activeLayer.type === LayerType.PIXEL)) {
+                interactionStateRef.current = { mode: 'moving-layer', prevPoint: point };
+                return;
+            }
         }
 
         if (isCropping) {
@@ -596,13 +649,10 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                     return;
                 }
             }
-            // If no rect, or clicked outside, start drawing a new one
             interactionStateRef.current = { mode: 'cropping', startPoint: point };
             cropRectRef.current = { x: point.x, y: point.y, width: 0, height: 0 };
             return;
         }
-
-        if (!activeLayer) return;
 
         if (isEditingMask) {
             interactionStateRef.current.mode = 'masking';
@@ -611,26 +661,41 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             if (maskData) {
                 const maskCtx = maskData.canvas.getContext('2d');
                 if (maskCtx) {
-                    if (brushColor === '#000000') { // Black brush erases the mask (makes transparent)
+                    if (brushColor === '#000000') {
                         maskCtx.globalCompositeOperation = 'destination-out';
-                    } else { // White brush draws on the mask (makes opaque)
+                    } else {
                         maskCtx.globalCompositeOperation = 'source-over';
                     }
-                    maskCtx.strokeStyle = 'black'; // Color doesn't matter for erasing, just needs to be opaque.
-                    maskCtx.lineWidth = brushSize;
+                    maskCtx.strokeStyle = 'black';
+                    
+                    let localPoint = { x: point.x - (activeLayer.x || 0), y: point.y - (activeLayer.y || 0) };
+                    let currentBrushSize = brushSize;
+
+                    // Correct for layer scaling if it's a resized image layer
+                    if (activeLayer.type === LayerType.IMAGE && activeLayer.width && activeLayer.height && maskData.canvas.width > 0) {
+                        const scaleX = maskData.canvas.width / activeLayer.width;
+                        const scaleY = maskData.canvas.height / activeLayer.height;
+                        
+                        localPoint = {
+                            x: localPoint.x * scaleX,
+                            y: localPoint.y * scaleY,
+                        };
+                        currentBrushSize *= scaleX;
+                    }
+
+                    maskCtx.lineWidth = currentBrushSize;
                     maskCtx.lineCap = 'round';
                     maskCtx.lineJoin = 'round';
                     maskCtx.beginPath();
-                    maskCtx.moveTo(point.x - activeLayer.x, point.y - activeLayer.y);
+                    maskCtx.moveTo(localPoint.x, localPoint.y);
                 }
             }
-
-        } else if (activeLayer.type === LayerType.PIXEL && (editMode === EditMode.MASK || editMode === EditMode.SKETCH)) {
+        } else if (activeLayer.type === LayerType.PIXEL && editMode === EditMode.SKETCH) {
             interactionStateRef.current.mode = 'drawing';
             const newStroke: Stroke = {
                 id: `stroke_${Date.now()}`,
-                points: [{x: point.x - activeLayer.x, y: point.y - activeLayer.y}],
-                color: editMode === EditMode.MASK ? '#FFFFFF' : brushColor,
+                points: [{x: point.x - (activeLayer.x || 0), y: point.y - (activeLayer.y || 0)}],
+                color: brushColor,
                 size: brushSize,
             };
             interactionStateRef.current.currentStroke = newStroke;
@@ -640,33 +705,77 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
 
     const handleMouseMove = (e: React.MouseEvent) => {
         const point = getCanvasCoordinates(e);
-        const { mode, startPoint, prevPoint, currentStroke } = interactionStateRef.current;
+        const { mode, startPoint, prevPoint, currentStroke, layerStart, handle } = interactionStateRef.current;
         const canvas = getInteractionCanvas();
         if (!canvas) return;
         const activeLayer = layers.find(l => l.id === activeLayerId);
+        const isPixelLayerActive = activeLayer?.type === LayerType.PIXEL;
 
-        // Update cursor
-        if (isCropping && cropRectRef.current) {
-            const handle = getHandleAtPoint(point, cropRectRef.current);
-            if (handle) {
-                if (handle === 'tl' || handle === 'br') canvas.style.cursor = 'nwse-resize';
-                else canvas.style.cursor = 'nesw-resize';
-            } else if (isPointInRect(point, cropRectRef.current)) {
-                canvas.style.cursor = 'move';
+        let cursorStyle = 'auto';
+        if (isCropping) {
+            const cropHandle = cropRectRef.current ? getHandleAtPoint(point, cropRectRef.current) : null;
+            if (cropHandle) {
+                cursorStyle = (cropHandle === 'tl' || cropHandle === 'br') ? 'nwse-resize' : 'nesw-resize';
+            } else if (cropRectRef.current && isPointInRect(point, cropRectRef.current)) {
+                cursorStyle = 'move';
             } else {
-                canvas.style.cursor = 'crosshair';
+                cursorStyle = 'crosshair';
             }
-        } else if (isCropping) {
-            canvas.style.cursor = 'crosshair';
-        } else if (editMode === EditMode.MOVE && activeLayerId) {
-            canvas.style.cursor = mode === 'moving-layer' ? 'grabbing' : 'grab';
-        } else if (!isLoading) {
-            canvas.style.cursor = 'auto';
+        } else if (editMode === EditMode.MOVE && activeLayer) {
+            const resizeHandle = activeLayer.type === LayerType.IMAGE ? getHandleAtPointForLayer(point, activeLayer) : null;
+            if (resizeHandle) {
+                cursorStyle = (resizeHandle === 'tl' || resizeHandle === 'br') ? 'nwse-resize' : 'nesw-resize';
+            } else {
+                cursorStyle = mode === 'moving-layer' ? 'grabbing' : 'grab';
+            }
+        } else if (!isLoading && ((editMode === EditMode.SKETCH && isPixelLayerActive) || isEditingMask)) {
+            cursorStyle = 'none';
         }
+        canvas.style.cursor = cursorStyle;
 
         interactionStateRef.current.startPoint = point;
         
-        if (mode === 'moving-layer' && prevPoint && activeLayerId) {
+        if (mode === 'resizing' && activeLayerId && prevPoint && handle) {
+            const dx = point.x - prevPoint.x;
+            if (dx !== 0) {
+                onUpdateLayer(activeLayerId, (currentLayer: Layer) => {
+                    const { x = 0, y = 0, width = 1, height = 1 } = currentLayer;
+                    const aspect = width / height;
+        
+                    let newX = x, newY = y, newWidth = width, newHeight = height;
+        
+                    switch (handle) {
+                        case 'br':
+                            newWidth = width + dx;
+                            newHeight = newWidth / aspect;
+                            break;
+                        case 'bl':
+                            newWidth = width - dx;
+                            newHeight = newWidth / aspect;
+                            newX = x + dx;
+                            break;
+                        case 'tr':
+                            newWidth = width + dx;
+                            newHeight = newWidth / aspect;
+                            newY = y - (newHeight - height);
+                            break;
+                        case 'tl':
+                            newWidth = width - dx;
+                            newHeight = newWidth / aspect;
+                            newX = x + dx;
+                            newY = y + (height - newHeight);
+                            break;
+                    }
+        
+                    if (newWidth < MIN_LAYER_SIZE || newHeight < MIN_LAYER_SIZE) {
+                        return {}; // Do not update if it gets too small
+                    }
+        
+                    return { x: newX, y: newY, width: newWidth, height: newHeight };
+                });
+            }
+            interactionStateRef.current.prevPoint = point;
+        } else if (mode === 'moving-layer' && prevPoint && activeLayerId) {
             const dx = point.x - prevPoint.x;
             const dy = point.y - prevPoint.y;
             if (dx !== 0 || dy !== 0) {
@@ -677,26 +786,18 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             }
             interactionStateRef.current.prevPoint = point;
         } else if (mode === 'cropping' && startPoint && cropRectRef.current) {
-            const x1 = startPoint.x;
-            const y1 = startPoint.y;
-            const x2 = point.x;
-            const y2 = point.y;
-            cropRectRef.current.x = Math.min(x1, x2);
-            cropRectRef.current.y = Math.min(y1, y2);
-            cropRectRef.current.width = Math.abs(x1 - x2);
-            cropRectRef.current.height = Math.abs(y1 - y2);
-            drawInteractionLayer();
+            cropRectRef.current.x = Math.min(startPoint.x, point.x);
+            cropRectRef.current.y = Math.min(startPoint.y, point.y);
+            cropRectRef.current.width = Math.abs(startPoint.x - point.x);
+            cropRectRef.current.height = Math.abs(startPoint.y - point.y);
         } else if (mode === 'moving-crop' && cropRectRef.current && interactionStateRef.current.cropMoveStartOffset) {
             const { cropMoveStartOffset } = interactionStateRef.current;
             let newX = point.x - cropMoveStartOffset.x;
             let newY = point.y - cropMoveStartOffset.y;
-            
             newX = Math.max(0, Math.min(newX, canvas.width - cropRectRef.current.width));
             newY = Math.max(0, Math.min(newY, canvas.height - cropRectRef.current.height));
-
             cropRectRef.current.x = newX;
             cropRectRef.current.y = newY;
-            drawInteractionLayer();
         } else if (mode === 'resizing-crop' && cropRectRef.current && interactionStateRef.current.cropResizeHandle) {
             const rect = cropRectRef.current;
             const handle = interactionStateRef.current.cropResizeHandle;
@@ -704,40 +805,34 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             const oldBottom = rect.y + rect.height;
 
             switch (handle) {
-                case 'tl':
-                    rect.x = point.x;
-                    rect.y = point.y;
-                    rect.width = oldRight - point.x;
-                    rect.height = oldBottom - point.y;
-                    break;
-                case 'tr':
-                    rect.width = point.x - rect.x;
-                    rect.y = point.y;
-                    rect.height = oldBottom - point.y;
-                    break;
-                case 'bl':
-                    rect.x = point.x;
-                    rect.width = oldRight - point.x;
-                    rect.height = point.y - rect.y;
-                    break;
-                case 'br':
-                    rect.width = point.x - rect.x;
-                    rect.height = point.y - rect.y;
-                    break;
+                case 'tl': rect.width = oldRight - point.x; rect.height = oldBottom - point.y; rect.x = point.x; rect.y = point.y; break;
+                case 'tr': rect.width = point.x - rect.x; rect.height = oldBottom - point.y; rect.y = point.y; break;
+                case 'bl': rect.width = oldRight - point.x; rect.height = point.y - rect.y; rect.x = point.x; break;
+                case 'br': rect.width = point.x - rect.x; rect.height = point.y - rect.y; break;
             }
-            drawInteractionLayer();
-        } else if (mode === 'masking' && activeLayerId && activeLayer) {
+        } else if (mode === 'masking' && activeLayerId) {
             const maskData = offscreenMasksRef.current.get(activeLayerId);
             const maskCtx = maskData?.canvas.getContext('2d');
-            if (maskCtx) {
-                maskCtx.lineTo(point.x - activeLayer.x, point.y - activeLayer.y);
+            if (maskCtx && activeLayer) {
+                let localPoint = { x: point.x - (activeLayer.x || 0), y: point.y - (activeLayer.y || 0) };
+
+                if (activeLayer.type === LayerType.IMAGE && activeLayer.width && activeLayer.height && maskData.canvas.width > 0) {
+                    const scaleX = maskData.canvas.width / activeLayer.width;
+                    const scaleY = maskData.canvas.height / activeLayer.height;
+                    localPoint = {
+                        x: localPoint.x * scaleX,
+                        y: localPoint.y * scaleY,
+                    };
+                }
+
+                maskCtx.lineTo(localPoint.x, localPoint.y);
                 maskCtx.stroke();
                 const layerData = offscreenCanvasesRef.current.get(activeLayerId);
                 if (layerData) layerData.dirty = true;
                 drawLayers();
             }
         } else if (mode === 'drawing' && currentStroke && activeLayer) {
-            const localPoint = { x: point.x - activeLayer.x, y: point.y - activeLayer.y };
+            const localPoint = { x: point.x - (activeLayer.x || 0), y: point.y - (activeLayer.y || 0) };
             const updatedStroke = { ...currentStroke, points: [...currentStroke.points, localPoint] };
             interactionStateRef.current.currentStroke = updatedStroke;
             
@@ -758,9 +853,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             }
         }
         
-        if (interactionStateRef.current.mode !== 'cropping' && interactionStateRef.current.mode !== 'moving-crop' && interactionStateRef.current.mode !== 'resizing-crop') {
-             drawInteractionLayer();
-        }
+        drawInteractionLayer();
     };
 
     const handleMouseUp = () => {
@@ -770,21 +863,14 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
 
         if (mode === 'resizing-crop' && cropRectRef.current) {
             const rect = cropRectRef.current;
-            if (rect.width < 0) {
-                rect.x += rect.width;
-                rect.width *= -1;
-            }
-            if (rect.height < 0) {
-                rect.y += rect.height;
-                rect.height *= -1;
-            }
+            if (rect.width < 0) { rect.x += rect.width; rect.width *= -1; }
+            if (rect.height < 0) { rect.y += rect.height; rect.height *= -1; }
         } else if (mode === 'masking' && activeLayerId) {
             const maskData = offscreenMasksRef.current.get(activeLayerId);
             if (maskData) {
                 const maskCtx = maskData.canvas.getContext('2d');
                 if (maskCtx) {
                     maskCtx.closePath();
-                    // Reset composite operation to default after drawing
                     maskCtx.globalCompositeOperation = 'source-over';
                 }
                 onUpdateLayerMask(activeLayerId, maskData.canvas.toDataURL());
@@ -792,8 +878,10 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             onInteractionEndWithHistory();
         } else if (mode === 'drawing' && currentStroke) {
             onStrokeInteractionEnd(currentStroke);
-        } else if (mode === 'moving' || mode === 'resizing' || mode === 'rotating' || mode === 'moving-layer') {
+        } else if (mode === 'moving-layer') {
             onInteractionEndWithHistory();
+        } else if (mode === 'resizing' && activeLayerId) {
+            onLayerResizeEnd(activeLayerId);
         }
         
         interactionStateRef.current = { mode: 'idle' };
@@ -822,8 +910,8 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                 const size = 100;
                 const newShape: Omit<PlacedShape, 'id' | 'rotation' | 'color'> = {
                     dataUrl,
-                    x: point.x - activeLayer.x,
-                    y: point.y - activeLayer.y,
+                    x: point.x - (activeLayer.x || 0),
+                    y: point.y - (activeLayer.y || 0),
                     width: size,
                     height: size * (img.height / img.width),
                 };

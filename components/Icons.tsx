@@ -314,3 +314,10 @@ export const MoveIcon: React.FC = () => (
         <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9m-4.5 11.5v-4.5m0 4.5h4.5m-4.5 0L9 15m11.25-11.25h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
     </svg>
 );
+
+export const CollapseLayersIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+        <path d="M5 3a1 1 0 000 2h10a1 1 0 100-2H5zM3 7a1 1 0 000 2h14a1 1 0 100-2H3z" />
+        <path fillRule="evenodd" d="M10 11a1 1 0 011 1v3.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 111.414-1.414L9 15.586V12a1 1 0 011-1z" clipRule="evenodd" />
+    </svg>
+);

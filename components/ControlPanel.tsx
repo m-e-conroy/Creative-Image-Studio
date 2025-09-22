@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, ClipArtCategory, TechnicalModifier, ImageAdjustments, Layer, LayerType, Theme, PexelsPhoto } from '../types';
 import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, TECHNICAL_MODIFIERS } from '../constants';
@@ -38,6 +37,7 @@ interface ControlPanelProps {
   setNumImages: (value: number) => void;
   onGenerate: () => void;
   onEdit: () => void;
+  onAnalyzeImage: () => void;
   onOutpaint: (direction: 'up' | 'down' | 'left' | 'right') => void;
   outpaintPrompt: string;
   setOutpaintPrompt: (prompt: string) => void;
@@ -79,6 +79,7 @@ interface ControlPanelProps {
   onSelectLayer: (id: string) => void;
   onUpdateLayer: (id: string, updates: Partial<Layer> | ((layer: Layer) => Partial<Layer>)) => void;
   onReorderLayers: (dragId: string, dropId: string) => void;
+  onCollapseLayers: () => void;
   onLayerAdjustmentChange: (adjustment: keyof ImageAdjustments, value: number) => void;
   onResetLayerAdjustments: () => void;
   onLayerFilterChange: (filterName: string) => void;
@@ -604,7 +605,7 @@ const AdjustmentControls: React.FC<{
 
 
 const EditTab: React.FC<Omit<ControlPanelProps, 'prompt' | 'onPromptChange' | 'onRewritePrompt' | 'rewritingPrompt' | 'onGetSuggestions' | 'subjectSuggestions' | 'backgroundSuggestions' | 'suggestionsLoading' | 'style' | 'setStyle' | 'lighting' | 'setLighting' | 'composition' | 'setComposition' | 'technicalModifier' | 'setTechnicalModifier' | 'aspectRatio' | 'setAspectRatio' | 'numImages' | 'setNumImages' | 'onGenerate' | 'onClose' | 'activeTab' | 'setActiveTab' | 'themes' | 'activeTheme' | 'onThemeChange' | 'isDarkMode' | 'onToggleThemeMode' | 'onClearCustomShapes' | 'onOpenOptionsClick' | 'pexelsApiKey' | 'onSetPexelsApiKey'>> = (props) => {
-    const { editPrompt, setEditPrompt, editMode, setEditMode, brushSize, setBrushSize, brushColor, setBrushColor, onEdit, onClear, onReset, onUndo, canUndo, isLoading, onRandomPrompt, randomizingPrompt, onOutpaint, outpaintPrompt, setOutpaintPrompt, outpaintAmount, setOutpaintAmount, clipArtCategories, selectedClipArtCategoryName, setSelectedClipArtCategoryName, onSaveShape, selectedShapeId, onDeleteSelectedShape, isEditingMask, colorPresets, onAddColorPreset, hasImage, onLayerAdjustmentChange, onResetLayerAdjustments, onLayerFilterChange } = props;
+    const { editPrompt, setEditPrompt, editMode, setEditMode, brushSize, setBrushSize, brushColor, setBrushColor, onEdit, onAnalyzeImage, onClear, onReset, onUndo, canUndo, isLoading, onRandomPrompt, randomizingPrompt, onOutpaint, outpaintPrompt, setOutpaintPrompt, outpaintAmount, setOutpaintAmount, clipArtCategories, selectedClipArtCategoryName, setSelectedClipArtCategoryName, onSaveShape, selectedShapeId, onDeleteSelectedShape, isEditingMask, colorPresets, onAddColorPreset, hasImage, onLayerAdjustmentChange, onResetLayerAdjustments, onLayerFilterChange } = props;
     const [newShapeName, setNewShapeName] = useState('');
     const [isEditPromptCopied, setIsEditPromptCopied] = useState(false);
     const [isPexelsOpen, setIsPexelsOpen] = useState(false);
@@ -638,6 +639,11 @@ const EditTab: React.FC<Omit<ControlPanelProps, 'prompt' | 'onPromptChange' | 'o
 
     const isPixelLayerActive = activeLayer?.type === LayerType.PIXEL;
     const isAdjustmentLayerActive = activeLayer?.type === LayerType.ADJUSTMENT;
+    const hasEnabledMask = activeLayer?.maskSrc && activeLayer.maskEnabled;
+    const placeholderText = hasEnabledMask && !isEditingMask
+        ? "e.g., Turn the masked area into a river"
+        : "e.g., Add a red boat based on my sketch";
+
 
     return (
     <div className="flex flex-col space-y-4">
@@ -671,9 +677,8 @@ const EditTab: React.FC<Omit<ControlPanelProps, 'prompt' | 'onPromptChange' | 'o
         <>
           <div>
               <label className="block text-sm font-medium text-text-secondary mb-2">Editing Mode</label>
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                   <button onClick={() => setEditMode(EditMode.MOVE)} disabled={isLoading || !hasImage} className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md transition text-sm ${editMode === EditMode.MOVE ? 'bg-brand-secondary text-white' : 'bg-base-100 hover:bg-base-300'}`}><MoveIcon /> Move</button>
-                  <button onClick={() => setEditMode(EditMode.MASK)} disabled={isLoading || !hasImage} className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md transition text-sm ${editMode === EditMode.MASK ? 'bg-brand-secondary text-white' : 'bg-base-100 hover:bg-base-300'}`}><MaskIcon /> Mask</button>
                   <button onClick={() => setEditMode(EditMode.SKETCH)} disabled={isLoading || !hasImage} className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md transition text-sm ${editMode === EditMode.SKETCH ? 'bg-brand-secondary text-white' : 'bg-base-100 hover:bg-base-300'}`}><DrawIcon /> Sketch</button>
                   <button onClick={() => setEditMode(EditMode.OUTPAINT)} disabled={isLoading || !hasImage} className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md transition text-sm ${editMode === EditMode.OUTPAINT ? 'bg-brand-secondary text-white' : 'bg-base-100 hover:bg-base-300'}`}><OutpaintIcon /> Outpaint</button>
               </div>
@@ -750,8 +755,17 @@ const EditTab: React.FC<Omit<ControlPanelProps, 'prompt' | 'onPromptChange' | 'o
               <div>
                   <label htmlFor="edit-prompt" className="block text-sm font-medium text-text-secondary mb-1">Editing Prompt</label>
                   <div className="relative">
-                      <textarea id="edit-prompt" rows={3} value={editPrompt} onChange={(e) => setEditPrompt(e.target.value)} placeholder={editMode === EditMode.MASK ? "e.g., Turn the masked area into a river" : "e.g., Add a red boat based on my sketch"} className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-secondary focus:border-brand-secondary transition text-text-primary pr-28" disabled={isLoading || randomizingPrompt === 'edit'} />
+                      <textarea id="edit-prompt" rows={3} value={editPrompt} onChange={(e) => setEditPrompt(e.target.value)} placeholder={placeholderText} className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-secondary focus:border-brand-secondary transition text-text-primary pr-36" disabled={isLoading || randomizingPrompt === 'edit'} />
                       <div className="absolute top-2 right-2 flex items-center space-x-1">
+                          <button
+                              onClick={onAnalyzeImage}
+                              disabled={isLoading || !hasImage}
+                              className="p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-secondary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
+                              aria-label="Analyze image to create prompt"
+                              title="Analyze image to create prompt"
+                          >
+                              <RewriteIcon />
+                          </button>
                           <button
                               onClick={handleEditClear}
                               disabled={isLoading || !editPrompt}

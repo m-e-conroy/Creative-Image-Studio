@@ -3,7 +3,6 @@ export type AspectRatioValue = "1:1" | "4:3" | "3:4" | "16:9" | "9:16";
 
 export enum EditMode {
   MOVE = 'move',
-  MASK = 'mask',
   SKETCH = 'sketch',
   OUTPAINT = 'outpaint',
 }
@@ -96,6 +95,8 @@ export interface Layer {
   opacity: number;
   x: number;
   y: number;
+  width?: number;
+  height?: number;
   src?: string; // For IMAGE layers
   strokes?: Stroke[]; // For PIXEL layers
   placedShapes?: PlacedShape[]; // For PIXEL layers

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Layer, LayerType } from '../types';
-import { LayersIcon, VisibilityOnIcon, VisibilityOffIcon, AddLayerIcon, TrashIcon, LayerMaskIcon, DrawIcon, AdjustmentLayerIcon, AddIcon } from './Icons';
+import { LayersIcon, VisibilityOnIcon, VisibilityOffIcon, AddLayerIcon, TrashIcon, LayerMaskIcon, DrawIcon, AdjustmentLayerIcon, AddIcon, CollapseLayersIcon } from './Icons';
 
 interface LayersPanelProps {
     layers: Layer[];
@@ -14,6 +14,7 @@ interface LayersPanelProps {
     onReorderLayers: (dragId: string, dropId: string) => void;
     onAddLayerMask: (id: string) => void;
     onDeleteLayerMask: (id: string) => void;
+    onCollapseLayers: () => void;
     isLoading: boolean;
     onInteractionEndWithHistory: () => void;
 }
@@ -106,7 +107,7 @@ const LayerItem: React.FC<{
 };
 
 export const LayersPanel: React.FC<LayersPanelProps> = (props) => {
-    const { layers, activeLayerId, onAddLayer, onDeleteLayer, onUpdateLayer, onReorderLayers, isLoading, onInteractionEndWithHistory } = props;
+    const { layers, activeLayerId, onAddLayer, onDeleteLayer, onUpdateLayer, onReorderLayers, isLoading, onInteractionEndWithHistory, onCollapseLayers } = props;
     const [draggedId, setDraggedId] = useState<string | null>(null);
     const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
 
@@ -193,6 +194,14 @@ export const LayersPanel: React.FC<LayersPanelProps> = (props) => {
                 />
             </div>
             <div className="flex items-center justify-end gap-2 relative">
+                 <button
+                    onClick={onCollapseLayers}
+                    disabled={isLoading || layers.length < 2}
+                    className="p-2 bg-base-100 text-text-secondary rounded-md hover:bg-base-300 disabled:opacity-50 transition"
+                    title="Merge Visible Layers"
+                >
+                    <CollapseLayersIcon />
+                </button>
                  <button
                     onClick={() => setIsAddMenuOpen(prev => !prev)}
                     disabled={isLoading}
