@@ -34,9 +34,11 @@ const LayerItem: React.FC<{
     const layerThumbStyle = {
         backgroundImage: layer.type === LayerType.IMAGE && layer.src ? `url(${layer.src})` : 'none',
     };
+
+    const checkerboardBg = 'repeating-conic-gradient(rgb(224, 224, 224) 0% 25%, white 0% 50%)';
     const maskThumbStyle = {
-        backgroundImage: layer.maskSrc ? `url(${layer.maskSrc})` : 'none',
-        backgroundColor: 'white'
+        backgroundImage: layer.maskSrc ? `url(${layer.maskSrc}), ${checkerboardBg}` : checkerboardBg,
+        backgroundSize: layer.maskSrc ? 'cover, 16px 16px' : '16px 16px',
     };
 
     const handleToggleMask = (e: React.MouseEvent) => {

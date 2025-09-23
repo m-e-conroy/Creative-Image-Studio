@@ -58,6 +58,8 @@ export interface ImageCanvasMethods {
   applyCrop: () => { dataUrl: string; width: number; height: number; } | null;
   clearCropSelection: () => void;
   getCanvasDimensions: () => { width: number; height: number } | null;
+  rasterizeLayer: (layerId: string) => Promise<{ newImageDataUrl: string; newMaskDataUrl?: string; newWidth: number; newHeight: number; } | null>;
+  getMaskForLayer: (layerId: string) => Promise<string | null>;
 }
 
 const HANDLE_SIZE = 10;
@@ -165,24 +167,38 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         const ctx = getInteractionCtx();
         const canvas = getInteractionCanvas();
         if (!ctx || !canvas) return;
-
+    
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        
+    
         const activeLayer = layers.find(l => l.id === activeLayerId);
         const isPixelLayerActive = activeLayer?.type === LayerType.PIXEL;
-
+    
         const showBrushCursor = (editMode === EditMode.SKETCH && isPixelLayerActive && !selectedShapeId) || isEditingMask;
         if (showBrushCursor && !isCropping) {
-             const {x, y} = interactionStateRef.current.startPoint || {x: -100, y: -100};
-             ctx.beginPath();
-             ctx.arc(x, y, brushSize / 2, 0, 2 * Math.PI);
-             ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
-             ctx.lineWidth = 1;
-             ctx.stroke();
-             ctx.beginPath();
-             ctx.arc(x, y, brushSize / 2, 0, 2 * Math.PI);
-             ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
-             ctx.stroke();
+            const { x, y } = interactionStateRef.current.startPoint || { x: -1000, y: -1000 };
+            const radius = brushSize / 2;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, 2 * Math.PI);
+    
+            if (isEditingMask && brushColor === '#000000') {
+                // Erasing: black fill, white outline
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+            } else {
+                // Drawing: current color fill, black outline
+                try {
+                    const r = parseInt(brushColor.slice(1, 3), 16);
+                    const g = parseInt(brushColor.slice(3, 5), 16);
+                    const b = parseInt(brushColor.slice(5, 7), 16);
+                    ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.5)`;
+                } catch {
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)'; // Fallback for invalid color
+                }
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+            }
+            ctx.fill();
+            ctx.stroke();
         }
         
         if (cropRectRef.current && isCropping) {
@@ -230,7 +246,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             ctx.stroke();
         }
 
-    }, [editMode, brushSize, selectedShapeId, isEditingMask, isCropping, layers, activeLayerId]);
+    }, [editMode, brushSize, brushColor, selectedShapeId, isEditingMask, isCropping, layers, activeLayerId]);
 
     const clearCropSelection = useCallback(() => {
       cropRectRef.current = null;
@@ -381,6 +397,159 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
           newHeight
         };
       },
+      rasterizeLayer: async (layerId) => {
+        const layer = layers.find(l => l.id === layerId);
+        if (!layer || (layer.type !== LayerType.IMAGE && layer.type !== LayerType.PIXEL)) {
+            console.error('Invalid layer for rasterization.');
+            return null;
+        }
+
+        const loadImage = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => resolve(img);
+            img.onerror = (err) => reject(new Error(`Could not load image: ${src.substring(0, 100)}... Error: ${err}`));
+            img.src = src;
+        });
+
+        try {
+            let imageToRasterize: HTMLCanvasElement | HTMLImageElement;
+
+            if (layer.type === LayerType.IMAGE && layer.src) {
+                imageToRasterize = await loadImage(layer.src);
+            } else { // PIXEL layer
+                const sourceCanvasEntry = offscreenCanvasesRef.current.get(layerId);
+                if (!sourceCanvasEntry || sourceCanvasEntry.dirty) {
+                    renderLayerToOffscreen(layer); // ensure it's up to date
+                }
+                imageToRasterize = offscreenCanvasesRef.current.get(layerId)!.canvas;
+            }
+
+            const maskImage = (layer.maskSrc && layer.maskEnabled) ? await loadImage(layer.maskSrc) : null;
+            
+            const { width = imageToRasterize.width, height = imageToRasterize.height, rotation = 0 } = layer;
+            const rad = rotation;
+            const cos = Math.cos(rad);
+            const sin = Math.sin(rad);
+
+            const newWidth = Math.round(Math.abs(width * cos) + Math.abs(height * sin));
+            const newHeight = Math.round(Math.abs(width * sin) + Math.abs(height * cos));
+
+            const rasterize = (img: HTMLImageElement | HTMLCanvasElement, targetWidth: number, targetHeight: number) => {
+                const canvas = document.createElement('canvas');
+                canvas.width = targetWidth;
+                canvas.height = targetHeight;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) throw new Error('Could not create canvas context.');
+
+                ctx.translate(targetWidth / 2, targetHeight / 2);
+                ctx.rotate(rad);
+                ctx.drawImage(img, -width / 2, -height / 2, width, height);
+                return canvas.toDataURL('image/png');
+            };
+
+            const newImageDataUrl = rasterize(imageToRasterize, newWidth, newHeight);
+            let newMaskDataUrl: string | undefined = undefined;
+            if (maskImage) {
+                 const canvas = document.createElement('canvas');
+                canvas.width = newWidth;
+                canvas.height = newHeight;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) throw new Error('Could not create canvas context for mask.');
+
+                ctx.translate(newWidth / 2, newHeight / 2);
+                ctx.rotate(rad);
+                // Draw the portion of the full-canvas mask that corresponds to the layer's pre-transform bounding box.
+                ctx.drawImage(maskImage, layer.x, layer.y, width, height, -width / 2, -height / 2, width, height);
+                newMaskDataUrl = canvas.toDataURL('image/png');
+            }
+
+            return { newImageDataUrl, newMaskDataUrl, newWidth, newHeight };
+        } catch (e) {
+            console.error("Rasterization failed in canvas component:", e);
+            return null;
+        }
+      },
+      getMaskForLayer: async (layerId) => {
+          const layer = layers.find(l => l.id === layerId);
+          const canvas = getCanvas();
+          if (!layer || !canvas) return null;
+
+          const maskCanvas = document.createElement('canvas');
+          maskCanvas.width = canvas.width;
+          maskCanvas.height = canvas.height;
+          const ctx = maskCanvas.getContext('2d');
+          if (!ctx) return null;
+
+          ctx.fillStyle = 'black';
+          ctx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
+          
+          if (layer.type === LayerType.IMAGE && layer.maskSrc && layer.maskEnabled) {
+              const maskImg = new Image();
+              maskImg.src = layer.maskSrc;
+              await new Promise(resolve => maskImg.onload = resolve);
+
+              const { x = 0, y = 0, width = 0, height = 0, rotation = 0 } = layer;
+              if (width === 0 || height === 0) return null;
+              
+              const centerX = x + width / 2;
+              const centerY = y + height / 2;
+              
+              ctx.save();
+              ctx.translate(centerX, centerY);
+              ctx.rotate(rotation);
+              ctx.translate(-centerX, -centerY);
+              ctx.drawImage(maskImg, x, y, width, height); 
+              ctx.restore();
+          } else if (layer.type === LayerType.PIXEL) {
+              ctx.fillStyle = 'white';
+              ctx.strokeStyle = 'white';
+
+              layer.strokes?.forEach(stroke => {
+                  ctx.lineWidth = stroke.size;
+                  ctx.lineCap = 'round';
+                  ctx.lineJoin = 'round';
+                  ctx.beginPath();
+                  if(stroke.points.length > 0) {
+                      ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+                      for (let i = 1; i < stroke.points.length; i++) {
+                          ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+                      }
+                      ctx.stroke();
+                  }
+              });
+              
+              const shapeImages = await Promise.all(
+                  (layer.placedShapes || []).map(shape => new Promise<HTMLImageElement>((resolve, reject) => {
+                      const img = new Image();
+                      img.onload = () => resolve(img);
+                      img.onerror = reject;
+                      img.src = shape.dataUrl;
+                  }))
+              );
+
+              layer.placedShapes?.forEach((shape, index) => {
+                  ctx.save();
+                  ctx.translate(shape.x, shape.y);
+                  ctx.rotate(shape.rotation);
+                  
+                  const shapeImg = shapeImages[index];
+                  const tempShapeCanvas = document.createElement('canvas');
+                  tempShapeCanvas.width = shape.width;
+                  tempShapeCanvas.height = shape.height;
+                  const tempCtx = tempShapeCanvas.getContext('2d');
+                  if (tempCtx) {
+                      tempCtx.drawImage(shapeImg, 0, 0, shape.width, shape.height);
+                      tempCtx.globalCompositeOperation = 'source-in';
+                      tempCtx.fillStyle = 'white';
+                      tempCtx.fillRect(0, 0, shape.width, shape.height);
+                      ctx.drawImage(tempShapeCanvas, -shape.width/2, -shape.height/2);
+                  }
+                  ctx.restore();
+              });
+          }
+
+          return maskCanvas.toDataURL('image/png');
+      }
     }));
 
     const drawLayersRef = useRef<() => void>(() => {});
@@ -467,12 +636,8 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
               offscreenMasksRef.current.set(layer.id, maskData);
           }
           const { canvas: maskCanvas } = maskData;
-          if (maskCanvas.width !== offscreenCanvas.width || maskCanvas.height !== offscreenCanvas.height) {
-              maskCanvas.width = offscreenCanvas.width;
-              maskCanvas.height = offscreenCanvas.height;
-              if (maskData.image) maskData.image.src = '';
-          }
-
+          const contentCanvas = offscreenData.canvas;
+          
           let maskImg = maskData.image;
           if (!maskImg || maskImg.src !== layer.maskSrc) {
               maskImg = new Image();
@@ -480,9 +645,26 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
               maskData.image = maskImg;
               maskImg.onload = () => {
                   const maskCtx = maskCanvas.getContext('2d');
-                  if (maskCtx) {
+                  if (maskCtx && contentCanvas.width > 0) {
+                      // Ensure the mask buffer is the same size as the content buffer
+                      if (maskCanvas.width !== contentCanvas.width || maskCanvas.height !== contentCanvas.height) {
+                          maskCanvas.width = contentCanvas.width;
+                          maskCanvas.height = contentCanvas.height;
+                      }
                       maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+                      // Draw the loaded mask image, scaling it to perfectly fit the content dimensions
                       maskCtx.drawImage(maskImg, 0, 0, maskCanvas.width, maskCanvas.height);
+                      
+                      try {
+                        const imageData = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
+                        const data = imageData.data;
+                        for (let i = 0; i < data.length; i += 4) {
+                            const luminance = (data[i] * 0.299) + (data[i+1] * 0.587) + (data[i+2] * 0.114);
+                            const isWhite = luminance > 128; 
+                            data[i+3] = isWhite ? 255 : 0;
+                        }
+                        maskCtx.putImageData(imageData, 0, 0);
+                      } catch (e) { console.error("Error processing mask image data:", e); }
                   }
                   const layerContent = offscreenCanvasesRef.current.get(layer.id);
                   if (layerContent) layerContent.dirty = true;
@@ -490,9 +672,11 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
               };
           }
 
-          if (maskImg.complete) {
+          if (maskImg.complete && maskImg.width > 0 && maskCanvas.width > 0) {
+              // The mask has been processed onto maskCanvas, which is the same size as the content canvas (ctx.canvas).
+              // A simple composite operation now works perfectly.
               ctx.globalCompositeOperation = 'destination-in';
-              ctx.drawImage(maskCanvas, 0, 0, offscreenCanvas.width, offscreenCanvas.height);
+              ctx.drawImage(maskCanvas, 0, 0);
               ctx.globalCompositeOperation = 'source-over';
           }
       }
@@ -552,7 +736,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                 const matrixElement = document.getElementById('color-matrix-element');
                 if (matrixElement) {
                     const r = red / 100; const g = green / 100; const b = blue / 100;
-                    const matrix = `${r} 0 0 0 0 0 ${g} 0 0 0 0 0 ${b} 0 0 0 0 0 0 1 0`;
+                    const matrix = `${r} 0 0 0 0 0 ${g} 0 0 0 0 0 ${b} 0 0 0 0 0 1 0`;
                     matrixElement.setAttribute('values', matrix);
                 }
 
@@ -664,6 +848,35 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         };
     };
 
+    const getLocalPointForMasking = (point: Point, layer: Layer): Point | null => {
+        const { x = 0, y = 0, width, height, rotation = 0 } = layer;
+        if (!width || !height) return null;
+    
+        const centerX = x + width / 2;
+        const centerY = y + height / 2;
+    
+        const translatedX = point.x - centerX;
+        const translatedY = point.y - centerY;
+    
+        const cos = Math.cos(-rotation);
+        const sin = Math.sin(-rotation);
+        const rotatedX = translatedX * cos - translatedY * sin;
+        const rotatedY = translatedX * sin + translatedY * cos;
+    
+        const maskData = offscreenMasksRef.current.get(layer.id);
+        const maskWidth = maskData?.canvas.width;
+        const maskHeight = maskData?.canvas.height;
+        if (!maskWidth || !maskHeight) return null;
+    
+        const unscaledX = rotatedX * (maskWidth / width);
+        const unscaledY = rotatedY * (maskHeight / height);
+    
+        return {
+            x: unscaledX + maskWidth / 2,
+            y: unscaledY + maskHeight / 2,
+        };
+    };
+
     const handleMouseDown = (e: React.MouseEvent) => {
         const point = getCanvasCoordinates(e);
         const activeLayer = layers.find(l => l.id === activeLayerId);
@@ -719,6 +932,13 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         }
 
         if (isEditingMask) {
+            let localPoint = point;
+            if (activeLayer.type === LayerType.IMAGE) {
+                const transformedPoint = getLocalPointForMasking(point, activeLayer);
+                if (!transformedPoint) return;
+                localPoint = transformedPoint;
+            }
+
             interactionStateRef.current.mode = 'masking';
             
             const maskData = offscreenMasksRef.current.get(activeLayer.id);
@@ -727,27 +947,20 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                 if (maskCtx) {
                     if (brushColor === '#000000') {
                         maskCtx.globalCompositeOperation = 'destination-out';
+                        maskCtx.strokeStyle = 'rgba(0,0,0,1)'; 
                     } else {
                         maskCtx.globalCompositeOperation = 'source-over';
+                        maskCtx.strokeStyle = brushColor;
                     }
-                    maskCtx.strokeStyle = 'black';
                     
-                    let localPoint = { x: point.x - (activeLayer.x || 0), y: point.y - (activeLayer.y || 0) };
-                    let currentBrushSize = brushSize;
-
-                    // Correct for layer scaling if it's a resized image layer
-                    if (activeLayer.type === LayerType.IMAGE && activeLayer.width && activeLayer.height && maskData.canvas.width > 0) {
-                        const scaleX = maskData.canvas.width / activeLayer.width;
-                        const scaleY = maskData.canvas.height / activeLayer.height;
-                        
-                        localPoint = {
-                            x: localPoint.x * scaleX,
-                            y: localPoint.y * scaleY,
-                        };
-                        currentBrushSize *= scaleX;
+                    let transformedBrushSize = brushSize;
+                    if (activeLayer.type === LayerType.IMAGE && activeLayer.width) {
+                        const maskWidth = maskData.canvas.width;
+                        const scale = maskWidth / activeLayer.width;
+                        transformedBrushSize = brushSize * scale;
                     }
-
-                    maskCtx.lineWidth = currentBrushSize;
+                    
+                    maskCtx.lineWidth = transformedBrushSize;
                     maskCtx.lineCap = 'round';
                     maskCtx.lineJoin = 'round';
                     maskCtx.beginPath();
@@ -884,17 +1097,12 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             const maskData = offscreenMasksRef.current.get(activeLayerId);
             const maskCtx = maskData?.canvas.getContext('2d');
             if (maskCtx && activeLayer) {
-                let localPoint = { x: point.x - (activeLayer.x || 0), y: point.y - (activeLayer.y || 0) };
-
-                if (activeLayer.type === LayerType.IMAGE && activeLayer.width && activeLayer.height && maskData.canvas.width > 0) {
-                    const scaleX = maskData.canvas.width / activeLayer.width;
-                    const scaleY = maskData.canvas.height / activeLayer.height;
-                    localPoint = {
-                        x: localPoint.x * scaleX,
-                        y: localPoint.y * scaleY,
-                    };
+                let localPoint = point;
+                if (activeLayer.type === LayerType.IMAGE) {
+                    const transformedPoint = getLocalPointForMasking(point, activeLayer);
+                    if (!transformedPoint) return;
+                    localPoint = transformedPoint;
                 }
-
                 maskCtx.lineTo(localPoint.x, localPoint.y);
                 maskCtx.stroke();
                 const layerData = offscreenCanvasesRef.current.get(activeLayerId);

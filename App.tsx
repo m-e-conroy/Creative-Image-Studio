@@ -1,7 +1,8 @@
+
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { ControlPanel } from './components/ControlPanel';
 import { ImageCanvas } from './components/ImageCanvas';
-import { generateImage, editImage, rewritePrompt, generateRandomPrompt, describeImage, getPromptSuggestions, searchPexelsPhotos } from './services/geminiService';
+import { generateImage, editImage, rewritePrompt, generateRandomPrompt, describeImage, getPromptSuggestions, searchPexelsPhotos, findAndMaskObjects } from './services/geminiService';
 import { ImageCanvasMethods } from './components/ImageCanvas';
 import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, Stroke, ClipArtCategory, TechnicalModifier, ImageAdjustments, Layer, LayerType, PexelsPhoto } from './types';
 import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, CLIP_ART_CATEGORIES, TECHNICAL_MODIFIERS, INITIAL_COLOR_PRESETS, DEFAULT_ADJUSTMENTS } from './constants';
@@ -26,6 +27,7 @@ const App: React.FC = () => {
   const [editPrompt, setEditPrompt] = useState<string>('');
   const [outpaintPrompt, setOutpaintPrompt] = useState<string>('Extend the scene seamlessly, matching the original image\'s style and lighting.');
   const [outpaintAmount, setOutpaintAmount] = useState<number>(50);
+  const [autoMaskPrompt, setAutoMaskPrompt] = useState<string>('');
   
   const [style, setStyle] = useState<ImageStyle>(() => findDefault(INITIAL_STYLES, "None"));
   const [lighting, setLighting] = useState<LightingStyle>(() => findDefault(LIGHTING_STYLES, "Default"));
@@ -293,54 +295,86 @@ const App: React.FC = () => {
     }
 }, []);
 
-  const handleEdit = useCallback(async () => {
-    if (!editPrompt || !canvasRef.current) {
-      setError('Please enter an editing prompt.');
+const handleEdit = useCallback(async () => {
+    if (!editPrompt || !canvasRef.current || !activeLayerId) {
+      setError('Please enter an editing prompt and select a layer.');
       return;
     }
+    const activeLayer = layers.find(l => l.id === activeLayerId);
+    if (!activeLayer) {
+        setError("No active layer selected.");
+        return;
+    }
+
+    const isPixelLayerWithContent = activeLayer.type === LayerType.PIXEL && ((activeLayer.strokes?.length ?? 0) > 0 || (activeLayer.placedShapes?.length ?? 0) > 0);
+    const isImageLayerWithMask = activeLayer.type === LayerType.IMAGE && activeLayer.maskSrc && activeLayer.maskEnabled;
+
+    if (!isPixelLayerWithContent && !isImageLayerWithMask) {
+        setError("Please select a pixel layer with a sketch or an image layer with an active mask to guide the edit.");
+        return;
+    }
+
     setIsLoading(true);
     setLoadingMessage('Applying creative edits...');
     setError(null);
+
     try {
-      // Flatten visible layers to create a base image for editing
-      const flatImageData = canvasRef.current.getCanvasAsDataURL();
-      if (!flatImageData) throw new Error("Could not get canvas data.");
+        // 1. Get the flattened image of all visible layers as the context.
+        const baseImageDataUrl = canvasRef.current.getCanvasAsDataURL();
+        if (!baseImageDataUrl) throw new Error("Could not get the current canvas image.");
 
-      const [meta, data] = flatImageData.split(',');
-      const mimeType = meta.split(';')[0].split(':')[1];
-      
-      const activeLayer = layers.find(l => l.id === activeLayerId);
-      const hasEnabledMask = activeLayer?.maskSrc && activeLayer.maskEnabled;
-      let maskData: string | undefined;
+        // 2. Get a full-canvas mask from the active layer's content or mask.
+        const maskDataUrl = await canvasRef.current.getMaskForLayer(activeLayerId);
+        if (!maskDataUrl) throw new Error("Could not generate a mask from the selected layer.");
+        
+        const [baseMeta, baseData] = baseImageDataUrl.split(',');
+        const mimeType = baseMeta.split(';')[0].split(':')[1];
+        const maskData = maskDataUrl.split(',')[1];
+        
+        const finalPrompt = `Using the full image as context, apply the following change ONLY to the masked (white) area: ${editPrompt}. Blend the new content seamlessly with the existing visible image.`;
 
-      if (hasEnabledMask) {
-          maskData = activeLayer.maskSrc!.split(',')[1];
-      }
+        // 3. Call the edit service with the full context and specific mask.
+        const result = await editImage(baseData, mimeType, finalPrompt, maskData);
       
-      let finalPrompt = editPrompt;
-      if (editMode === EditMode.SKETCH) {
-        finalPrompt = `Using the user's drawing and shapes on the top layer as a guide, ${editPrompt}.`;
-      } else if (hasEnabledMask) {
-        finalPrompt = `Apply the following change ONLY to the masked (white) area of the image: ${editPrompt}. Blend the new content seamlessly with the existing image.`;
-      }
+        if (result.image) {
+            const newImageSrc = `data:${mimeType};base64,${result.image}`;
+            const canvasDimensions = canvasRef.current.getCanvasDimensions();
+            if (!canvasDimensions) throw new Error("Could not get canvas dimensions for the new layer.");
 
-      const result = await editImage(data, mimeType, finalPrompt, maskData);
-      
-      if (result.image) {
-        const imageUrl = `data:${mimeType};base64,${result.image}`;
-        addImageLayer(imageUrl, `Edit: ${editPrompt.substring(0, 15)}...`);
-        setIsEditingMask(false);
-      } else {
-         setError(result.text || 'The model did not return an image. Try a different prompt.');
-      }
+            // 4. Create a new, full-sized image layer with the result.
+            const newLayer: Layer = {
+                id: `layer_${Date.now()}`,
+                name: `Edit: ${editPrompt.substring(0, 15)}...`,
+                type: LayerType.IMAGE,
+                src: newImageSrc,
+                isVisible: true,
+                opacity: 100,
+                x: 0,
+                y: 0,
+                width: canvasDimensions.width,
+                height: canvasDimensions.height,
+                rotation: 0,
+            };
+
+            const activeLayerIndex = layers.findIndex(l => l.id === activeLayerId);
+            const newLayers = [...layers];
+            newLayers.splice(activeLayerIndex + 1, 0, newLayer);
+
+            setLayers(newLayers);
+            setActiveLayerId(newLayer.id);
+            updateHistory(newLayers);
+            setIsEditingMask(false);
+        } else {
+            setError(result.text || 'The model did not return an image. Try a different prompt.');
+        }
     } catch (e: any) {
-      console.error(e);
-      setError(e.message || 'Failed to edit image. Please try again.');
+        console.error(e);
+        setError(e.message || 'Failed to edit image. Please try again.');
     } finally {
-      setIsLoading(false);
-      setLoadingMessage('');
+        setIsLoading(false);
+        setLoadingMessage('');
     }
-  }, [editPrompt, editMode, layers, activeLayerId, addImageLayer]);
+  }, [editPrompt, layers, activeLayerId, updateHistory]);
 
   const handleOutpaint = useCallback(async (direction: 'up' | 'down' | 'left' | 'right') => {
     if (!canvasRef.current) return;
@@ -646,55 +680,12 @@ const App: React.FC = () => {
       setError(null);
   
       try {
-          const layer = layers.find(l => l.id === layerId);
-          if (!layer || layer.type !== LayerType.IMAGE || !layer.width || !layer.height) {
-              throw new Error('Invalid layer for rasterization.');
+          const rasterizeResult = await canvasRef.current?.rasterizeLayer(layerId);
+          if (!rasterizeResult) {
+              throw new Error("Failed to get rasterization data from canvas.");
           }
   
-          const imagePromise = new Promise<HTMLImageElement>((resolve, reject) => {
-              const img = new Image();
-              img.onload = () => resolve(img);
-              img.onerror = () => reject(new Error(`Could not load layer image: ${layer.src?.substring(0, 100)}`));
-              img.src = layer.src!;
-          });
-  
-          const maskPromise = layer.maskSrc ? new Promise<HTMLImageElement>((resolve, reject) => {
-              const maskImg = new Image();
-              maskImg.onload = () => resolve(maskImg);
-              maskImg.onerror = () => reject(new Error('Could not load layer mask image.'));
-              maskImg.src = layer.maskSrc!;
-          }) : Promise.resolve(null);
-          
-          const [image, maskImage] = await Promise.all([imagePromise, maskPromise]);
-  
-          const { width, height, rotation = 0 } = layer;
-          const rad = rotation;
-          const cos = Math.cos(rad);
-          const sin = Math.sin(rad);
-  
-          // Calculate the bounding box of the rotated image
-          const newWidth = Math.round(Math.abs(width * cos) + Math.abs(height * sin));
-          const newHeight = Math.round(Math.abs(width * sin) + Math.abs(height * cos));
-  
-          const rasterize = (imgToRasterize: HTMLImageElement) => {
-              const canvas = document.createElement('canvas');
-              canvas.width = newWidth;
-              canvas.height = newHeight;
-              const ctx = canvas.getContext('2d');
-              if (!ctx) throw new Error('Could not create canvas context.');
-  
-              // Translate to the center, rotate, and draw the image centered
-              ctx.translate(newWidth / 2, newHeight / 2);
-              ctx.rotate(rad);
-              ctx.drawImage(imgToRasterize, -width / 2, -height / 2, width, height);
-              return canvas.toDataURL('image/png');
-          };
-          
-          const newImageDataUrl = rasterize(image);
-          let newMaskDataUrl: string | undefined = layer.maskSrc;
-          if (maskImage) {
-              newMaskDataUrl = rasterize(maskImage);
-          }
+          const { newImageDataUrl, newMaskDataUrl, newWidth, newHeight } = rasterizeResult;
           
           const newLayers = layers.map(l => {
               if (l.id === layerId) {
@@ -703,8 +694,8 @@ const App: React.FC = () => {
                       src: newImageDataUrl,
                       maskSrc: newMaskDataUrl,
                       // Adjust position to keep the center of the new bounding box where the old center was
-                      x: l.x + (l.width! - newWidth) / 2,
-                      y: l.y + (l.height! - newHeight) / 2,
+                      x: l.x + ((l.width ?? newWidth) - newWidth) / 2,
+                      y: l.y + ((l.height ?? newHeight) - newHeight) / 2,
                       width: newWidth,
                       height: newHeight,
                       rotation: 0, // Rotation is now baked into the image
@@ -754,6 +745,64 @@ const App: React.FC = () => {
     // This updates without adding to history, as it's part of a continuous drawing action.
     setLayers(currentLayers => currentLayers.map(l => l.id === layerId ? { ...l, maskSrc: maskDataUrl } : l));
   }, []);
+
+  const handleAutoMask = useCallback(async () => {
+    if (!canvasRef.current || !activeLayerId || !autoMaskPrompt) {
+        setError("Please select a layer and enter what you want to mask.");
+        return;
+    }
+
+    setIsLoading(true);
+    setLoadingMessage('Finding objects to mask...');
+    setError(null);
+
+    try {
+        const activeLayer = layers.find(l => l.id === activeLayerId);
+        if (!activeLayer || (activeLayer.type !== LayerType.IMAGE && activeLayer.type !== LayerType.PIXEL)) {
+            throw new Error("Only Image or Pixel layers can be auto-masked.");
+        }
+
+        let imageDataUrlForMasking: string | null = null;
+        
+        // Prioritize the original, full-resolution source for image layers
+        if (activeLayer.type === LayerType.IMAGE && activeLayer.src) {
+            imageDataUrlForMasking = activeLayer.src;
+        } else {
+            // Fallback to the canvas view for pixel layers or images without a direct src
+            imageDataUrlForMasking = canvasRef.current.getCanvasAsDataURL();
+        }
+
+        if (!imageDataUrlForMasking) {
+            throw new Error("Could not get image data for the selected layer.");
+        }
+        
+        const [meta, data] = imageDataUrlForMasking.split(',');
+        const mimeType = meta.split(';')[0].split(':')[1];
+
+        const result = await findAndMaskObjects(data, mimeType, autoMaskPrompt);
+        if (!result.image) {
+          throw new Error(result.text || "The AI could not generate a mask from your prompt. Try being more specific.");
+        }
+
+        const newMaskDataUrl = `data:image/png;base64,${result.image}`;
+
+        const newLayers = layers.map(l => 
+            l.id === activeLayerId 
+                ? { ...l, maskSrc: newMaskDataUrl, maskEnabled: true } 
+                : l
+        );
+        setLayers(newLayers);
+        updateHistory(newLayers);
+        handleSelectLayerMask(activeLayerId);
+
+    } catch (e: any) {
+        console.error(e);
+        setError(e.message || 'Failed to generate mask.');
+    } finally {
+        setIsLoading(false);
+        setLoadingMessage('');
+    }
+}, [activeLayerId, autoMaskPrompt, layers, updateHistory, handleSelectLayerMask]);
   
   // --- Undo/Reset ---
   const handleUndo = useCallback(() => {
@@ -1322,7 +1371,8 @@ const App: React.FC = () => {
             onInteractionEndWithHistory={() => updateHistory(layers)}
             // Mask props
             isEditingMask={isEditingMask} onSelectLayerMask={handleSelectLayerMask} onAddLayerMask={handleAddLayerMask}
-            onDeleteLayerMask={handleDeleteLayerMask}
+            onDeleteLayerMask={handleDeleteLayerMask} onAutoMask={handleAutoMask}
+            autoMaskPrompt={autoMaskPrompt} setAutoMaskPrompt={setAutoMaskPrompt}
             // Pexels Props
             onPexelsSearch={handlePexelsSearch}
             pexelsPhotos={pexelsPhotos}
@@ -1366,6 +1416,7 @@ const App: React.FC = () => {
                 onUploadClick={handleOpenImageClick}
                 isCropping={isCropping}
                 selectedShapeId={selectedShapeId} onAddStroke={handleAddStroke} onAddShape={handleAddShape}
+                // FIX: Changed onUpdateShape to handleUpdateShape as onUpdateShape was not defined.
                 onUpdateShape={handleUpdateShape} onSelectShape={setSelectedShapeId} onImageLoad={setImageDimensions}
                 onShapeInteractionEnd={handleShapeInteractionEnd}
                 onStrokeInteractionEnd={handleStrokeInteractionEnd}

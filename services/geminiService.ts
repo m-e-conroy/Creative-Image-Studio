@@ -129,6 +129,52 @@ export async function editImage(
   });
 }
 
+export async function findAndMaskObjects(
+  base64ImageData: string,
+  mimeType: string,
+  prompt: string
+): Promise<{ text?: string; image?: string }> {
+  return handleApiCall(async () => {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image-preview',
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              data: base64ImageData,
+              mimeType: mimeType,
+            },
+          },
+          { text: `Please identify the '${prompt}' in the image. Create a clean, hard-edged, binary mask. The identified object must be solid white (#FFFFFF) and the background must be solid black (#000000). The output should be an image of the mask only, with the exact same dimensions as the original.` },
+        ],
+      },
+      config: {
+        responseModalities: [Modality.IMAGE, Modality.TEXT],
+      },
+    });
+
+    const result: { text?: string; image?: string } = {};
+    const candidate = response.candidates?.[0];
+
+    if (candidate?.content?.parts && Array.isArray(candidate.content.parts)) {
+        for (const part of candidate.content.parts) {
+            if (part.text) {
+                result.text = part.text;
+            } else if (part.inlineData) {
+                result.image = part.inlineData.data;
+            }
+        }
+    }
+     if (!result.image && candidate?.finishReason && candidate.finishReason !== 'STOP') {
+        const reason = candidate.finishReason.charAt(0).toUpperCase() + candidate.finishReason.slice(1).toLowerCase().replace(/_/g, ' ');
+        result.text = `Mask generation failed. Reason: ${reason}. Please adjust your prompt.`;
+    }
+
+    return result;
+  });
+}
+
+
 export async function describeImage(
   base64ImageData: string,
   mimeType: string
@@ -226,6 +272,7 @@ export async function generateRandomPrompt(part: PromptPart | 'edit'): Promise<s
             contents: `Generate a random prompt for an image's ${part}.`,
             config: {
                 systemInstruction: instructionMap[part],
+                temperature: 1,
             },
         });
 

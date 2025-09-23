@@ -89,6 +89,9 @@ interface ControlPanelProps {
   onSelectLayerMask: (id: string) => void;
   onAddLayerMask: (id: string) => void;
   onDeleteLayerMask: (id: string) => void;
+  onAutoMask: () => void;
+  autoMaskPrompt: string;
+  setAutoMaskPrompt: (prompt: string) => void;
   // Pexels props
   onPexelsSearch: (query: string, mode: 'new' | 'more') => void;
   pexelsPhotos: PexelsPhoto[];
@@ -504,21 +507,49 @@ const OutpaintControls: React.FC<{
     </div>
 )};
 
-const MaskingTools: React.FC<Pick<ControlPanelProps, 'brushSize' | 'setBrushSize' | 'brushColor' | 'setBrushColor' | 'isLoading'>> = ({ brushSize, setBrushSize, brushColor, setBrushColor, isLoading }) => {
+const MaskingTools: React.FC<Pick<ControlPanelProps, 'brushSize' | 'setBrushSize' | 'brushColor' | 'setBrushColor' | 'isLoading' | 'autoMaskPrompt' | 'setAutoMaskPrompt' | 'onAutoMask'>> = ({ brushSize, setBrushSize, brushColor, setBrushColor, isLoading, autoMaskPrompt, setAutoMaskPrompt, onAutoMask }) => {
   return (
     <div className="space-y-4">
         <h3 className="text-md font-semibold text-text-primary flex items-center gap-2"><MaskIcon/> Masking Tools</h3>
-        <p className="text-sm text-text-secondary">Paint with black to hide parts of the layer, and white to reveal them.</p>
-        <div>
-            <label htmlFor="brush-size" className="block text-sm font-medium text-text-secondary mb-2">Brush Size</label>
-            <input id="brush-size" type="range" min="5" max="100" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer" disabled={isLoading} />
-        </div>
-        <div>
-            <label className="block text-sm font-medium text-text-secondary mb-2">Brush Color</label>
+        
+        <div className="space-y-2 p-3 bg-base-100/50 rounded-md">
+            <label htmlFor="auto-mask-prompt" className="block text-sm font-medium text-text-secondary">Auto-Mask with AI</label>
             <div className="flex items-center gap-2">
-                <button onClick={() => setBrushColor('#FFFFFF')} className={`w-10 h-10 rounded-md bg-white border-2 ${brushColor === '#FFFFFF' ? 'border-brand-secondary' : 'border-base-300'}`} disabled={isLoading} aria-label="Select white brush"></button>
-                <button onClick={() => setBrushColor('#000000')} className={`w-10 h-10 rounded-md bg-black border-2 ${brushColor === '#000000' ? 'border-brand-secondary' : 'border-base-300'}`} disabled={isLoading} aria-label="Select black brush"></button>
+                <input
+                    id="auto-mask-prompt"
+                    type="text"
+                    value={autoMaskPrompt}
+                    onChange={(e) => setAutoMaskPrompt(e.target.value)}
+                    placeholder="e.g., the cat on the mat"
+                    className="flex-grow bg-base-100 border border-base-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-brand-secondary"
+                    disabled={isLoading}
+                />
+                <button
+                    onClick={onAutoMask}
+                    disabled={isLoading || !autoMaskPrompt}
+                    className="p-2 bg-brand-secondary text-white rounded-md disabled:opacity-50 transition"
+                    title="Find and mask object"
+                >
+                    <RewriteIcon />
+                </button>
             </div>
+            <p className="text-xs text-text-secondary">Describe the object to mask. This will replace the current mask.</p>
+        </div>
+
+        <div className="space-y-2 pt-2 border-t border-base-300">
+          <p className="text-sm font-medium text-text-secondary">Manual Painting</p>
+          <p className="text-xs text-text-secondary">Paint with black to hide parts of the layer, and white to reveal them.</p>
+          <div>
+              <label htmlFor="brush-size" className="block text-sm font-medium text-text-secondary mb-2">Brush Size</label>
+              <input id="brush-size" type="range" min="5" max="100" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer" disabled={isLoading} />
+          </div>
+          <div>
+              <label className="block text-sm font-medium text-text-secondary mb-2">Brush Color</label>
+              <div className="flex items-center gap-2">
+                  <button onClick={() => setBrushColor('#FFFFFF')} className={`w-10 h-10 rounded-md bg-white border-2 ${brushColor === '#FFFFFF' ? 'border-brand-secondary' : 'border-base-300'}`} disabled={isLoading} aria-label="Select white brush"></button>
+                  <button onClick={() => setBrushColor('#000000')} className={`w-10 h-10 rounded-md bg-black border-2 ${brushColor === '#000000' ? 'border-brand-secondary' : 'border-base-300'}`} disabled={isLoading} aria-label="Select black brush"></button>
+              </div>
+          </div>
         </div>
     </div>
   )
@@ -639,10 +670,7 @@ const EditTab: React.FC<Omit<ControlPanelProps, 'prompt' | 'onPromptChange' | 'o
 
     const isPixelLayerActive = activeLayer?.type === LayerType.PIXEL;
     const isAdjustmentLayerActive = activeLayer?.type === LayerType.ADJUSTMENT;
-    const hasEnabledMask = activeLayer?.maskSrc && activeLayer.maskEnabled;
-    const placeholderText = hasEnabledMask && !isEditingMask
-        ? "e.g., Turn the masked area into a river"
-        : "e.g., Add a red boat based on my sketch";
+    const placeholderText = "Describe the edit for the masked area or sketch";
 
 
     return (
