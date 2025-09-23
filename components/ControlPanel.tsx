@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, ClipArtCategory, TechnicalModifier, ImageAdjustments, Layer, LayerType, Theme, PexelsPhoto } from '../types';
 import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, TECHNICAL_MODIFIERS } from '../constants';
@@ -13,8 +14,8 @@ interface ControlPanelProps {
   setActiveTab: (tab: Tab) => void;
   prompt: PromptState;
   onPromptChange: (part: PromptPart, value: string) => void;
-  onRewritePrompt: (part: PromptPart) => void;
-  rewritingPrompt: PromptPart | null;
+  onRewritePrompt: (part: PromptPart | 'edit') => void;
+  rewritingPrompt: PromptPart | 'edit' | null;
   onRandomPrompt: (part: PromptPart | 'edit') => void;
   randomizingPrompt: PromptPart | 'edit' | null;
   onGetSuggestions: (part: PromptPart, value: string) => void;
@@ -635,7 +636,7 @@ const AdjustmentControls: React.FC<{
 );
 
 
-const EditTab: React.FC<Omit<ControlPanelProps, 'prompt' | 'onPromptChange' | 'onRewritePrompt' | 'rewritingPrompt' | 'onGetSuggestions' | 'subjectSuggestions' | 'backgroundSuggestions' | 'suggestionsLoading' | 'style' | 'setStyle' | 'lighting' | 'setLighting' | 'composition' | 'setComposition' | 'technicalModifier' | 'setTechnicalModifier' | 'aspectRatio' | 'setAspectRatio' | 'numImages' | 'setNumImages' | 'onGenerate' | 'onClose' | 'activeTab' | 'setActiveTab' | 'themes' | 'activeTheme' | 'onThemeChange' | 'isDarkMode' | 'onToggleThemeMode' | 'onClearCustomShapes' | 'onOpenOptionsClick' | 'pexelsApiKey' | 'onSetPexelsApiKey'>> = (props) => {
+const EditTab: React.FC<Omit<ControlPanelProps, 'prompt' | 'onPromptChange' | 'onGetSuggestions' | 'subjectSuggestions' | 'backgroundSuggestions' | 'suggestionsLoading' | 'style' | 'setStyle' | 'lighting' | 'setLighting' | 'composition' | 'setComposition' | 'technicalModifier' | 'setTechnicalModifier' | 'aspectRatio' | 'setAspectRatio' | 'numImages' | 'setNumImages' | 'onGenerate' | 'onClose' | 'activeTab' | 'setActiveTab' | 'themes' | 'activeTheme' | 'onThemeChange' | 'isDarkMode' | 'onToggleThemeMode' | 'onClearCustomShapes' | 'onOpenOptionsClick' | 'pexelsApiKey' | 'onSetPexelsApiKey'>> = (props) => {
     const { editPrompt, setEditPrompt, editMode, setEditMode, brushSize, setBrushSize, brushColor, setBrushColor, onEdit, onAnalyzeImage, onClear, onReset, onUndo, canUndo, isLoading, onRandomPrompt, randomizingPrompt, onOutpaint, outpaintPrompt, setOutpaintPrompt, outpaintAmount, setOutpaintAmount, clipArtCategories, selectedClipArtCategoryName, setSelectedClipArtCategoryName, onSaveShape, selectedShapeId, onDeleteSelectedShape, isEditingMask, colorPresets, onAddColorPreset, hasImage, onLayerAdjustmentChange, onResetLayerAdjustments, onLayerFilterChange } = props;
     const [newShapeName, setNewShapeName] = useState('');
     const [isEditPromptCopied, setIsEditPromptCopied] = useState(false);
@@ -783,8 +784,17 @@ const EditTab: React.FC<Omit<ControlPanelProps, 'prompt' | 'onPromptChange' | 'o
               <div>
                   <label htmlFor="edit-prompt" className="block text-sm font-medium text-text-secondary mb-1">Editing Prompt</label>
                   <div className="relative">
-                      <textarea id="edit-prompt" rows={3} value={editPrompt} onChange={(e) => setEditPrompt(e.target.value)} placeholder={placeholderText} className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-secondary focus:border-brand-secondary transition text-text-primary pr-36" disabled={isLoading || randomizingPrompt === 'edit'} />
+                      <textarea id="edit-prompt" rows={3} value={editPrompt} onChange={(e) => setEditPrompt(e.target.value)} placeholder={placeholderText} className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-secondary focus:border-brand-secondary transition text-text-primary pr-44" disabled={isLoading || randomizingPrompt === 'edit'} />
                       <div className="absolute top-2 right-2 flex items-center space-x-1">
+                          <button
+                              onClick={() => props.onRewritePrompt('edit')}
+                              disabled={isLoading || props.rewritingPrompt === 'edit' || randomizingPrompt === 'edit' || !editPrompt}
+                              className="p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-secondary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
+                              aria-label="Enhance edit prompt"
+                              title="Enhance edit prompt"
+                          >
+                              {props.rewritingPrompt === 'edit' ? <MiniLoader /> : <RewriteIcon />}
+                          </button>
                           <button
                               onClick={onAnalyzeImage}
                               disabled={isLoading || !hasImage}
@@ -792,7 +802,7 @@ const EditTab: React.FC<Omit<ControlPanelProps, 'prompt' | 'onPromptChange' | 'o
                               aria-label="Analyze image to create prompt"
                               title="Analyze image to create prompt"
                           >
-                              <RewriteIcon />
+                              <IdeaIcon />
                           </button>
                           <button
                               onClick={handleEditClear}

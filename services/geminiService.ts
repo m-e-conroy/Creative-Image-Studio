@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Modality, Type } from "@google/genai";
 import { PromptPart, PexelsPhoto } from "../types";
 
@@ -201,15 +202,16 @@ export async function describeImage(
   });
 }
 
-export async function rewritePrompt(prompt: string, part: PromptPart): Promise<string> {
+export async function rewritePrompt(prompt: string, part: PromptPart | 'edit'): Promise<string> {
     if (!prompt.trim()) {
       return prompt;
     }
 
     return handleApiCall(async () => {
-        const instructionMap: Record<PromptPart, string> = {
+        const instructionMap: Record<PromptPart | 'edit', string> = {
           subject: "You are an expert prompt engineer for generative AI image models. Your task is to rewrite the user's description of a subject to be more vivid, descriptive, and detailed. Focus on enhancing the subject's appearance, characteristics, actions, and emotions, while keeping the core concept intact. Only return the rewritten prompt, with no preamble or explanation.",
           background: "You are an expert prompt engineer for generative AI image models. Your task is to rewrite the user's description of a background to create a rich and immersive environment. Focus on describing the setting, atmosphere, lighting, and surrounding elements in greater detail. Keep the core idea of the background intact. Only return the rewritten prompt, with no preamble or explanation.",
+          edit: "You are an expert prompt engineer for generative AI image models. Your task is to rewrite the user's editing instruction to be clearer, more descriptive, and more likely to produce a good result from an inpainting or masked editing model. Focus on specifying the change, the style, and how it should blend with the rest of the image. Keep the core instruction intact. Only return the rewritten prompt, with no preamble or explanation."
         };
 
         const systemInstruction = instructionMap[part];

@@ -61,7 +61,7 @@ const App: React.FC = () => {
   const [brushColor, setBrushColor] = useState<string>('#FFFFFF');
   
   const [activeTab, setActiveTab] = useState<Tab>('generate');
-  const [rewritingPrompt, setRewritingPrompt] = useState<PromptPart | null>(null);
+  const [rewritingPrompt, setRewritingPrompt] = useState<PromptPart | 'edit' | null>(null);
   const [randomizingPrompt, setRandomizingPrompt] = useState<PromptPart | 'edit' | null>(null);
 
   const [subjectSuggestions, setSubjectSuggestions] = useState<string[]>([]);
@@ -1216,19 +1216,24 @@ const handleEdit = useCallback(async () => {
     }
   }, [brushColor, colorPresets]);
 
-  const handleRewritePrompt = useCallback(async (part: PromptPart) => {
-    const currentPrompt = prompt[part];
+  const handleRewritePrompt = useCallback(async (part: PromptPart | 'edit') => {
+    const currentPrompt = part === 'edit' ? editPrompt : prompt[part];
     if (!currentPrompt.trim()) return;
+
     setRewritingPrompt(part);
     setError(null);
     try {
       const rewritten = await rewritePrompt(currentPrompt, part);
-      setPrompt(prev => ({ ...prev, [part]: rewritten }));
+      if (part === 'edit') {
+        setEditPrompt(rewritten);
+      } else {
+        setPrompt(prev => ({ ...prev, [part]: rewritten }));
+      }
     } catch (e: any) {
       console.error(e);
       setError(e.message || `Failed to enhance the ${part} prompt. Please try again.`);
     } finally { setRewritingPrompt(null); }
-  }, [prompt]);
+  }, [prompt, editPrompt]);
   const handleGetSuggestions = useCallback(async (part: PromptPart, value: string) => {
     if (!value.trim() || value.length < 4) {
       if (part === 'subject') setSubjectSuggestions([]); else setBackgroundSuggestions([]);

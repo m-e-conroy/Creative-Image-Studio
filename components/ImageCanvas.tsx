@@ -449,18 +449,9 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
 
             const newImageDataUrl = rasterize(imageToRasterize, newWidth, newHeight);
             let newMaskDataUrl: string | undefined = undefined;
-            if (maskImage) {
-                 const canvas = document.createElement('canvas');
-                canvas.width = newWidth;
-                canvas.height = newHeight;
-                const ctx = canvas.getContext('2d');
-                if (!ctx) throw new Error('Could not create canvas context for mask.');
 
-                ctx.translate(newWidth / 2, newHeight / 2);
-                ctx.rotate(rad);
-                // Draw the portion of the full-canvas mask that corresponds to the layer's pre-transform bounding box.
-                ctx.drawImage(maskImage, layer.x, layer.y, width, height, -width / 2, -height / 2, width, height);
-                newMaskDataUrl = canvas.toDataURL('image/png');
+            if (maskImage) {
+                 newMaskDataUrl = rasterize(maskImage, newWidth, newHeight);
             }
 
             return { newImageDataUrl, newMaskDataUrl, newWidth, newHeight };
