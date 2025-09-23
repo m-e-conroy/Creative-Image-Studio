@@ -651,6 +651,7 @@ const handleEdit = useCallback(async () => {
     setActiveLayerId(id);
     setIsEditingMask(true);
     setBrushColor('#000000'); // Default to black for masking
+    setEditMode(EditMode.SKETCH); // Switch to sketch mode for mask painting
   }, []);
 
   const handleUpdateLayer = useCallback((id: string, updates: Partial<Layer> | ((layer: Layer) => Partial<Layer>)) => {
