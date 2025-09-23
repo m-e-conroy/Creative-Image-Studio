@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, ClipArtCategory, TechnicalModifier, ImageAdjustments, Layer, LayerType, Theme, PexelsPhoto } from '../types';
 import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, TECHNICAL_MODIFIERS } from '../constants';
@@ -101,6 +100,12 @@ interface ControlPanelProps {
   onSelectPexelsImage: (photo: PexelsPhoto) => void;
   pexelsApiKey: string;
   onSetPexelsApiKey: (key: string) => void;
+  // Image to Image props
+  onRemixImage: () => void;
+  remixStrength: number;
+  setRemixStrength: (strength: number) => void;
+  remixPreservation: number;
+  setRemixPreservation: (strength: number) => void;
 }
 
 const useDebounce = <T,>(value: T, delay: number): T => {
@@ -637,7 +642,7 @@ const AdjustmentControls: React.FC<{
 
 
 const EditTab: React.FC<Omit<ControlPanelProps, 'prompt' | 'onPromptChange' | 'onGetSuggestions' | 'subjectSuggestions' | 'backgroundSuggestions' | 'suggestionsLoading' | 'style' | 'setStyle' | 'lighting' | 'setLighting' | 'composition' | 'setComposition' | 'technicalModifier' | 'setTechnicalModifier' | 'aspectRatio' | 'setAspectRatio' | 'numImages' | 'setNumImages' | 'onGenerate' | 'onClose' | 'activeTab' | 'setActiveTab' | 'themes' | 'activeTheme' | 'onThemeChange' | 'isDarkMode' | 'onToggleThemeMode' | 'onClearCustomShapes' | 'onOpenOptionsClick' | 'pexelsApiKey' | 'onSetPexelsApiKey'>> = (props) => {
-    const { editPrompt, setEditPrompt, editMode, setEditMode, brushSize, setBrushSize, brushColor, setBrushColor, onEdit, onAnalyzeImage, onClear, onReset, onUndo, canUndo, isLoading, onRandomPrompt, randomizingPrompt, onOutpaint, outpaintPrompt, setOutpaintPrompt, outpaintAmount, setOutpaintAmount, clipArtCategories, selectedClipArtCategoryName, setSelectedClipArtCategoryName, onSaveShape, selectedShapeId, onDeleteSelectedShape, isEditingMask, colorPresets, onAddColorPreset, hasImage, onLayerAdjustmentChange, onResetLayerAdjustments, onLayerFilterChange } = props;
+    const { editPrompt, setEditPrompt, editMode, setEditMode, brushSize, setBrushSize, brushColor, setBrushColor, onEdit, onAnalyzeImage, onClear, onReset, onUndo, canUndo, isLoading, onRandomPrompt, randomizingPrompt, onOutpaint, outpaintPrompt, setOutpaintPrompt, outpaintAmount, setOutpaintAmount, clipArtCategories, selectedClipArtCategoryName, setSelectedClipArtCategoryName, onSaveShape, selectedShapeId, onDeleteSelectedShape, isEditingMask, colorPresets, onAddColorPreset, hasImage, onLayerAdjustmentChange, onResetLayerAdjustments, onLayerFilterChange, onRemixImage, remixStrength, setRemixStrength, remixPreservation, setRemixPreservation } = props;
     const [newShapeName, setNewShapeName] = useState('');
     const [isEditPromptCopied, setIsEditPromptCopied] = useState(false);
     const [isPexelsOpen, setIsPexelsOpen] = useState(false);
@@ -834,12 +839,54 @@ const EditTab: React.FC<Omit<ControlPanelProps, 'prompt' | 'onPromptChange' | 'o
                       </div>
                   </div>
               </div>
-              <button onClick={onEdit} disabled={isLoading || !editPrompt} className="w-full flex items-center justify-center gap-2 bg-brand-secondary hover:bg-brand-secondary/80 disabled:bg-base-300 text-white font-bold py-2 px-4 rounded-md transition duration-200"><EditIcon /> Apply Edit</button>
+              <button onClick={onEdit} disabled={isLoading || !editPrompt} className="w-full flex items-center justify-center gap-2 bg-brand-secondary hover:bg-brand-secondary/80 disabled:bg-base-300 text-white font-bold py-2 px-4 rounded-md transition duration-200"><EditIcon /> Apply Masked Edit</button>
           </>
           )}
         </>
         )}
         
+        {hasImage && !isEditingMask && (
+            <div className="space-y-3 pt-4 border-t border-base-300">
+                <h3 className="text-md font-semibold text-text-primary flex items-center gap-2"><GenerateIcon/> Canvas Remix</h3>
+                <p className="text-xs text-text-secondary -mt-2">Reimagines the entire visible canvas based on your prompt.</p>
+                <div>
+                    <label htmlFor="remix-strength" className="block text-sm font-medium text-text-secondary mb-1">
+                        Creative Strength ({remixStrength}%)
+                    </label>
+                    <input 
+                        id="remix-strength" 
+                        type="range" 
+                        min="0" 
+                        max="100" 
+                        step="5"
+                        value={remixStrength}
+                        onChange={(e) => setRemixStrength(Number(e.target.value))}
+                        className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer"
+                        disabled={isLoading}
+                    />
+                    <p className="text-xs text-text-secondary mt-1">How much the AI changes the image. Higher is more creative.</p>
+                </div>
+                <div>
+                    <label htmlFor="remix-preservation" className="block text-sm font-medium text-text-secondary mb-1">
+                        Image Preservation ({remixPreservation}%)
+                    </label>
+                    <input 
+                        id="remix-preservation" 
+                        type="range" 
+                        min="0" 
+                        max="95" 
+                        step="5"
+                        value={remixPreservation}
+                        onChange={(e) => setRemixPreservation(Number(e.target.value))}
+                        className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer"
+                        disabled={isLoading}
+                    />
+                    <p className="text-xs text-text-secondary mt-1">How much of the original canvas to show through the remix.</p>
+                </div>
+                <button onClick={onRemixImage} disabled={isLoading || !editPrompt} className="w-full flex items-center justify-center gap-2 bg-brand-secondary hover:bg-brand-secondary/80 disabled:bg-base-300 text-white font-bold py-2 px-4 rounded-md transition duration-200"><RewriteIcon /> Remix Canvas</button>
+            </div>
+        )}
+
         <div className="grid grid-cols-3 gap-2 pt-4 border-t border-base-300">
             <button onClick={onClear} disabled={isLoading || (!isPixelLayerActive && !isEditingMask) } className="w-full flex items-center justify-center gap-2 bg-base-300 hover:bg-base-300/80 disabled:bg-base-300/50 text-text-secondary font-bold py-2 px-4 rounded-md transition"><ClearIcon /> Clear</button>
             <button onClick={onUndo} disabled={isLoading || !canUndo} className="w-full flex items-center justify-center gap-2 bg-base-300 hover:bg-base-300/80 disabled:bg-base-300/50 text-text-secondary font-bold py-2 px-4 rounded-md transition"><UndoIcon /> Undo</button>

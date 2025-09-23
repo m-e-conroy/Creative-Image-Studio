@@ -1,8 +1,7 @@
-
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { ControlPanel } from './components/ControlPanel';
 import { ImageCanvas } from './components/ImageCanvas';
-import { generateImage, editImage, rewritePrompt, generateRandomPrompt, describeImage, getPromptSuggestions, searchPexelsPhotos, findAndMaskObjects } from './services/geminiService';
+import { generateImage, editImage, rewritePrompt, generateRandomPrompt, describeImage, getPromptSuggestions, searchPexelsPhotos, findAndMaskObjects, remixImage } from './services/geminiService';
 import { ImageCanvasMethods } from './components/ImageCanvas';
 import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, Stroke, ClipArtCategory, TechnicalModifier, ImageAdjustments, Layer, LayerType, PexelsPhoto } from './types';
 import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, CLIP_ART_CATEGORIES, TECHNICAL_MODIFIERS, INITIAL_COLOR_PRESETS, DEFAULT_ADJUSTMENTS } from './constants';
@@ -28,6 +27,8 @@ const App: React.FC = () => {
   const [outpaintPrompt, setOutpaintPrompt] = useState<string>('Extend the scene seamlessly, matching the original image\'s style and lighting.');
   const [outpaintAmount, setOutpaintAmount] = useState<number>(50);
   const [autoMaskPrompt, setAutoMaskPrompt] = useState<string>('');
+  const [remixStrength, setRemixStrength] = useState<number>(50);
+  const [remixPreservation, setRemixPreservation] = useState<number>(0);
   
   const [style, setStyle] = useState<ImageStyle>(() => findDefault(INITIAL_STYLES, "None"));
   const [lighting, setLighting] = useState<LightingStyle>(() => findDefault(LIGHTING_STYLES, "Default"));
@@ -375,6 +376,62 @@ const handleEdit = useCallback(async () => {
         setLoadingMessage('');
     }
   }, [editPrompt, layers, activeLayerId, updateHistory]);
+
+  const handleRemixImage = useCallback(async () => {
+    if (!editPrompt || !canvasRef.current || !hasImage) {
+        setError('Please enter a prompt and have some content on the canvas to remix.');
+        return;
+    }
+
+    setIsLoading(true);
+    setLoadingMessage('Remixing your canvas...');
+    setError(null);
+
+    try {
+        const flatImageData = canvasRef.current.getCanvasAsDataURL();
+        if (!flatImageData) throw new Error("Could not get canvas data to remix.");
+
+        const [meta, data] = flatImageData.split(',');
+        const mimeType = meta.split(';')[0].split(':')[1];
+        
+        const result = await remixImage(data, mimeType, editPrompt, remixStrength);
+
+        if (result.image) {
+            const newImageSrc = `data:${mimeType};base64,${result.image}`;
+            const canvasDimensions = canvasRef.current.getCanvasDimensions();
+            if (!canvasDimensions) throw new Error("Could not get canvas dimensions for the new layer.");
+            
+            const newLayer: Layer = {
+                id: `layer_${Date.now()}`,
+                name: `Remix: ${editPrompt.substring(0, 15)}...`,
+                type: LayerType.IMAGE,
+                src: newImageSrc,
+                isVisible: true,
+                opacity: 100 - remixPreservation,
+                x: 0,
+                y: 0,
+                width: canvasDimensions.width,
+                height: canvasDimensions.height,
+                rotation: 0,
+            };
+
+            const newLayers = [...layers, newLayer];
+            setLayers(newLayers);
+            setActiveLayerId(newLayer.id);
+            updateHistory(newLayers);
+            setIsEditingMask(false);
+        } else {
+            setError(result.text || 'The model did not return an image. Try a different prompt or strength.');
+        }
+
+    } catch (e: any) {
+        console.error(e);
+        setError(e.message || 'Failed to remix image. Please try again.');
+    } finally {
+        setIsLoading(false);
+        setLoadingMessage('');
+    }
+}, [editPrompt, layers, remixStrength, remixPreservation, updateHistory, hasImage]);
 
   const handleOutpaint = useCallback(async (direction: 'up' | 'down' | 'left' | 'right') => {
     if (!canvasRef.current) return;
@@ -1387,6 +1444,12 @@ const handleEdit = useCallback(async () => {
             onSelectPexelsImage={handleSelectPexelsImage}
             pexelsApiKey={pexelsApiKey}
             onSetPexelsApiKey={handleSetPexelsApiKey}
+            // Image to Image props
+            onRemixImage={handleRemixImage}
+            remixStrength={remixStrength}
+            setRemixStrength={setRemixStrength}
+            remixPreservation={remixPreservation}
+            setRemixPreservation={setRemixPreservation}
           />
           {error && (<div className="bg-red-500/20 border border-red-500 text-red-300 p-3 rounded-md text-sm"><p className="font-semibold">Error</p><p>{error}</p></div>)}
         </aside>

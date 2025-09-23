@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Modality, Type } from "@google/genai";
 import { PromptPart, PexelsPhoto } from "../types";
 
@@ -124,6 +123,76 @@ export async function editImage(
 
     if(!result.image) {
         console.warn("Model response did not contain an image part.", { response, result });
+    }
+
+    return result;
+  });
+}
+
+export async function remixImage(
+  base64ImageData: string,
+  mimeType: string,
+  prompt: string,
+  strength: number // 0-100
+): Promise<{ text?: string; image?: string }> {
+  return handleApiCall(async () => {
+    let strengthInstruction = '';
+    if (strength <= 20) {
+      strengthInstruction = "Stick VERY closely to the source image. The text prompt should only introduce minor details or stylistic nuances. The original composition, subjects, and colors must be almost entirely preserved.";
+    } else if (strength <= 50) {
+      strengthInstruction = "Create a balanced blend. Integrate the prompt's concepts while respecting the original image's composition and general mood. Some transformation is expected.";
+    } else if (strength <= 80) {
+        strengthInstruction = "Heavily favor the creative direction of the text prompt. Use the source image for compositional and color palette inspiration, but feel free to radically transform the subject and style.";
+    } else {
+        strengthInstruction = "Almost completely disregard the source image's subject matter. Use it only as a vague reference for color and basic shapes. The text prompt is the primary driver of the final output. Be extremely creative and transformative.";
+    }
+
+    const fullPrompt = `
+      **Task**: Perform an image-to-image generation (a "remix").
+      **Source Image**: Provided as input.
+      **Text Prompt**: "${prompt}"
+
+      **Instructions**:
+      1. Creatively merge the artistic style, subject, and composition of the source image with the concepts described in the text prompt.
+      2. The "Creative Strength" for this task is ${strength}%. ${strengthInstruction}
+      3. Ensure all new elements from the prompt are seamlessly and naturally integrated into the scene, matching the lighting, perspective, and style.
+      4. The output must be an image only, with the exact same dimensions as the input image. Do not output text.
+    `;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image-preview',
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              data: base64ImageData,
+              mimeType: mimeType,
+            },
+          },
+          { text: fullPrompt },
+        ],
+      },
+      config: {
+        responseModalities: [Modality.IMAGE, Modality.TEXT],
+      },
+    });
+
+    const result: { text?: string; image?: string } = {};
+    const candidate = response.candidates?.[0];
+
+    if (candidate?.content?.parts && Array.isArray(candidate.content.parts)) {
+        for (const part of candidate.content.parts) {
+            if (part.text) {
+                result.text = part.text;
+            } else if (part.inlineData) {
+                result.image = part.inlineData.data;
+            }
+        }
+    }
+
+    if (!result.image && candidate?.finishReason && candidate.finishReason !== 'STOP') {
+        const reason = candidate.finishReason.charAt(0).toUpperCase() + candidate.finishReason.slice(1).toLowerCase().replace(/_/g, ' ');
+        result.text = `Image remix failed. Reason: ${reason}. Please adjust your prompt.`;
     }
 
     return result;
