@@ -201,6 +201,7 @@ const App: React.FC = () => {
             width,
             height,
             rotation: 0,
+            blendMode: 'source-over',
         };
         const newLayers = [...layers, newLayer];
         setLayers(newLayers);
@@ -354,6 +355,7 @@ const handleEdit = useCallback(async () => {
                 width: canvasDimensions.width,
                 height: canvasDimensions.height,
                 rotation: 0,
+                blendMode: 'source-over',
             };
 
             const activeLayerIndex = layers.findIndex(l => l.id === activeLayerId);
@@ -412,6 +414,7 @@ const handleEdit = useCallback(async () => {
                 width: canvasDimensions.width,
                 height: canvasDimensions.height,
                 rotation: 0,
+                blendMode: 'source-over',
             };
 
             const newLayers = [...layers, newLayer];
@@ -449,7 +452,7 @@ const handleEdit = useCallback(async () => {
         const imageUrl = `data:image/png;base64,${result.image}`;
         
         // Create the new outpainted layer
-        const newBackgroundLayer: Layer = { id: `layer_${Date.now()}`, name: `Outpaint ${direction}`, type: LayerType.IMAGE, src: imageUrl, isVisible: true, opacity: 100, x: 0, y: 0, width: newWidth, height: newHeight, rotation: 0 };
+        const newBackgroundLayer: Layer = { id: `layer_${Date.now()}`, name: `Outpaint ${direction}`, type: LayerType.IMAGE, src: imageUrl, isVisible: true, opacity: 100, x: 0, y: 0, width: newWidth, height: newHeight, rotation: 0, blendMode: 'source-over' };
         
         // Translate existing layers to fit on the new canvas
         const translatedLayers = layers.map(layer => {
@@ -518,7 +521,7 @@ const handleEdit = useCallback(async () => {
                 const cropResult = canvasRef.current!.applyCrop();
                 if (cropResult) {
                     const { dataUrl, width, height } = cropResult;
-                    const newLayer: Layer = { id: `layer_${Date.now()}`, name: 'Cropped Image', type: LayerType.IMAGE, src: dataUrl, isVisible: true, opacity: 100, x: 0, y: 0, width, height, rotation: 0 };
+                    const newLayer: Layer = { id: `layer_${Date.now()}`, name: 'Cropped Image', type: LayerType.IMAGE, src: dataUrl, isVisible: true, opacity: 100, x: 0, y: 0, width, height, rotation: 0, blendMode: 'source-over' };
                     const newLayers = [newLayer];
                     setLayers(newLayers);
                     setActiveLayerId(newLayer.id);
@@ -569,6 +572,7 @@ const handleEdit = useCallback(async () => {
                         width: dimensions.width,
                         height: dimensions.height,
                         rotation: 0,
+                        blendMode: 'source-over',
                     };
                     const newLayers = [newLayer];
                     setLayers(newLayers);
@@ -606,6 +610,7 @@ const handleEdit = useCallback(async () => {
       x: 0,
       y: 0,
       rotation: 0,
+      blendMode: 'source-over',
     };
     if (type === LayerType.PIXEL) {
         newLayer.strokes = [];

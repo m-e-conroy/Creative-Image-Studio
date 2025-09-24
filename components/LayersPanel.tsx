@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Layer, LayerType } from '../types';
 import { LayersIcon, VisibilityOnIcon, VisibilityOffIcon, AddLayerIcon, TrashIcon, LayerMaskIcon, DrawIcon, AdjustmentLayerIcon, AddIcon, CollapseLayersIcon } from './Icons';
+import { BLEND_MODES } from '../constants';
 
 interface LayersPanelProps {
     layers: Layer[];
@@ -140,6 +141,13 @@ export const LayersPanel: React.FC<LayersPanelProps> = (props) => {
         setIsAddMenuOpen(false);
     };
 
+    const handleBlendModeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        if (activeLayerId) {
+            onUpdateLayer(activeLayerId, { blendMode: e.target.value });
+            onInteractionEndWithHistory();
+        }
+    };
+
     const activeLayer = layers.find(l => l.id === activeLayerId);
     
     // Layers are displayed in reverse order of the state array.
@@ -172,28 +180,49 @@ export const LayersPanel: React.FC<LayersPanelProps> = (props) => {
                     )
                 })}
             </div>
-             <div className="flex items-center gap-2">
-                <input
-                    type="text"
-                    value={activeLayer?.name || ''}
-                    onChange={(e) => activeLayer && onUpdateLayer(activeLayer.id, { name: e.target.value })}
-                    onBlur={() => onInteractionEndWithHistory()}
-                    placeholder="Layer Name"
-                    className="flex-grow bg-base-100 border border-base-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-brand-secondary"
-                    disabled={!activeLayer || isLoading}
-                />
-                <label htmlFor="layer-opacity" className="sr-only">Opacity</label>
-                <input
-                    id="layer-opacity"
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={activeLayer?.opacity || 100}
-                    onChange={(e) => activeLayer && onUpdateLayer(activeLayer.id, { opacity: Number(e.target.value) })}
-                    onMouseUp={() => onInteractionEndWithHistory()}
-                    className="w-24"
-                    disabled={!activeLayer || isLoading}
-                />
+             <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                    <input
+                        type="text"
+                        value={activeLayer?.name || ''}
+                        onChange={(e) => activeLayer && onUpdateLayer(activeLayer.id, { name: e.target.value })}
+                        onBlur={() => onInteractionEndWithHistory()}
+                        placeholder="Layer Name"
+                        className="flex-grow bg-base-100 border border-base-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-brand-secondary"
+                        disabled={!activeLayer || isLoading}
+                    />
+                    <label htmlFor="layer-opacity" className="sr-only">Opacity</label>
+                    <input
+                        id="layer-opacity"
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={activeLayer?.opacity || 100}
+                        onChange={(e) => activeLayer && onUpdateLayer(activeLayer.id, { opacity: Number(e.target.value) })}
+                        onMouseUp={() => onInteractionEndWithHistory()}
+                        className="w-24"
+                        disabled={!activeLayer || isLoading}
+                    />
+                </div>
+                 <div className="flex items-center gap-2">
+                     <label htmlFor="layer-blend-mode" className="text-sm text-text-secondary whitespace-nowrap flex-shrink-0">Blend</label>
+                     <select
+                        id="layer-blend-mode"
+                        value={activeLayer?.blendMode || 'source-over'}
+                        onChange={handleBlendModeChange}
+                        className="w-full bg-base-100 border border-base-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-brand-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={!activeLayer || isLoading || layers.findIndex(l => l.id === activeLayerId) === 0 || activeLayer.type === LayerType.ADJUSTMENT}
+                        title={
+                            !activeLayer ? "Select a layer" :
+                            activeLayer.type === LayerType.ADJUSTMENT ? "Blend mode cannot be applied to Adjustment layers" :
+                            layers.findIndex(l => l.id === activeLayerId) === 0 ? "Blend mode has no effect on the bottom layer" : "Select blend mode"
+                        }
+                    >
+                        {BLEND_MODES.map(mode => (
+                            <option key={mode.value} value={mode.value}>{mode.name}</option>
+                        ))}
+                    </select>
+                </div>
             </div>
             <div className="flex items-center justify-end gap-2 relative">
                  <button

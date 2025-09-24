@@ -8,6 +8,25 @@ export const SUPPORTED_ASPECT_RATIOS: { name: string; value: AspectRatioValue }[
     { name: 'Tall (9:16)', value: '9:16' },
 ];
 
+export const BLEND_MODES: { name: string; value: string }[] = [
+    { name: 'Normal', value: 'source-over' },
+    { name: 'Multiply', value: 'multiply' },
+    { name: 'Screen', value: 'screen' },
+    { name: 'Overlay', value: 'overlay' },
+    { name: 'Darken', value: 'darken' },
+    { name: 'Lighten', value: 'lighten' },
+    { name: 'Color Dodge', value: 'color-dodge' },
+    { name: 'Color Burn', value: 'color-burn' },
+    { name: 'Hard Light', value: 'hard-light' },
+    { name: 'Soft Light', value: 'soft-light' },
+    { name: 'Difference', value: 'difference' },
+    { name: 'Exclusion', value: 'exclusion' },
+    { name: 'Hue', value: 'hue' },
+    { name: 'Saturation', value: 'saturation' },
+    { name: 'Color', value: 'color' },
+    { name: 'Luminosity', value: 'luminosity' },
+];
+
 export const INITIAL_STYLES: ImageStyle[] = [
     { name: "None", prompt: "" },
     { name: "Abstract Expressionism", prompt: "abstract expressionism, spontaneous, energetic brushstrokes, non-representational" },

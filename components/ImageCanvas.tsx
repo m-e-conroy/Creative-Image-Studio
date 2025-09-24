@@ -699,13 +699,14 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                 renderLayerToOffscreen(layer);
             }
             
-            const { x = 0, y = 0, width, height, rotation = 0, opacity = 100 } = layer;
+            const { x = 0, y = 0, width, height, rotation = 0, opacity = 100, blendMode = 'source-over' } = layer;
             const sourceCanvas = offscreen?.canvas;
             
             tempCtx.save();
             tempCtx.globalAlpha = opacity / 100;
             
             if (layer.type === LayerType.IMAGE || layer.type === LayerType.PIXEL) {
+                tempCtx.globalCompositeOperation = blendMode;
                 if (sourceCanvas && sourceCanvas.width > 0) {
                     const layerWidth = width ?? sourceCanvas.width;
                     const layerHeight = height ?? sourceCanvas.height;

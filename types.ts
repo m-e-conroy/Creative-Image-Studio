@@ -102,6 +102,7 @@ export interface Layer {
   strokes?: Stroke[]; // For PIXEL layers
   placedShapes?: PlacedShape[]; // For PIXEL layers
   adjustments?: ImageAdjustments; // For ADJUSTMENT layers
+  blendMode?: string;
   maskSrc?: string;
   maskEnabled?: boolean;
 }
