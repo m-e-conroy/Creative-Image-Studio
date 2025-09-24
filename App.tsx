@@ -27,8 +27,7 @@ const App: React.FC = () => {
   const [outpaintPrompt, setOutpaintPrompt] = useState<string>('Extend the scene seamlessly, matching the original image\'s style and lighting.');
   const [outpaintAmount, setOutpaintAmount] = useState<number>(50);
   const [autoMaskPrompt, setAutoMaskPrompt] = useState<string>('');
-  const [remixStrength, setRemixStrength] = useState<number>(50);
-  const [remixPreservation, setRemixPreservation] = useState<number>(0);
+  const [remixPreservation, setRemixPreservation] = useState<number>(50);
   
   const [style, setStyle] = useState<ImageStyle>(() => findDefault(INITIAL_STYLES, "None"));
   const [lighting, setLighting] = useState<LightingStyle>(() => findDefault(LIGHTING_STYLES, "Default"));
@@ -394,7 +393,7 @@ const handleEdit = useCallback(async () => {
         const [meta, data] = flatImageData.split(',');
         const mimeType = meta.split(';')[0].split(':')[1];
         
-        const result = await remixImage(data, mimeType, editPrompt, remixStrength);
+        const result = await remixImage(data, mimeType, editPrompt, remixPreservation);
 
         if (result.image) {
             const newImageSrc = `data:${mimeType};base64,${result.image}`;
@@ -407,7 +406,7 @@ const handleEdit = useCallback(async () => {
                 type: LayerType.IMAGE,
                 src: newImageSrc,
                 isVisible: true,
-                opacity: 100 - remixPreservation,
+                opacity: 100,
                 x: 0,
                 y: 0,
                 width: canvasDimensions.width,
@@ -431,7 +430,7 @@ const handleEdit = useCallback(async () => {
         setIsLoading(false);
         setLoadingMessage('');
     }
-}, [editPrompt, layers, remixStrength, remixPreservation, updateHistory, hasImage]);
+}, [editPrompt, layers, remixPreservation, updateHistory, hasImage]);
 
   const handleOutpaint = useCallback(async (direction: 'up' | 'down' | 'left' | 'right') => {
     if (!canvasRef.current) return;
@@ -1446,8 +1445,6 @@ const handleEdit = useCallback(async () => {
             onSetPexelsApiKey={handleSetPexelsApiKey}
             // Image to Image props
             onRemixImage={handleRemixImage}
-            remixStrength={remixStrength}
-            setRemixStrength={setRemixStrength}
             remixPreservation={remixPreservation}
             setRemixPreservation={setRemixPreservation}
           />

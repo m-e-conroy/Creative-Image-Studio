@@ -102,8 +102,6 @@ interface ControlPanelProps {
   onSetPexelsApiKey: (key: string) => void;
   // Image to Image props
   onRemixImage: () => void;
-  remixStrength: number;
-  setRemixStrength: (strength: number) => void;
   remixPreservation: number;
   setRemixPreservation: (strength: number) => void;
 }
@@ -642,7 +640,7 @@ const AdjustmentControls: React.FC<{
 
 
 const EditTab: React.FC<Omit<ControlPanelProps, 'prompt' | 'onPromptChange' | 'onGetSuggestions' | 'subjectSuggestions' | 'backgroundSuggestions' | 'suggestionsLoading' | 'style' | 'setStyle' | 'lighting' | 'setLighting' | 'composition' | 'setComposition' | 'technicalModifier' | 'setTechnicalModifier' | 'aspectRatio' | 'setAspectRatio' | 'numImages' | 'setNumImages' | 'onGenerate' | 'onClose' | 'activeTab' | 'setActiveTab' | 'themes' | 'activeTheme' | 'onThemeChange' | 'isDarkMode' | 'onToggleThemeMode' | 'onClearCustomShapes' | 'onOpenOptionsClick' | 'pexelsApiKey' | 'onSetPexelsApiKey'>> = (props) => {
-    const { editPrompt, setEditPrompt, editMode, setEditMode, brushSize, setBrushSize, brushColor, setBrushColor, onEdit, onAnalyzeImage, onClear, onReset, onUndo, canUndo, isLoading, onRandomPrompt, randomizingPrompt, onOutpaint, outpaintPrompt, setOutpaintPrompt, outpaintAmount, setOutpaintAmount, clipArtCategories, selectedClipArtCategoryName, setSelectedClipArtCategoryName, onSaveShape, selectedShapeId, onDeleteSelectedShape, isEditingMask, colorPresets, onAddColorPreset, hasImage, onLayerAdjustmentChange, onResetLayerAdjustments, onLayerFilterChange, onRemixImage, remixStrength, setRemixStrength, remixPreservation, setRemixPreservation } = props;
+    const { editPrompt, setEditPrompt, editMode, setEditMode, brushSize, setBrushSize, brushColor, setBrushColor, onEdit, onAnalyzeImage, onClear, onReset, onUndo, canUndo, isLoading, onRandomPrompt, randomizingPrompt, onOutpaint, outpaintPrompt, setOutpaintPrompt, outpaintAmount, setOutpaintAmount, clipArtCategories, selectedClipArtCategoryName, setSelectedClipArtCategoryName, onSaveShape, selectedShapeId, onDeleteSelectedShape, isEditingMask, colorPresets, onAddColorPreset, hasImage, onLayerAdjustmentChange, onResetLayerAdjustments, onLayerFilterChange, onRemixImage, remixPreservation, setRemixPreservation } = props;
     const [newShapeName, setNewShapeName] = useState('');
     const [isEditPromptCopied, setIsEditPromptCopied] = useState(false);
     const [isPexelsOpen, setIsPexelsOpen] = useState(false);
@@ -850,23 +848,6 @@ const EditTab: React.FC<Omit<ControlPanelProps, 'prompt' | 'onPromptChange' | 'o
                 <h3 className="text-md font-semibold text-text-primary flex items-center gap-2"><GenerateIcon/> Canvas Remix</h3>
                 <p className="text-xs text-text-secondary -mt-2">Reimagines the entire visible canvas based on your prompt.</p>
                 <div>
-                    <label htmlFor="remix-strength" className="block text-sm font-medium text-text-secondary mb-1">
-                        Creative Strength ({remixStrength}%)
-                    </label>
-                    <input 
-                        id="remix-strength" 
-                        type="range" 
-                        min="0" 
-                        max="100" 
-                        step="5"
-                        value={remixStrength}
-                        onChange={(e) => setRemixStrength(Number(e.target.value))}
-                        className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer"
-                        disabled={isLoading}
-                    />
-                    <p className="text-xs text-text-secondary mt-1">How much the AI changes the image. Higher is more creative.</p>
-                </div>
-                <div>
                     <label htmlFor="remix-preservation" className="block text-sm font-medium text-text-secondary mb-1">
                         Image Preservation ({remixPreservation}%)
                     </label>
@@ -874,14 +855,14 @@ const EditTab: React.FC<Omit<ControlPanelProps, 'prompt' | 'onPromptChange' | 'o
                         id="remix-preservation" 
                         type="range" 
                         min="0" 
-                        max="95" 
+                        max="100" 
                         step="5"
                         value={remixPreservation}
                         onChange={(e) => setRemixPreservation(Number(e.target.value))}
                         className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer"
                         disabled={isLoading}
                     />
-                    <p className="text-xs text-text-secondary mt-1">How much of the original canvas to show through the remix.</p>
+                    <p className="text-xs text-text-secondary mt-1">How much of the original image's structure to preserve. Higher values stick closer to the original.</p>
                 </div>
                 <button onClick={onRemixImage} disabled={isLoading || !editPrompt} className="w-full flex items-center justify-center gap-2 bg-brand-secondary hover:bg-brand-secondary/80 disabled:bg-base-300 text-white font-bold py-2 px-4 rounded-md transition duration-200"><RewriteIcon /> Remix Canvas</button>
             </div>

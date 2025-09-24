@@ -133,9 +133,10 @@ export async function remixImage(
   base64ImageData: string,
   mimeType: string,
   prompt: string,
-  strength: number // 0-100
+  preservation: number // 0-100
 ): Promise<{ text?: string; image?: string }> {
   return handleApiCall(async () => {
+    const strength = 100 - preservation;
     let strengthInstruction = '';
     if (strength <= 20) {
       strengthInstruction = "Stick VERY closely to the source image. The text prompt should only introduce minor details or stylistic nuances. The original composition, subjects, and colors must be almost entirely preserved.";
