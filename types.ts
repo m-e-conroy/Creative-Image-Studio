@@ -33,8 +33,8 @@ export interface Filter {
 }
 
 export interface PromptState {
-  subject: string;
-  background: string;
+  subject: string; // Used for Gemini subject & ComfyUI positive prompt
+  background: string; // Used for Gemini background & ComfyUI negative prompt
 }
 
 export type PromptPart = keyof PromptState;
@@ -135,4 +135,25 @@ export interface PexelsPhoto {
     original: string;
   };
   alt: string;
+}
+
+// AI Engine Types
+export type AIEngine = 'gemini' | 'comfyui';
+
+export type ComfyUIConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+
+export interface ComfyUIWorkflow {
+  name: string;
+  description: string;
+  json: string;
+}
+
+export interface ComfyUIGenerateSettings {
+    serverAddress: string;
+    workflow: string; // JSON string of the workflow
+    positivePrompt: string;
+    negativePrompt: string;
+    checkpoint: string;
+    lora: string;
+    setLoadingMessage: (message: string) => void;
 }

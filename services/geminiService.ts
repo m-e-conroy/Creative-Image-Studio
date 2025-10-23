@@ -90,7 +90,7 @@ export async function editImage(
     parts.push({ text: prompt });
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image-preview',
+      model: 'gemini-2.5-flash-image',
       contents: { parts },
       config: {
         responseModalities: [Modality.IMAGE, Modality.TEXT],
@@ -161,7 +161,7 @@ export async function remixImage(
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image-preview',
+      model: 'gemini-2.5-flash-image',
       contents: {
         parts: [
           {
@@ -207,7 +207,7 @@ export async function findAndMaskObjects(
 ): Promise<{ text?: string; image?: string }> {
   return handleApiCall(async () => {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image-preview',
+      model: 'gemini-2.5-flash-image',
       contents: {
         parts: [
           {
@@ -352,6 +352,52 @@ export async function generateRandomPrompt(part: PromptPart | 'edit'): Promise<s
     });
 }
 
+export async function applyStyleTransfer(
+  contentImageB64: string,
+  contentMime: string,
+  styleImageB64: string,
+  styleMime: string,
+  strength: number
+): Promise<{ text?: string; image?: string }> {
+  return handleApiCall(async () => {
+    const fullPrompt = `Analyze the artistic style of the second image (style reference). Recreate the first image (content reference), preserving its composition and subject matter, but rendered entirely in the style of the style reference. This includes color palette, brushstrokes, texture, and overall mood. Apply the style with an approximate strength of ${strength}%. A lower percentage means the content is preserved more strongly, while a higher percentage means the style is applied more aggressively. The output MUST be an image only.`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: {
+        parts: [
+          { inlineData: { data: contentImageB64, mimeType: contentMime } },
+          { inlineData: { data: styleImageB64, mimeType: styleMime } },
+          { text: fullPrompt },
+        ],
+      },
+      config: {
+        responseModalities: [Modality.IMAGE, Modality.TEXT],
+      },
+    });
+    
+    const result: { text?: string; image?: string } = {};
+    const candidate = response.candidates?.[0];
+
+    if (candidate?.content?.parts && Array.isArray(candidate.content.parts)) {
+        for (const part of candidate.content.parts) {
+            if (part.text) {
+                result.text = part.text;
+            } else if (part.inlineData) {
+                result.image = part.inlineData.data;
+            }
+        }
+    }
+
+    if (!result.image && candidate?.finishReason && candidate.finishReason !== 'STOP') {
+        const reason = candidate.finishReason.charAt(0).toUpperCase() + candidate.finishReason.slice(1).toLowerCase().replace(/_/g, ' ');
+        result.text = `Style transfer failed. Reason: ${reason}. Please try a different style image or strength.`;
+    }
+
+    return result;
+  });
+}
+
 export async function searchPexelsPhotos(apiKey: string, query: string, page: number = 1, perPage: number = 15): Promise<PexelsPhoto[]> {
   if (!apiKey) {
     throw new Error("Pexels API key is not configured. Please add it in the Settings tab.");
@@ -370,11 +416,8 @@ export async function searchPexelsPhotos(apiKey: string, query: string, page: nu
       const errorData = await response.json();
       throw new Error(`Pexels API error: ${errorData.error || response.statusText}`);
     }
-
+    // FIX: Added handling for a successful response from the Pexels API.
     const data = await response.json();
-    if (!data.photos || data.photos.length === 0) {
-        throw new Error("No photos found for your search term.");
-    }
-    return data.photos;
+    return data.photos || [];
   });
 }

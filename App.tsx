@@ -1,10 +1,11 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { ControlPanel } from './components/ControlPanel';
 import { ImageCanvas } from './components/ImageCanvas';
-import { generateImage, editImage, rewritePrompt, generateRandomPrompt, describeImage, getPromptSuggestions, searchPexelsPhotos, findAndMaskObjects, remixImage } from './services/geminiService';
+import * as geminiService from './services/geminiService';
+import * as comfyuiService from './services/comfyuiService';
 import { ImageCanvasMethods } from './components/ImageCanvas';
-import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, Stroke, ClipArtCategory, TechnicalModifier, ImageAdjustments, Layer, LayerType, PexelsPhoto } from './types';
-import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, CLIP_ART_CATEGORIES, TECHNICAL_MODIFIERS, INITIAL_COLOR_PRESETS, DEFAULT_ADJUSTMENTS } from './constants';
+import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, Stroke, ClipArtCategory, TechnicalModifier, ImageAdjustments, Layer, LayerType, PexelsPhoto, AIEngine, ComfyUIConnectionStatus, ComfyUIWorkflow } from './types';
+import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, CLIP_ART_CATEGORIES, TECHNICAL_MODIFIERS, INITIAL_COLOR_PRESETS, DEFAULT_ADJUSTMENTS, COMFYUI_WORKFLOWS } from './constants';
 import { THEMES, DEFAULT_THEME } from './themes';
 import { DownloadIcon, SettingsIcon, CropIcon, CheckIcon, CloseIcon, SaveProjectIcon, OpenProjectIcon, UploadIcon } from './components/Icons';
 import { ImageGallery } from './components/ImageGallery';
@@ -98,15 +99,63 @@ const App: React.FC = () => {
     return savedKey || process.env.PEXELS_API_KEY || '';
   });
 
+  // AI Engine State
+  const [aiEngine, setAiEngine] = useState<AIEngine>('gemini');
+
+  // ComfyUI State
+  const [comfyUIServerAddress, setComfyUIServerAddress] = useState<string>(() => localStorage.getItem('comfyUIServerAddress') || 'http://127.0.0.1:8188');
+  const [comfyUIConnectionStatus, setComfyUIConnectionStatus] = useState<ComfyUIConnectionStatus>('disconnected');
+  const [comfyUICheckpointModels, setComfyUICheckpointModels] = useState<string[]>([]);
+  const [comfyUILoraModels, setComfyUILoraModels] = useState<string[]>([]);
+  const [selectedComfyUICheckpoint, setSelectedComfyUICheckpoint] = useState<string>('');
+  const [selectedComfyUILora, setSelectedComfyUILora] = useState<string>('');
+  const [selectedComfyUIWorkflow, setSelectedComfyUIWorkflow] = useState<ComfyUIWorkflow>(COMFYUI_WORKFLOWS[0]);
+
+  // Style Transfer State
+  const [styleImage, setStyleImage] = useState<string | null>(null);
+  const [styleStrength, setStyleStrength] = useState<number>(70);
+
+
   const handleSetPexelsApiKey = (key: string) => {
       setPexelsApiKey(key);
       localStorage.setItem('pexelsApiKey', key);
   };
+  
+  const handleSetComfyUIServerAddress = (address: string) => {
+    setComfyUIServerAddress(address);
+    localStorage.setItem('comfyUIServerAddress', address);
+    setComfyUIConnectionStatus('disconnected');
+  };
+
+  const handleConnectToComfyUI = useCallback(async () => {
+    if (!comfyUIServerAddress) {
+        setError("Please enter a ComfyUI server address.");
+        return;
+    }
+    setComfyUIConnectionStatus('connecting');
+    setError(null);
+    try {
+        const [checkpoints, loras] = await Promise.all([
+            comfyuiService.getModels(comfyUIServerAddress, 'checkpoints'),
+            comfyuiService.getModels(comfyUIServerAddress, 'loras'),
+        ]);
+        setComfyUICheckpointModels(checkpoints);
+        setComfyUILoraModels(loras);
+        setSelectedComfyUICheckpoint(checkpoints[0] || '');
+        setSelectedComfyUILora(loras[0] || 'None');
+        setComfyUIConnectionStatus('connected');
+    } catch (e: any) {
+        console.error("Failed to connect to ComfyUI:", e);
+        setError(`Failed to connect to ComfyUI at ${comfyUIServerAddress}. Make sure it's running and accessible. Check browser console for CORS errors.`);
+        setComfyUIConnectionStatus('error');
+    }
+  }, [comfyUIServerAddress]);
 
 
   const canvasRef = useRef<ImageCanvasMethods>(null);
   const imageFileInputRef = useRef<HTMLInputElement>(null);
   const projectFileInputRef = useRef<HTMLInputElement>(null);
+  const styleImageFileInputRef = useRef<HTMLInputElement>(null);
 
   const canUndo = history.length > 1;
   const hasImage = layers.some(l => l.type === LayerType.IMAGE || (l.type === LayerType.PIXEL && (l.strokes?.length || l.placedShapes?.length)));
@@ -213,12 +262,21 @@ const App: React.FC = () => {
   }, [layers, updateHistory, imageDimensions]);
   
   const handleGenerate = useCallback(async () => {
-    if (!prompt.subject) {
+    if (aiEngine === 'gemini' && !prompt.subject) {
       setError('Please enter a subject to generate an image.');
       return;
     }
+    if (aiEngine === 'comfyui' && !prompt.subject) {
+        setError('Please enter a positive prompt to generate an image.');
+        return;
+    }
+     if (aiEngine === 'comfyui' && comfyUIConnectionStatus !== 'connected') {
+        setError('Please connect to a ComfyUI server in Settings first.');
+        return;
+    }
+
     setIsLoading(true);
-    setLoadingMessage('Generating your masterpiece(s)...');
+    setLoadingMessage('Generating your masterpiece...');
     setError(null);
     setLayers([]);
     setActiveLayerId(null);
@@ -229,17 +287,32 @@ const App: React.FC = () => {
     setIsEditingMask(false);
 
     try {
-      const promptParts = [ prompt.subject, prompt.background ? `background of ${prompt.background}` : '', style.prompt, lighting.prompt, composition.prompt, technicalModifier.prompt ].filter(Boolean);
-      const combinedPrompt = promptParts.join(', ');
-      const imageB64s = await generateImage(combinedPrompt, { aspectRatio, numberOfImages: numImages });
+        let imageB64: string;
 
-      if (imageB64s.length === 1) {
-        const imageUrl = `data:image/jpeg;base64,${imageB64s[0]}`;
-        addImageLayer(imageUrl, 'Background');
-      } else {
-        const imageUrls = imageB64s.map(b64 => `data:image/jpeg;base64,${b64}`);
-        setGeneratedImages(imageUrls);
-      }
+        if (aiEngine === 'gemini') {
+            const promptParts = [ prompt.subject, prompt.background ? `background of ${prompt.background}` : '', style.prompt, lighting.prompt, composition.prompt, technicalModifier.prompt ].filter(Boolean);
+            const combinedPrompt = promptParts.join(', ');
+            const imageB64s = await geminiService.generateImage(combinedPrompt, { aspectRatio, numberOfImages: 1 });
+            imageB64 = imageB64s[0];
+        } else { // ComfyUI
+             imageB64 = await comfyuiService.generateImage({
+                serverAddress: comfyUIServerAddress,
+                workflow: selectedComfyUIWorkflow.json,
+                positivePrompt: prompt.subject,
+                negativePrompt: prompt.background,
+                checkpoint: selectedComfyUICheckpoint,
+                lora: selectedComfyUILora,
+                setLoadingMessage: setLoadingMessage,
+            });
+        }
+        
+        if (imageB64) {
+            const imageUrl = `data:image/png;base64,${imageB64}`;
+            addImageLayer(imageUrl, 'Background');
+        } else {
+            throw new Error("The AI model did not return an image.");
+        }
+
     } catch (e: any) {
       console.error(e);
       setError(e.message || 'Failed to generate image. Please try again.');
@@ -247,7 +320,10 @@ const App: React.FC = () => {
       setIsLoading(false);
       setLoadingMessage('');
     }
-  }, [prompt, style, aspectRatio, numImages, lighting, composition, technicalModifier, addImageLayer]);
+  }, [
+    prompt, style, aspectRatio, lighting, composition, technicalModifier, addImageLayer, aiEngine, 
+    comfyUIServerAddress, comfyUIConnectionStatus, selectedComfyUIWorkflow, selectedComfyUICheckpoint, selectedComfyUILora
+  ]);
 
   const handleImageUpload = useCallback((file: File) => {
     setError(null);
@@ -284,7 +360,7 @@ const App: React.FC = () => {
         const [meta, data] = flatImageData.split(',');
         const mimeType = meta.split(';')[0].split(':')[1];
         
-        const description = await describeImage(data, mimeType);
+        const description = await geminiService.describeImage(data, mimeType);
         setEditPrompt(description);
 
     } catch (e: any) {
@@ -335,7 +411,7 @@ const handleEdit = useCallback(async () => {
         const finalPrompt = `Using the full image as context, apply the following change ONLY to the masked (white) area: ${editPrompt}. Blend the new content seamlessly with the existing visible image.`;
 
         // 3. Call the edit service with the full context and specific mask.
-        const result = await editImage(baseData, mimeType, finalPrompt, maskData);
+        const result = await geminiService.editImage(baseData, mimeType, finalPrompt, maskData);
       
         if (result.image) {
             const newImageSrc = `data:${mimeType};base64,${result.image}`;
@@ -395,7 +471,7 @@ const handleEdit = useCallback(async () => {
         const [meta, data] = flatImageData.split(',');
         const mimeType = meta.split(';')[0].split(':')[1];
         
-        const result = await remixImage(data, mimeType, editPrompt, remixPreservation);
+        const result = await geminiService.remixImage(data, mimeType, editPrompt, remixPreservation);
 
         if (result.image) {
             const newImageSrc = `data:${mimeType};base64,${result.image}`;
@@ -446,7 +522,7 @@ const handleEdit = useCallback(async () => {
 
       const { data, mimeType, maskData, pasteX, pasteY, newWidth, newHeight } = await canvasRef.current.getExpandedCanvasData(flatImageData, direction, outpaintAmount);
       const finalOutpaintPrompt = `The masked (white) area indicates new empty space to be filled. ${outpaintPrompt}`;
-      const result = await editImage(data, mimeType, finalOutpaintPrompt, maskData);
+      const result = await geminiService.editImage(data, mimeType, finalOutpaintPrompt, maskData);
       
       if (result.image) {
         const imageUrl = `data:image/png;base64,${result.image}`;
@@ -841,7 +917,7 @@ const handleEdit = useCallback(async () => {
         const [meta, data] = imageDataUrlForMasking.split(',');
         const mimeType = meta.split(';')[0].split(':')[1];
 
-        const result = await findAndMaskObjects(data, mimeType, autoMaskPrompt);
+        const result = await geminiService.findAndMaskObjects(data, mimeType, autoMaskPrompt);
         if (!result.image) {
           throw new Error(result.text || "The AI could not generate a mask from your prompt. Try being more specific.");
         }
@@ -1220,7 +1296,7 @@ const handleEdit = useCallback(async () => {
     }
 
     try {
-        const results = await searchPexelsPhotos(pexelsApiKey, query, pageToFetch);
+        const results = await geminiService.searchPexelsPhotos(pexelsApiKey, query, pageToFetch);
         setPexelsPhotos(prev => mode === 'new' ? results : [...prev, ...results]);
         setPexelsPage(pageToFetch);
     } catch (e: any) {
@@ -1265,6 +1341,86 @@ const handleEdit = useCallback(async () => {
     }
 }, [addImageLayer]);
 
+// --- Style Transfer Handlers ---
+const handleStyleImageUpload = useCallback((file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const imageUrl = e.target?.result as string;
+        if (imageUrl) {
+            setStyleImage(imageUrl);
+        }
+    };
+    reader.onerror = () => {
+        setError("Failed to read the style image file.");
+    };
+    reader.readAsDataURL(file);
+}, []);
+
+const handleRemoveStyleImage = useCallback(() => {
+    setStyleImage(null);
+    if(styleImageFileInputRef.current) styleImageFileInputRef.current.value = '';
+}, []);
+
+const handleApplyStyleTransfer = useCallback(async () => {
+    if (!styleImage || !canvasRef.current || !hasImage) {
+        setError('Please ensure you have an image on the canvas and have uploaded a style image.');
+        return;
+    }
+
+    setIsLoading(true);
+    setLoadingMessage('Applying new style...');
+    setError(null);
+
+    try {
+        const contentImageDataUrl = canvasRef.current.getCanvasAsDataURL();
+        if (!contentImageDataUrl) throw new Error("Could not get canvas data for style transfer.");
+
+        const [contentMeta, contentData] = contentImageDataUrl.split(',');
+        const contentMime = contentMeta.split(';')[0].split(':')[1];
+
+        const [styleMeta, styleData] = styleImage.split(',');
+        const styleMime = styleMeta.split(';')[0].split(':')[1];
+        
+        const result = await geminiService.applyStyleTransfer(contentData, contentMime, styleData, styleMime, styleStrength);
+
+        if (result.image) {
+            const newImageSrc = `data:${contentMime};base64,${result.image}`;
+            const canvasDimensions = canvasRef.current.getCanvasDimensions();
+            if (!canvasDimensions) throw new Error("Could not get canvas dimensions for the new layer.");
+            
+            const newLayer: Layer = {
+                id: `layer_${Date.now()}`,
+                name: `Style Transfer`,
+                type: LayerType.IMAGE,
+                src: newImageSrc,
+                isVisible: true,
+                opacity: 100,
+                x: 0,
+                y: 0,
+                width: canvasDimensions.width,
+                height: canvasDimensions.height,
+                rotation: 0,
+                blendMode: 'source-over',
+            };
+
+            const newLayers = [...layers, newLayer];
+            setLayers(newLayers);
+            setActiveLayerId(newLayer.id);
+            updateHistory(newLayers);
+            setIsEditingMask(false);
+        } else {
+            setError(result.text || 'The model did not return a styled image. Try a different style or strength.');
+        }
+
+    } catch (e: any) {
+        console.error(e);
+        setError(e.message || 'Failed to apply style. Please try again.');
+    } finally {
+        setIsLoading(false);
+        setLoadingMessage('');
+    }
+}, [styleImage, layers, styleStrength, updateHistory, hasImage]);
+
   // --- Other handlers ---
   const handleAddColorPreset = useCallback(() => {
     if (!colorPresets.includes(brushColor) && colorPresets.length < 12) {
@@ -1285,7 +1441,7 @@ const handleEdit = useCallback(async () => {
     setRewritingPrompt(part);
     setError(null);
     try {
-      const rewritten = await rewritePrompt(currentPrompt, part);
+      const rewritten = await geminiService.rewritePrompt(currentPrompt, part);
       if (part === 'edit') {
         setEditPrompt(rewritten);
       } else {
@@ -1303,7 +1459,7 @@ const handleEdit = useCallback(async () => {
     }
     setSuggestionsLoading(part);
     try {
-      const suggestions = await getPromptSuggestions(value, part);
+      const suggestions = await geminiService.getPromptSuggestions(value, part);
       if (part === 'subject') setSubjectSuggestions(suggestions); else setBackgroundSuggestions(suggestions);
     } catch (e: any) {
       console.error("Failed to get suggestions", e);
@@ -1315,7 +1471,7 @@ const handleEdit = useCallback(async () => {
     setRandomizingPrompt(part);
     setError(null);
     try {
-      const randomText = await generateRandomPrompt(part);
+      const randomText = await geminiService.generateRandomPrompt(part);
       if (part === 'edit') setEditPrompt(randomText);
       else setPrompt(prev => ({ ...prev, [part]: randomText }));
     } catch (e: any) {
@@ -1329,6 +1485,7 @@ const handleEdit = useCallback(async () => {
       localStorage.removeItem('userClipArtShapes');
       localStorage.removeItem('colorPresets');
       localStorage.removeItem('pexelsApiKey');
+      localStorage.removeItem('comfyUIServerAddress');
       // Also reset theme to default
       setThemeName(DEFAULT_THEME.name);
       
@@ -1337,6 +1494,8 @@ const handleEdit = useCallback(async () => {
       setSelectedClipArtCategoryName(defaultCategories[0].name);
       setColorPresets(INITIAL_COLOR_PRESETS);
       setPexelsApiKey('');
+      setComfyUIServerAddress('http://127.0.0.1:8188');
+      setComfyUIConnectionStatus('disconnected');
 
     } catch (e) {
       console.error("Failed to clear custom data:", e);
@@ -1351,6 +1510,8 @@ const handleEdit = useCallback(async () => {
     <>
       <input type="file" ref={imageFileInputRef} onChange={handleImageFileChange} accept="image/png, image/jpeg, image/webp" className="hidden" />
       <input type="file" ref={projectFileInputRef} onChange={handleProjectFileChange} accept=".csp" className="hidden" />
+      <input type="file" ref={styleImageFileInputRef} onChange={(e) => { e.target.files && handleStyleImageUpload(e.target.files[0])}} accept="image/png, image/jpeg, image/webp" className="hidden" />
+
 
       {/* Modals */}
       {isOpenOptionsOpen && (
@@ -1452,6 +1613,30 @@ const handleEdit = useCallback(async () => {
             onRemixImage={handleRemixImage}
             remixPreservation={remixPreservation}
             setRemixPreservation={setRemixPreservation}
+            // Style Transfer props
+            styleImage={styleImage}
+            onStyleImageUpload={() => styleImageFileInputRef.current?.click()}
+            onRemoveStyleImage={handleRemoveStyleImage}
+            onApplyStyleTransfer={handleApplyStyleTransfer}
+            styleStrength={styleStrength}
+            setStyleStrength={setStyleStrength}
+            // AI Engine props
+            aiEngine={aiEngine}
+            onAiEngineChange={setAiEngine}
+            // ComfyUI props
+            comfyUIServerAddress={comfyUIServerAddress}
+            onComfyUIServerAddressChange={handleSetComfyUIServerAddress}
+            comfyUIConnectionStatus={comfyUIConnectionStatus}
+            onConnectToComfyUI={handleConnectToComfyUI}
+            comfyUICheckpointModels={comfyUICheckpointModels}
+            comfyUILoraModels={comfyUILoraModels}
+            selectedComfyUICheckpoint={selectedComfyUICheckpoint}
+            onSelectedComfyUICheckpointChange={setSelectedComfyUICheckpoint}
+            selectedComfyUILora={selectedComfyUILora}
+            onSelectedComfyUILoraChange={setSelectedComfyUILora}
+            comfyUIWorkflows={COMFYUI_WORKFLOWS}
+            selectedComfyUIWorkflow={selectedComfyUIWorkflow}
+            onSelectedComfyUIWorkflowChange={setSelectedComfyUIWorkflow}
           />
           {error && (<div className="bg-red-500/20 border border-red-500 text-red-300 p-3 rounded-md text-sm"><p className="font-semibold">Error</p><p>{error}</p></div>)}
         </aside>

@@ -321,3 +321,10 @@ export const CollapseLayersIcon: React.FC = () => (
         <path fillRule="evenodd" d="M10 11a1 1 0 011 1v3.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 111.414-1.414L9 15.586V12a1 1 0 011-1z" clipRule="evenodd" />
     </svg>
 );
+
+export const PaletteIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+        <path d="M10 2a1 1 0 00-1 1v1a1 1 0 002 0V3a1 1 0 00-1-1zM4 9a1 1 0 011-1h1.586l1.707-1.707a1 1 0 011.414 0L11.414 8H13a1 1 0 110 2h-1.586l-1.707 1.707a1 1 0 01-1.414 0L6.586 10H5a1 1 0 01-1-1z" />
+        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM3.172 6.172a4 4 0 015.656 0L10 7.343l1.172-1.171a4 4 0 115.656 5.656L10 12.657l-6.828-6.828a4 4 0 010-5.656z" clipRule="evenodd" />
+    </svg>
+);

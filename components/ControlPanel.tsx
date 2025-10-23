@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, ClipArtCategory, TechnicalModifier, ImageAdjustments, Layer, LayerType, Theme, PexelsPhoto } from '../types';
+import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, ClipArtCategory, TechnicalModifier, ImageAdjustments, Layer, LayerType, Theme, PexelsPhoto, AIEngine, ComfyUIConnectionStatus, ComfyUIWorkflow } from '../types';
 import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, TECHNICAL_MODIFIERS } from '../constants';
-import { BrushIcon, ClearIcon, DrawIcon, EditIcon, GenerateIcon, MaskIcon, ResetIcon, FilterIcon, RewriteIcon, RandomIcon, UploadIcon, OutpaintIcon, ArrowUpIcon, ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon, CropIcon, IdeaIcon, UndoIcon, SaveIcon, RotateIcon, SettingsIcon, CloseIcon, CopyIcon, CheckIcon, LogoIcon, AddIcon, OpenProjectIcon, PexelsIcon, ChevronDownIcon, SearchIcon, MoveIcon } from './Icons';
+import { BrushIcon, ClearIcon, DrawIcon, EditIcon, GenerateIcon, MaskIcon, ResetIcon, FilterIcon, RewriteIcon, RandomIcon, UploadIcon, OutpaintIcon, ArrowUpIcon, ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon, CropIcon, IdeaIcon, UndoIcon, SaveIcon, RotateIcon, SettingsIcon, CloseIcon, CopyIcon, CheckIcon, LogoIcon, AddIcon, OpenProjectIcon, PexelsIcon, ChevronDownIcon, SearchIcon, MoveIcon, PaletteIcon } from './Icons';
 import { ThemeSwitcher } from './ThemeSwitcher';
 import { LayersPanel } from './LayersPanel';
 
@@ -104,21 +104,31 @@ interface ControlPanelProps {
   onRemixImage: () => void;
   remixPreservation: number;
   setRemixPreservation: (strength: number) => void;
+  // Style Transfer props
+  styleImage: string | null;
+  onStyleImageUpload: () => void;
+  onRemoveStyleImage: () => void;
+  onApplyStyleTransfer: () => void;
+  styleStrength: number;
+  setStyleStrength: (strength: number) => void;
+  // AI Engine props
+  aiEngine: AIEngine;
+  onAiEngineChange: (engine: AIEngine) => void;
+  // ComfyUI props
+  comfyUIServerAddress: string;
+  onComfyUIServerAddressChange: (address: string) => void;
+  comfyUIConnectionStatus: ComfyUIConnectionStatus;
+  onConnectToComfyUI: () => void;
+  comfyUICheckpointModels: string[];
+  comfyUILoraModels: string[];
+  selectedComfyUICheckpoint: string;
+  onSelectedComfyUICheckpointChange: (model: string) => void;
+  selectedComfyUILora: string;
+  onSelectedComfyUILoraChange: (model: string) => void;
+  comfyUIWorkflows: ComfyUIWorkflow[];
+  selectedComfyUIWorkflow: ComfyUIWorkflow;
+  onSelectedComfyUIWorkflowChange: (workflow: ComfyUIWorkflow) => void;
 }
-
-const useDebounce = <T,>(value: T, delay: number): T => {
-    const [debouncedValue, setDebouncedValue] = useState<T>(value);
-    useEffect(() => {
-        const handler = setTimeout(() => {
-            setDebouncedValue(value);
-        }, delay);
-        return () => {
-            clearTimeout(handler);
-        };
-    }, [value, delay]);
-    return debouncedValue;
-};
-
 
 const TabButton: React.FC<{
   label: string;
@@ -161,14 +171,7 @@ const InteractivePromptInput: React.FC<{
   suggestionsLoading: boolean;
   isLoading: boolean;
 }> = ({ part, label, placeholder, prompt, onPromptChange, onRewritePrompt, rewritingPrompt, onRandomPrompt, randomizingPrompt, onGetSuggestions, suggestions, suggestionsLoading, isLoading }) => {
-    const debouncedPrompt = useDebounce(prompt[part], 600);
     const [isCopied, setIsCopied] = useState(false);
-
-    useEffect(() => {
-        if (debouncedPrompt) {
-            onGetSuggestions(part, debouncedPrompt);
-        }
-    }, [debouncedPrompt, part, onGetSuggestions]);
 
     const handleSuggestionClick = (suggestion: string) => {
         const currentValue = prompt[part];
@@ -197,7 +200,7 @@ const InteractivePromptInput: React.FC<{
             value={prompt[part]}
             onChange={(e) => onPromptChange(part, e.target.value)}
             placeholder={placeholder}
-            className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary focus:border-brand-primary transition pr-36 text-text-primary"
+            className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary focus:border-brand-primary transition pr-44 text-text-primary"
             disabled={isLoading || !!rewritingPrompt || !!randomizingPrompt}
           />
           <div className="absolute top-2 right-2 flex items-center space-x-1">
@@ -218,6 +221,15 @@ const InteractivePromptInput: React.FC<{
                 title={isCopied ? 'Copied!' : `Copy ${part} prompt`}
             >
                 {isCopied ? <CheckIcon /> : <CopyIcon />}
+            </button>
+             <button
+                onClick={() => onGetSuggestions(part, prompt[part])}
+                disabled={isLoading || !!rewritingPrompt || !!randomizingPrompt || suggestionsLoading || !prompt[part]}
+                className="p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-primary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
+                aria-label={`Get ideas for ${part}`}
+                title={`Get ideas for ${part}`}
+            >
+                {suggestionsLoading ? <MiniLoader /> : <IdeaIcon />}
             </button>
             <button
                 onClick={() => onRandomPrompt(part)}
@@ -264,7 +276,7 @@ const InteractivePromptInput: React.FC<{
 };
 
 
-const GenerateTab: React.FC<Pick<ControlPanelProps, 'prompt' | 'onPromptChange' | 'onRewritePrompt' | 'rewritingPrompt' | 'onRandomPrompt' | 'randomizingPrompt' | 'onGetSuggestions' | 'subjectSuggestions' | 'backgroundSuggestions' | 'suggestionsLoading' | 'style' | 'setStyle' | 'lighting' | 'setLighting' | 'composition' | 'setComposition' | 'technicalModifier' | 'setTechnicalModifier' | 'aspectRatio' | 'setAspectRatio' | 'numImages' | 'setNumImages' | 'onGenerate' | 'isLoading'>> = ({
+const GeminiGeneratePanel: React.FC<Pick<ControlPanelProps, 'prompt' | 'onPromptChange' | 'onRewritePrompt' | 'rewritingPrompt' | 'onRandomPrompt' | 'randomizingPrompt' | 'onGetSuggestions' | 'subjectSuggestions' | 'backgroundSuggestions' | 'suggestionsLoading' | 'style' | 'setStyle' | 'lighting' | 'setLighting' | 'composition' | 'setComposition' | 'technicalModifier' | 'setTechnicalModifier' | 'aspectRatio' | 'setAspectRatio' | 'numImages' | 'setNumImages' | 'onGenerate' | 'isLoading'>> = ({
   prompt, onPromptChange, onRewritePrompt, rewritingPrompt, onRandomPrompt, randomizingPrompt, onGetSuggestions, subjectSuggestions, backgroundSuggestions, suggestionsLoading, style, setStyle, lighting, setLighting, composition, setComposition, technicalModifier, setTechnicalModifier, aspectRatio, setAspectRatio, numImages, setNumImages, onGenerate, isLoading
 }) => (
   <div className="flex flex-col space-y-4">
@@ -348,6 +360,54 @@ const GenerateTab: React.FC<Pick<ControlPanelProps, 'prompt' | 'onPromptChange' 
     </button>
   </div>
 );
+
+const ComfyUIGeneratePanel: React.FC<Pick<ControlPanelProps, 'prompt' | 'onPromptChange' | 'onGenerate' | 'isLoading' | 'comfyUIConnectionStatus' | 'comfyUIWorkflows' | 'selectedComfyUIWorkflow' | 'onSelectedComfyUIWorkflowChange' | 'comfyUICheckpointModels' | 'selectedComfyUICheckpoint' | 'onSelectedComfyUICheckpointChange' | 'comfyUILoraModels' | 'selectedComfyUILora' | 'onSelectedComfyUILoraChange'>> = (props) => {
+    const { prompt, onPromptChange, onGenerate, isLoading, comfyUIConnectionStatus, comfyUIWorkflows, selectedComfyUIWorkflow, onSelectedComfyUIWorkflowChange, comfyUICheckpointModels, selectedComfyUICheckpoint, onSelectedComfyUICheckpointChange, comfyUILoraModels, selectedComfyUILora, onSelectedComfyUILoraChange } = props;
+
+    const isConnected = comfyUIConnectionStatus === 'connected';
+
+    return (
+        <div className={`flex flex-col space-y-4 ${!isConnected ? 'opacity-50' : ''}`}>
+            {!isConnected && (
+                <div className="absolute inset-0 bg-base-100/50 flex items-center justify-center z-10 rounded-lg">
+                    <p className="font-semibold text-text-secondary p-4 bg-base-300 rounded-md">Connect to ComfyUI in Settings</p>
+                </div>
+            )}
+            <div>
+                <label htmlFor="comfy-workflow" className="block text-sm font-medium text-text-secondary mb-1">Workflow</label>
+                <select id="comfy-workflow" value={selectedComfyUIWorkflow.name} onChange={(e) => onSelectedComfyUIWorkflowChange(comfyUIWorkflows.find(w => w.name === e.target.value) || comfyUIWorkflows[0])} className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary" disabled={isLoading || !isConnected}>
+                    {comfyUIWorkflows.map(w => <option key={w.name} value={w.name}>{w.name}</option>)}
+                </select>
+            </div>
+            <div>
+                <label htmlFor="comfy-checkpoint" className="block text-sm font-medium text-text-secondary mb-1">Checkpoint Model</label>
+                <select id="comfy-checkpoint" value={selectedComfyUICheckpoint} onChange={(e) => onSelectedComfyUICheckpointChange(e.target.value)} className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary" disabled={isLoading || !isConnected || comfyUICheckpointModels.length === 0}>
+                    {comfyUICheckpointModels.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+            </div>
+            {selectedComfyUIWorkflow.json.includes("LoraLoader") && (
+                <div>
+                    <label htmlFor="comfy-lora" className="block text-sm font-medium text-text-secondary mb-1">LoRA Model</label>
+                    <select id="comfy-lora" value={selectedComfyUILora} onChange={(e) => onSelectedComfyUILoraChange(e.target.value)} className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary" disabled={isLoading || !isConnected || comfyUILoraModels.length === 0}>
+                        <option value="None">None</option>
+                        {comfyUILoraModels.map(m => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                </div>
+            )}
+            <div>
+                <label htmlFor="prompt-subject" className="block text-sm font-medium text-text-secondary mb-1">Positive Prompt</label>
+                <textarea id="prompt-subject" rows={3} value={prompt.subject} onChange={(e) => onPromptChange('subject', e.target.value)} placeholder="e.g., A majestic lion, cinematic lighting..." className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary" disabled={isLoading || !isConnected} />
+            </div>
+            <div>
+                <label htmlFor="prompt-background" className="block text-sm font-medium text-text-secondary mb-1">Negative Prompt</label>
+                <textarea id="prompt-background" rows={2} value={prompt.background} onChange={(e) => onPromptChange('background', e.target.value)} placeholder="e.g., ugly, deformed, blurry..." className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary" disabled={isLoading || !isConnected} />
+            </div>
+            <button onClick={onGenerate} disabled={isLoading || !prompt.subject || !isConnected} className="w-full flex items-center justify-center gap-2 bg-brand-primary hover:bg-brand-primary/80 disabled:bg-base-300 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition duration-200">
+                <GenerateIcon /> {isLoading ? 'Generating...' : 'Generate'}
+            </button>
+        </div>
+    );
+};
 
 const PexelsPanel: React.FC<Pick<ControlPanelProps, 'onPexelsSearch' | 'pexelsPhotos' | 'isPexelsLoading' | 'pexelsError' | 'onSelectPexelsImage' | 'isLoading'>> = 
 ({ onPexelsSearch, pexelsPhotos, isPexelsLoading, pexelsError, onSelectPexelsImage, isLoading }) => {
@@ -639,7 +699,7 @@ const AdjustmentControls: React.FC<{
 );
 
 
-const EditTab: React.FC<Omit<ControlPanelProps, 'prompt' | 'onPromptChange' | 'onGetSuggestions' | 'subjectSuggestions' | 'backgroundSuggestions' | 'suggestionsLoading' | 'style' | 'setStyle' | 'lighting' | 'setLighting' | 'composition' | 'setComposition' | 'technicalModifier' | 'setTechnicalModifier' | 'aspectRatio' | 'setAspectRatio' | 'numImages' | 'setNumImages' | 'onGenerate' | 'onClose' | 'activeTab' | 'setActiveTab' | 'themes' | 'activeTheme' | 'onThemeChange' | 'isDarkMode' | 'onToggleThemeMode' | 'onClearCustomShapes' | 'onOpenOptionsClick' | 'pexelsApiKey' | 'onSetPexelsApiKey'>> = (props) => {
+const EditTab: React.FC<Omit<ControlPanelProps, 'prompt' | 'onPromptChange' | 'onGetSuggestions' | 'subjectSuggestions' | 'backgroundSuggestions' | 'suggestionsLoading' | 'style' | 'setStyle' | 'lighting' | 'setLighting' | 'composition' | 'setComposition' | 'technicalModifier' | 'setTechnicalModifier' | 'aspectRatio' | 'setAspectRatio' | 'numImages' | 'setNumImages' | 'onGenerate' | 'onClose' | 'activeTab' | 'setActiveTab' | 'themes' | 'activeTheme' | 'onThemeChange' | 'isDarkMode' | 'onToggleThemeMode' | 'onClearCustomShapes' | 'onOpenOptionsClick' | 'pexelsApiKey' | 'onSetPexelsApiKey' | 'aiEngine' | 'onAiEngineChange' | 'comfyUIServerAddress' | 'onComfyUIServerAddressChange' | 'comfyUIConnectionStatus' | 'onConnectToComfyUI' | 'comfyUICheckpointModels' | 'comfyUILoraModels' | 'selectedComfyUICheckpoint' | 'onSelectedComfyUICheckpointChange' | 'selectedComfyUILora' | 'onSelectedComfyUILoraChange' | 'comfyUIWorkflows' | 'selectedComfyUIWorkflow' | 'onSelectedComfyUIWorkflowChange'>> = (props) => {
     const { editPrompt, setEditPrompt, editMode, setEditMode, brushSize, setBrushSize, brushColor, setBrushColor, onEdit, onAnalyzeImage, onClear, onReset, onUndo, canUndo, isLoading, onRandomPrompt, randomizingPrompt, onOutpaint, outpaintPrompt, setOutpaintPrompt, outpaintAmount, setOutpaintAmount, clipArtCategories, selectedClipArtCategoryName, setSelectedClipArtCategoryName, onSaveShape, selectedShapeId, onDeleteSelectedShape, isEditingMask, colorPresets, onAddColorPreset, hasImage, onLayerAdjustmentChange, onResetLayerAdjustments, onLayerFilterChange, onRemixImage, remixPreservation, setRemixPreservation } = props;
     const [newShapeName, setNewShapeName] = useState('');
     const [isEditPromptCopied, setIsEditPromptCopied] = useState(false);
@@ -674,7 +734,7 @@ const EditTab: React.FC<Omit<ControlPanelProps, 'prompt' | 'onPromptChange' | 'o
 
     const isPixelLayerActive = activeLayer?.type === LayerType.PIXEL;
     const isAdjustmentLayerActive = activeLayer?.type === LayerType.ADJUSTMENT;
-    const placeholderText = "Describe the edit for the masked area or sketch";
+    const placeholderText = "Describe changes for a mask, sketch, or canvas remix...";
 
 
     return (
@@ -844,29 +904,84 @@ const EditTab: React.FC<Omit<ControlPanelProps, 'prompt' | 'onPromptChange' | 'o
         )}
         
         {hasImage && !isEditingMask && (
-            <div className="space-y-3 pt-4 border-t border-base-300">
-                <h3 className="text-md font-semibold text-text-primary flex items-center gap-2"><GenerateIcon/> Canvas Remix</h3>
-                <p className="text-xs text-text-secondary -mt-2">Reimagines the entire visible canvas based on your prompt.</p>
-                <div>
-                    <label htmlFor="remix-preservation" className="block text-sm font-medium text-text-secondary mb-1">
-                        Image Preservation ({remixPreservation}%)
-                    </label>
-                    <input 
-                        id="remix-preservation" 
-                        type="range" 
-                        min="0" 
-                        max="100" 
-                        step="5"
-                        value={remixPreservation}
-                        onChange={(e) => setRemixPreservation(Number(e.target.value))}
-                        className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer"
-                        disabled={isLoading}
-                    />
-                    <p className="text-xs text-text-secondary mt-1">How much of the original image's structure to preserve. Higher values stick closer to the original.</p>
+            <>
+                <div className="space-y-3 pt-4 border-t border-base-300">
+                    <h3 className="text-md font-semibold text-text-primary flex items-center gap-2"><GenerateIcon/> Canvas Remix</h3>
+                    <p className="text-xs text-text-secondary -mt-2">Reimagines the entire visible canvas based on your prompt.</p>
+                    <div>
+                        <label htmlFor="remix-preservation" className="block text-sm font-medium text-text-secondary mb-1">
+                            Image Preservation ({remixPreservation}%)
+                        </label>
+                        <input 
+                            id="remix-preservation" 
+                            type="range" 
+                            min="0" 
+                            max="100" 
+                            step="5"
+                            value={remixPreservation}
+                            onChange={(e) => setRemixPreservation(Number(e.target.value))}
+                            className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer"
+                            disabled={isLoading}
+                        />
+                        <p className="text-xs text-text-secondary mt-1">How much of the original image's structure to preserve. Higher values stick closer to the original.</p>
+                    </div>
+                    <button
+                        onClick={onRemixImage}
+                        disabled={isLoading || !editPrompt || !hasImage}
+                        className="w-full flex items-center justify-center gap-2 bg-brand-secondary hover:bg-brand-secondary/80 disabled:bg-base-300 text-white font-bold py-2 px-4 rounded-md transition duration-200"
+                        title={!hasImage ? "Generate or upload an image first" : !editPrompt ? "Please enter a prompt to remix the canvas" : "Remix the canvas"}
+                    >
+                        <RewriteIcon /> Remix Canvas
+                    </button>
                 </div>
-                <button onClick={onRemixImage} disabled={isLoading || !editPrompt} className="w-full flex items-center justify-center gap-2 bg-brand-secondary hover:bg-brand-secondary/80 disabled:bg-base-300 text-white font-bold py-2 px-4 rounded-md transition duration-200"><RewriteIcon /> Remix Canvas</button>
-            </div>
+                <div className="space-y-3 pt-4 border-t border-base-300">
+                    <h3 className="text-md font-semibold text-text-primary flex items-center gap-2"><PaletteIcon /> Style Transfer</h3>
+                    <p className="text-xs text-text-secondary -mt-2">Apply the artistic style from one image to another.</p>
+                    
+                    {props.styleImage ? (
+                        <div className="flex items-center gap-2 p-2 bg-base-100 rounded-md">
+                            <img src={props.styleImage} alt="Style reference" className="w-16 h-16 object-cover rounded" />
+                            <div className="flex-grow">
+                                <p className="text-sm font-semibold">Style Image Loaded</p>
+                                <p className="text-xs text-text-secondary">Ready to apply style.</p>
+                            </div>
+                            <button onClick={props.onRemoveStyleImage} disabled={isLoading} className="p-2 bg-base-300 rounded-full hover:bg-red-500 hover:text-white transition"><ClearIcon /></button>
+                        </div>
+                    ) : (
+                        <button onClick={props.onStyleImageUpload} disabled={isLoading} className="w-full flex items-center justify-center gap-2 p-4 border-2 border-dashed border-base-300 rounded-lg hover:border-brand-secondary hover:text-brand-secondary transition">
+                            <UploadIcon />
+                            Upload Style Image
+                        </button>
+                    )}
+
+                    <div>
+                        <label htmlFor="style-strength" className="block text-sm font-medium text-text-secondary mb-1">
+                            Style Strength ({props.styleStrength}%)
+                        </label>
+                        <input 
+                            id="style-strength" 
+                            type="range" 
+                            min="10" 
+                            max="100" 
+                            step="5"
+                            value={props.styleStrength}
+                            onChange={(e) => props.setStyleStrength(Number(e.target.value))}
+                            className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer"
+                            disabled={isLoading || !props.styleImage}
+                        />
+                    </div>
+                    <button
+                        onClick={props.onApplyStyleTransfer}
+                        disabled={isLoading || !hasImage || !props.styleImage}
+                        className="w-full flex items-center justify-center gap-2 bg-brand-secondary hover:bg-brand-secondary/80 disabled:bg-base-300 text-white font-bold py-2 px-4 rounded-md transition duration-200"
+                        title={!hasImage ? "Add an image to the canvas first" : !props.styleImage ? "Upload a style image first" : "Apply Style"}
+                    >
+                        <RewriteIcon /> Apply Style
+                    </button>
+                </div>
+            </>
         )}
+
 
         <div className="grid grid-cols-3 gap-2 pt-4 border-t border-base-300">
             <button onClick={onClear} disabled={isLoading || (!isPixelLayerActive && !isEditingMask) } className="w-full flex items-center justify-center gap-2 bg-base-300 hover:bg-base-300/80 disabled:bg-base-300/50 text-text-secondary font-bold py-2 px-4 rounded-md transition"><ClearIcon /> Clear</button>
@@ -876,14 +991,20 @@ const EditTab: React.FC<Omit<ControlPanelProps, 'prompt' | 'onPromptChange' | 'o
     </div>
 )};
 
-const SettingsTab: React.FC<Pick<ControlPanelProps, 'onClearCustomShapes' | 'themes' | 'activeTheme' | 'onThemeChange' | 'isDarkMode' | 'onToggleThemeMode' | 'pexelsApiKey' | 'onSetPexelsApiKey'>> = ({ 
-    onClearCustomShapes, themes, activeTheme, onThemeChange, isDarkMode, onToggleThemeMode, pexelsApiKey, onSetPexelsApiKey
-}) => {
+const SettingsTab: React.FC<Pick<ControlPanelProps, 'onClearCustomShapes' | 'themes' | 'activeTheme' | 'onThemeChange' | 'isDarkMode' | 'onToggleThemeMode' | 'pexelsApiKey' | 'onSetPexelsApiKey' | 'aiEngine' | 'onAiEngineChange' | 'comfyUIServerAddress' | 'onComfyUIServerAddressChange' | 'comfyUIConnectionStatus' | 'onConnectToComfyUI' | 'isLoading'>> = (props) => {
+    const { onClearCustomShapes, themes, activeTheme, onThemeChange, isDarkMode, onToggleThemeMode, pexelsApiKey, onSetPexelsApiKey, aiEngine, onAiEngineChange, comfyUIServerAddress, onComfyUIServerAddressChange, comfyUIConnectionStatus, onConnectToComfyUI, isLoading } = props;
 
     const handleClearClick = () => {
         if (window.confirm("Are you sure you want to delete all your saved custom clip art, colors, API keys and reset the theme? This action cannot be undone.")) {
             onClearCustomShapes();
         }
+    };
+
+    const statusIndicator = {
+        disconnected: { text: 'Disconnected', color: 'bg-gray-500' },
+        connecting: { text: 'Connecting...', color: 'bg-yellow-500 animate-pulse' },
+        connected: { text: 'Connected', color: 'bg-green-500' },
+        error: { text: 'Error', color: 'bg-red-500' },
     };
 
     return (
@@ -906,6 +1027,40 @@ const SettingsTab: React.FC<Pick<ControlPanelProps, 'onClearCustomShapes' | 'the
                     ))}
                 </select>
             </div>
+             <div className="p-3 bg-base-100/50 rounded-md space-y-2">
+                <h3 className="text-md font-semibold text-text-primary">AI Engine</h3>
+                <select id="ai-engine" value={aiEngine} onChange={(e) => onAiEngineChange(e.target.value as AIEngine)} className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary" disabled={isLoading}>
+                    <option value="gemini">Google Gemini</option>
+                    <option value="comfyui">ComfyUI (Local)</option>
+                </select>
+            </div>
+
+            {aiEngine === 'comfyui' && (
+                 <div className="p-3 bg-base-100/50 rounded-md space-y-2">
+                    <h3 className="text-md font-semibold text-text-primary">ComfyUI Settings</h3>
+                    <div>
+                        <label htmlFor="comfy-server-address" className="block text-sm font-medium text-text-secondary">Server Address</label>
+                        <input
+                            id="comfy-server-address"
+                            type="text"
+                            value={comfyUIServerAddress}
+                            onChange={(e) => onComfyUIServerAddressChange(e.target.value)}
+                            placeholder="http://127.0.0.1:8188"
+                            className="mt-1 w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary text-sm"
+                        />
+                    </div>
+                    <div className="flex items-center gap-2">
+                         <button onClick={onConnectToComfyUI} disabled={isLoading || comfyUIConnectionStatus === 'connecting'} className="flex-grow flex items-center justify-center gap-2 bg-brand-secondary hover:bg-brand-secondary/80 disabled:opacity-50 text-white font-bold py-2 px-3 rounded-md transition text-sm">
+                           {comfyUIConnectionStatus === 'connecting' ? <MiniLoader/> : <CheckIcon />} Connect
+                        </button>
+                        <div className="flex items-center gap-2">
+                            <span className={`w-3 h-3 rounded-full ${statusIndicator[comfyUIConnectionStatus].color}`}></span>
+                            <span className="text-sm text-text-secondary">{statusIndicator[comfyUIConnectionStatus].text}</span>
+                        </div>
+                    </div>
+                </div>
+            )}
+
 
             <div className="p-3 bg-base-100/50 rounded-md space-y-2">
                 <h3 className="text-md font-semibold text-text-primary">API Keys</h3>
@@ -942,7 +1097,7 @@ const SettingsTab: React.FC<Pick<ControlPanelProps, 'onClearCustomShapes' | 'the
 
 
 export const ControlPanel: React.FC<ControlPanelProps> = (props) => {
-  const { activeTab, setActiveTab, hasImage, onOpenOptionsClick, isLoading, onClose } = props;
+  const { activeTab, setActiveTab, hasImage, onOpenOptionsClick, isLoading, onClose, aiEngine } = props;
 
   return (
     <div className="flex flex-col space-y-6">
@@ -976,8 +1131,8 @@ export const ControlPanel: React.FC<ControlPanelProps> = (props) => {
           </button>
         </div>
 
-      <div className="p-4 bg-base-100/50 rounded-lg">
-        {activeTab === 'generate' && <GenerateTab {...props} />}
+      <div className="p-4 bg-base-100/50 rounded-lg relative">
+        {activeTab === 'generate' && (aiEngine === 'gemini' ? <GeminiGeneratePanel {...props} /> : <ComfyUIGeneratePanel {...props} />)}
         {activeTab === 'edit' && <EditTab {...props} />}
         {activeTab === 'settings' && <SettingsTab {...props} />}
       </div>

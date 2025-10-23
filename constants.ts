@@ -1,4 +1,4 @@
-import { ImageStyle, AspectRatioValue, Filter, LightingStyle, CompositionRule, TechnicalModifier, ClipArtCategory, ImageAdjustments } from "./types";
+import { ImageStyle, AspectRatioValue, Filter, LightingStyle, CompositionRule, TechnicalModifier, ClipArtCategory, ImageAdjustments, ComfyUIWorkflow } from "./types";
 
 export const SUPPORTED_ASPECT_RATIOS: { name: string; value: AspectRatioValue }[] = [
     { name: 'Square (1:1)', value: '1:1' },
@@ -189,3 +189,21 @@ export const DEFAULT_ADJUSTMENTS: ImageAdjustments = {
     blue: 100,
     filter: 'None',
 };
+
+
+const BASIC_WORKFLOW_JSON = `{"3":{"inputs":{"seed":123,"steps":20,"cfg":8,"sampler_name":"euler","scheduler":"normal","denoise":1,"model":["4",0],"positive":["6",0],"negative":["7",0],"latent_image":["5",0]},"class_type":"KSampler"},"4":{"inputs":{"ckpt_name":"model.safetensors"},"class_type":"CheckpointLoaderSimple"},"5":{"inputs":{"width":512,"height":512,"batch_size":1},"class_type":"EmptyLatentImage"},"6":{"inputs":{"text":"positive prompt","clip":["4",1]},"class_type":"CLIPTextEncode"},"7":{"inputs":{"text":"negative prompt","clip":["4",1]},"class_type":"CLIPTextEncode"},"8":{"inputs":{"samples":["3",0],"vae":["4",2]},"class_type":"VAEDecode"},"9":{"inputs":{"filename_prefix":"ComfyUI","images":["8",0]},"class_type":"SaveImage"}}`;
+const LORA_WORKFLOW_JSON = `{"3":{"inputs":{"seed":456,"steps":20,"cfg":8,"sampler_name":"euler","scheduler":"normal","denoise":1,"model":["10",0],"positive":["6",0],"negative":["7",0],"latent_image":["5",0]},"class_type":"KSampler"},"4":{"inputs":{"ckpt_name":"model.safetensors"},"class_type":"CheckpointLoaderSimple"},"5":{"inputs":{"width":512,"height":512,"batch_size":1},"class_type":"EmptyLatentImage"},"6":{"inputs":{"text":"positive prompt","clip":["10",1]},"class_type":"CLIPTextEncode"},"7":{"inputs":{"text":"negative prompt","clip":["10",1]},"class_type":"CLIPTextEncode"},"8":{"inputs":{"samples":["3",0],"vae":["4",2]},"class_type":"VAEDecode"},"9":{"inputs":{"filename_prefix":"ComfyUI","images":["8",0]},"class_type":"SaveImage"},"10":{"inputs":{"model":["4",0],"clip":["4",1],"lora_name":"lora.safetensors","strength_model":1,"strength_clip":1},"class_type":"LoraLoader"}}`;
+
+
+export const COMFYUI_WORKFLOWS: ComfyUIWorkflow[] = [
+    {
+        name: "Basic Text-to-Image",
+        description: "A simple workflow for generating an image from a text prompt.",
+        json: BASIC_WORKFLOW_JSON,
+    },
+    {
+        name: "Text-to-Image with LoRA",
+        description: "Applies a LoRA model to the generation process for a specific style or character.",
+        json: LORA_WORKFLOW_JSON,
+    }
+];
