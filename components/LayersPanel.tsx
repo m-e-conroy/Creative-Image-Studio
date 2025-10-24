@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Layer, LayerType } from '../types';
-import { LayersIcon, VisibilityOnIcon, VisibilityOffIcon, AddLayerIcon, TrashIcon, LayerMaskIcon, DrawIcon, AdjustmentLayerIcon, AddIcon, CollapseLayersIcon } from './Icons';
+import { LayersIcon, VisibilityOnIcon, VisibilityOffIcon, AddLayerIcon, TrashIcon, LayerMaskIcon, DrawIcon, AdjustmentLayerIcon, AddIcon, CollapseLayersIcon, RotateIcon } from './Icons';
 import { BLEND_MODES } from '../constants';
 
 interface LayersPanelProps {
@@ -15,6 +15,7 @@ interface LayersPanelProps {
     onReorderLayers: (dragId: string, dropId: string) => void;
     onAddLayerMask: (id: string) => void;
     onDeleteLayerMask: (id: string) => void;
+    onInvertLayerMask: (id: string) => void;
     onCollapseLayers: () => void;
     isLoading: boolean;
     onInteractionEndWithHistory: () => void;
@@ -29,8 +30,9 @@ const LayerItem: React.FC<{
     onUpdateLayer: (id: string, updates: Partial<Layer>) => void;
     onAddLayerMask: (id: string) => void;
     onDeleteLayerMask: (id: string) => void;
+    onInvertLayerMask: (id: string) => void;
     isLoading: boolean;
-}> = ({ layer, isActive, isEditingMask, onSelectLayer, onSelectLayerMask, onUpdateLayer, onAddLayerMask, onDeleteLayerMask, isLoading }) => {
+}> = ({ layer, isActive, isEditingMask, onSelectLayer, onSelectLayerMask, onUpdateLayer, onAddLayerMask, onDeleteLayerMask, onInvertLayerMask, isLoading }) => {
     
     const layerThumbStyle = {
         backgroundImage: layer.type === LayerType.IMAGE && layer.src ? `url(${layer.src})` : 'none',
@@ -96,14 +98,24 @@ const LayerItem: React.FC<{
             <span className={`flex-grow text-sm truncate px-1 ${!isPixelBased ? 'col-start-3' : ''}`}>{layer.name}</span>
             
             {layer.maskSrc && isPixelBased && (
-                <button
-                    onClick={(e) => { e.stopPropagation(); onDeleteLayerMask(layer.id); }}
-                    className="p-1 rounded-full text-text-secondary hover:bg-red-500 hover:text-white disabled:opacity-50"
-                    disabled={isLoading}
-                    title="Delete Layer Mask"
-                >
-                   <TrashIcon/>
-                </button>
+                <div className="flex items-center gap-1">
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onInvertLayerMask(layer.id); }}
+                        className="p-1 rounded-full text-text-secondary hover:bg-base-300 hover:text-brand-primary disabled:opacity-50"
+                        disabled={isLoading}
+                        title="Invert Layer Mask"
+                    >
+                       <RotateIcon/>
+                    </button>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onDeleteLayerMask(layer.id); }}
+                        className="p-1 rounded-full text-text-secondary hover:bg-red-500 hover:text-white disabled:opacity-50"
+                        disabled={isLoading}
+                        title="Delete Layer Mask"
+                    >
+                       <TrashIcon/>
+                    </button>
+                </div>
             )}
         </div>
     );

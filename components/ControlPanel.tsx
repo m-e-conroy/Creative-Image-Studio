@@ -89,6 +89,7 @@ interface ControlPanelProps {
   onSelectLayerMask: (id: string) => void;
   onAddLayerMask: (id: string) => void;
   onDeleteLayerMask: (id: string) => void;
+  onInvertLayerMask: (id: string) => void;
   onAutoMask: () => void;
   autoMaskPrompt: string;
   setAutoMaskPrompt: (prompt: string) => void;

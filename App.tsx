@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { ControlPanel } from './components/ControlPanel';
 import { ImageCanvas } from './components/ImageCanvas';
@@ -879,6 +880,55 @@ const handleEdit = useCallback(async () => {
     setIsEditingMask(false);
   }, [layers, updateHistory]);
   
+  const handleInvertLayerMask = useCallback((layerId: string) => {
+    const layer = layers.find(l => l.id === layerId);
+    if (!layer || !layer.maskSrc) return;
+
+    const img = new Image();
+    img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) return;
+
+        ctx.drawImage(img, 0, 0);
+        
+        try {
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+
+            for (let i = 0; i < data.length; i += 4) {
+                // Invert the alpha channel: transparent becomes opaque white, and anything visible becomes transparent.
+                if (data[i + 3] > 0) { // If pixel is visible (not fully transparent)
+                    data[i + 3] = 0; // Make it fully transparent
+                } else { // If pixel is fully transparent
+                    data[i] = 255;     // R
+                    data[i + 1] = 255; // G
+                    data[i + 2] = 255; // B
+                    data[i + 3] = 255; // Make it fully opaque (white)
+                }
+            }
+
+            ctx.putImageData(imageData, 0, 0);
+            const invertedMaskSrc = canvas.toDataURL();
+            
+            const newLayers = layers.map(l => 
+                l.id === layerId 
+                    ? { ...l, maskSrc: invertedMaskSrc } 
+                    : l
+            );
+            setLayers(newLayers);
+            updateHistory(newLayers);
+        } catch (e) {
+            console.error("Failed to invert mask due to canvas security restrictions (CORS).", e);
+            setError("Could not invert the mask. The mask image might be from a different origin and cannot be modified.");
+        }
+    };
+    img.crossOrigin = "anonymous";
+    img.src = layer.maskSrc;
+  }, [layers, updateHistory]);
+
   const handleUpdateLayerMask = useCallback((layerId: string, maskDataUrl: string) => {
     // This updates without adding to history, as it's part of a continuous drawing action.
     setLayers(currentLayers => currentLayers.map(l => l.id === layerId ? { ...l, maskSrc: maskDataUrl } : l));
@@ -1600,6 +1650,7 @@ const handleApplyStyleTransfer = useCallback(async () => {
             // Mask props
             isEditingMask={isEditingMask} onSelectLayerMask={handleSelectLayerMask} onAddLayerMask={handleAddLayerMask}
             onDeleteLayerMask={handleDeleteLayerMask} onAutoMask={handleAutoMask}
+            onInvertLayerMask={handleInvertLayerMask}
             autoMaskPrompt={autoMaskPrompt} setAutoMaskPrompt={setAutoMaskPrompt}
             // Pexels Props
             onPexelsSearch={handlePexelsSearch}
