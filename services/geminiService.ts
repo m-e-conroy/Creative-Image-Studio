@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Modality, Type } from "@google/genai";
 import { PromptPart, PexelsPhoto } from "../types";
 
@@ -360,7 +361,28 @@ export async function applyStyleTransfer(
   strength: number
 ): Promise<{ text?: string; image?: string }> {
   return handleApiCall(async () => {
-    const fullPrompt = `Analyze the artistic style of the second image (style reference). Recreate the first image (content reference), preserving its composition and subject matter, but rendered entirely in the style of the style reference. This includes color palette, brushstrokes, texture, and overall mood. Apply the style with an approximate strength of ${strength}%. A lower percentage means the content is preserved more strongly, while a higher percentage means the style is applied more aggressively. The output MUST be an image only.`;
+    let strengthInstruction = '';
+    if (strength <= 30) {
+      strengthInstruction = "Subtly influence the content image with the style reference. Introduce elements of the style's color palette and texture, but the content image's original form and details should remain dominant and clearly recognizable.";
+    } else if (strength <= 70) {
+      strengthInstruction = "Create a balanced fusion. The content image's composition and subjects should be clear, but rendered with the distinct brushstrokes, color grading, and mood of the style reference. This is a true artistic blend.";
+    } else if (strength <= 90) {
+      strengthInstruction = "Strongly apply the style reference. The content image's structure should be used as a blueprint, but completely reinterpret it with the style's visual language. The final image should feel much closer to the style reference than the original content.";
+    } else {
+      strengthInstruction = "Completely transform the content image into the style reference. Deconstruct the original content and rebuild it using only the artistic elements of the style image. The original composition may be altered to better fit the new style. The result should be as if the artist of the style reference created the content image from scratch.";
+    }
+
+    const fullPrompt = `
+      **Task**: Perform a style transfer.
+      **Content Image**: The first image provided.
+      **Style Reference**: The second image provided.
+
+      **Instructions**:
+      1. Analyze the artistic style of the style reference image. This includes its color palette, brushstrokes, texture, lighting, and overall mood.
+      2. Recreate the content image, preserving its core composition and subject matter, but render it entirely in the style of the style reference.
+      3. The desired "Style Strength" is approximately ${strength}%. ${strengthInstruction}
+      4. The output MUST be an image only, with the exact same dimensions as the content image. Do not output text.
+    `;
 
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
