@@ -1,4 +1,4 @@
-// FIX: Replaced incorrect file content with proper type definitions to resolve circular dependencies and export missing types.
+
 export type AspectRatioValue = "1:1" | "4:3" | "3:4" | "16:9" | "9:16";
 
 export enum EditMode {

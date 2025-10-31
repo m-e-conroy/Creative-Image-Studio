@@ -84,6 +84,7 @@ const App: React.FC = () => {
   const [jpegQuality, setJpegQuality] = useState<number>(92);
   const [isOpenOptionsOpen, setIsOpenOptionsOpen] = useState<boolean>(false);
   const [isMergeConfirmModalOpen, setIsMergeConfirmModalOpen] = useState<boolean>(false);
+  const [isCropConfirmModalOpen, setIsCropConfirmModalOpen] = useState<boolean>(false);
 
   // Theme state
   const [themeName, setThemeName] = useState(() => localStorage.getItem('themeName') || DEFAULT_THEME.name);
@@ -577,10 +578,12 @@ const handleEdit = useCallback(async () => {
 
   const handleConfirmCrop = () => {
     if (!canvasRef.current) return;
-    if (!window.confirm("This will merge all visible layers and crop the canvas. This action cannot be undone. Do you want to continue?")) {
-        return;
-    }
+    setIsCropConfirmModalOpen(true);
+  };
+
+  const handleApplyCrop = () => {
     setCropRequest(Date.now());
+    setIsCropConfirmModalOpen(false);
   };
   
   useEffect(() => {
@@ -1612,6 +1615,19 @@ const handleApplyStyleTransfer = useCallback(async () => {
                 <div className="flex justify-end gap-2">
                     <button onClick={() => setIsMergeConfirmModalOpen(false)} className="px-4 py-2 rounded-md bg-base-300 hover:bg-base-300/80 text-text-secondary font-semibold">Cancel</button>
                     <button onClick={handleConfirmCollapse} className="px-4 py-2 rounded-md bg-red-600 hover:bg-red-700 text-white font-semibold">Merge Layers</button>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {isCropConfirmModalOpen && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={() => setIsCropConfirmModalOpen(false)}>
+            <div className="bg-base-200 p-6 rounded-lg shadow-xl space-y-4 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+                <h2 className="text-xl font-bold text-text-primary">Confirm Crop</h2>
+                <p className="text-text-secondary">This will merge all visible layers and crop the canvas. This action cannot be undone.</p>
+                <div className="flex justify-end gap-2">
+                    <button onClick={() => setIsCropConfirmModalOpen(false)} className="px-4 py-2 rounded-md bg-base-300 hover:bg-base-300/80 text-text-secondary font-semibold">Cancel</button>
+                    <button onClick={handleApplyCrop} className="px-4 py-2 rounded-md bg-red-600 hover:bg-red-700 text-white font-semibold">Apply Crop</button>
                 </div>
             </div>
         </div>

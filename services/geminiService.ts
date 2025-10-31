@@ -420,6 +420,7 @@ export async function applyStyleTransfer(
   });
 }
 
+// Fix: Renamed function to correct typo from searchPelsPhotos to searchPexelsPhotos.
 export async function searchPexelsPhotos(apiKey: string, query: string, page: number = 1, perPage: number = 15): Promise<PexelsPhoto[]> {
   if (!apiKey) {
     throw new Error("Pexels API key is not configured. Please add it in the Settings tab.");
@@ -438,7 +439,6 @@ export async function searchPexelsPhotos(apiKey: string, query: string, page: nu
       const errorData = await response.json();
       throw new Error(`Pexels API error: ${errorData.error || response.statusText}`);
     }
-    // FIX: Added handling for a successful response from the Pexels API.
     const data = await response.json();
     return data.photos || [];
   });
