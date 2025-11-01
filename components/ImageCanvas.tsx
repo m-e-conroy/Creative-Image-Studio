@@ -1,3 +1,4 @@
+
 import React, { useRef, useEffect, useState, useImperativeHandle, forwardRef, useCallback } from 'react';
 import { EditMode, PlacedShape, Stroke, Point, ImageAdjustments, Layer, LayerType } from '../types';
 import { Loader } from './Loader';
@@ -53,6 +54,7 @@ interface InteractionState {
 
 export interface ImageCanvasMethods {
   getCanvasAsDataURL: (options?: { format?: 'png' | 'jpeg' | 'webp'; quality?: number; ignoreFilters?: boolean; fillStyle?: string; }) => string | null;
+  getExportDataURL: (options: { format?: 'png' | 'jpeg' | 'webp'; quality?: number; width: number; height: number; }) => Promise<string | null>;
   getMaskData: () => string | null;
   getExpandedCanvasData: (baseImageDataUrl: string, direction: 'up' | 'down' | 'left' | 'right', amount: number) => Promise<{ data: string; mimeType: string; maskData: string; pasteX: number; pasteY: number; newWidth: number; newHeight: number; }>;
   applyCrop: () => { dataUrl: string; width: number; height: number; } | null;
@@ -284,6 +286,156 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         
         const mimeType = `image/${format}`;
         return flatCanvas.toDataURL(mimeType, quality);
+      },
+      getExportDataURL: async (options: { format?: 'png' | 'jpeg' | 'webp'; quality?: number; width: number; height: number; }) => {
+        const { format = 'png', quality = 0.92, width: targetWidth, height: targetHeight } = options;
+        
+        const mainCanvas = getCanvas();
+        if (!mainCanvas || mainCanvas.width === 0) {
+            console.error("Main canvas not available for export.");
+            return null;
+        }
+
+        const exportCanvas = document.createElement('canvas');
+        exportCanvas.width = targetWidth;
+        exportCanvas.height = targetHeight;
+        const exportCtx = exportCanvas.getContext('2d', { willReadFrequently: true });
+        if (!exportCtx) {
+            console.error("Could not create export canvas context.");
+            return null;
+        }
+
+        const scaleX = targetWidth / mainCanvas.width;
+        const scaleY = targetHeight / mainCanvas.height;
+
+        const loadImage = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+            const img = new Image();
+            img.crossOrigin = "Anonymous";
+            img.onload = () => resolve(img);
+            img.onerror = (err) => reject(new Error(`Could not load image for export. ${err}`));
+            img.src = src;
+        });
+
+        for (const layer of layers) {
+            if (!layer.isVisible) continue;
+
+            const snapshotBeforeAdjustment = document.createElement('canvas');
+            snapshotBeforeAdjustment.width = targetWidth;
+            snapshotBeforeAdjustment.height = targetHeight;
+            const snapshotCtx = snapshotBeforeAdjustment.getContext('2d');
+            if (snapshotCtx) snapshotCtx.drawImage(exportCanvas, 0, 0);
+
+            exportCtx.save();
+            exportCtx.globalAlpha = layer.opacity / 100;
+            
+            if (layer.type === LayerType.IMAGE || layer.type === LayerType.PIXEL) {
+                exportCtx.globalCompositeOperation = (layer.blendMode || 'source-over') as GlobalCompositeOperation;
+
+                const layerContentCanvas = document.createElement('canvas');
+                const layerContentCtx = layerContentCanvas.getContext('2d', { willReadFrequently: true });
+                if (!layerContentCtx) {
+                    exportCtx.restore();
+                    continue;
+                }
+
+                if (layer.type === LayerType.IMAGE && layer.src) {
+                    const img = await loadImage(layer.src);
+                    layerContentCanvas.width = img.width;
+                    layerContentCanvas.height = img.height;
+                    layerContentCtx.drawImage(img, 0, 0);
+                } else if (layer.type === LayerType.PIXEL) {
+                    layerContentCanvas.width = targetWidth;
+                    layerContentCanvas.height = targetHeight;
+                    
+                    layer.strokes?.forEach(stroke => {
+                        layerContentCtx.strokeStyle = stroke.color;
+                        layerContentCtx.lineWidth = stroke.size * scaleX;
+                        layerContentCtx.lineCap = 'round';
+                        layerContentCtx.lineJoin = 'round';
+                        layerContentCtx.beginPath();
+                        if (stroke.points.length > 0) {
+                            layerContentCtx.moveTo(stroke.points[0].x * scaleX, stroke.points[0].y * scaleY);
+                            for (let i = 1; i < stroke.points.length; i++) {
+                                layerContentCtx.lineTo(stroke.points[i].x * scaleX, stroke.points[i].y * scaleY);
+                            }
+                            layerContentCtx.stroke();
+                        }
+                    });
+                    
+                    for (const shape of (layer.placedShapes || [])) {
+                        const shapeImg = await loadImage(shape.dataUrl);
+                        layerContentCtx.save();
+                        layerContentCtx.translate(shape.x * scaleX, shape.y * scaleY);
+                        layerContentCtx.rotate(shape.rotation);
+                        layerContentCtx.drawImage(shapeImg, -shape.width/2 * scaleX, -shape.height/2 * scaleY, shape.width * scaleX, shape.height * scaleY);
+                        layerContentCtx.restore();
+                    }
+                }
+
+                if (layer.maskSrc && layer.maskEnabled) {
+                    const maskImg = await loadImage(layer.maskSrc);
+                    layerContentCtx.globalCompositeOperation = 'destination-in';
+                    const maskCanvas = document.createElement('canvas');
+                    maskCanvas.width = layerContentCanvas.width;
+                    maskCanvas.height = layerContentCanvas.height;
+                    const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
+                    if(maskCtx){
+                        maskCtx.drawImage(maskImg, 0, 0, maskCanvas.width, maskCanvas.height);
+                        const imageData = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
+                        const data = imageData.data;
+                        for (let i = 0; i < data.length; i += 4) {
+                            const luminance = (data[i] * 0.299) + (data[i+1] * 0.587) + (data[i+2] * 0.114);
+                            data[i+3] = luminance > 128 ? 255 : 0;
+                        }
+                        maskCtx.putImageData(imageData, 0, 0);
+                        layerContentCtx.drawImage(maskCanvas, 0, 0);
+                    }
+                }
+                
+                const { x=0, y=0, width, height, rotation=0 } = layer;
+                const finalWidth = (width ?? mainCanvas.width) * scaleX;
+                const finalHeight = (height ?? mainCanvas.height) * scaleY;
+                const finalX = x * scaleX;
+                const finalY = y * scaleY;
+                
+                const centerX = finalX + finalWidth / 2;
+                const centerY = finalY + finalHeight / 2;
+
+                exportCtx.translate(centerX, centerY);
+                exportCtx.rotate(rotation);
+                exportCtx.translate(-centerX, -centerY);
+                
+                exportCtx.drawImage(layerContentCanvas, finalX, finalY, finalWidth, finalHeight);
+
+            } else if (layer.type === LayerType.ADJUSTMENT && layer.adjustments && snapshotCtx) {
+                 const { brightness, contrast, red, green, blue, filter: filterName } = layer.adjustments;
+                 const filterPreset = FILTERS.find(f => f.name === filterName);
+                 const presetFilterValue = filterPreset && filterPreset.name !== 'None' ? filterPreset.value : '';
+                 const cssFilters = `${presetFilterValue} brightness(${brightness}%) contrast(${contrast}%)`;
+
+                 exportCtx.clearRect(0, 0, targetWidth, targetHeight);
+                 exportCtx.filter = cssFilters;
+                 exportCtx.drawImage(snapshotBeforeAdjustment, 0, 0);
+                 exportCtx.filter = 'none';
+
+                 const imageData = exportCtx.getImageData(0, 0, targetWidth, targetHeight);
+                 const data = imageData.data;
+                 const rFactor = red / 100;
+                 const gFactor = green / 100;
+                 const bFactor = blue / 100;
+                 if (rFactor !== 1 || gFactor !== 1 || bFactor !== 1) {
+                     for (let i = 0; i < data.length; i += 4) {
+                         data[i] = Math.min(255, data[i] * rFactor);
+                         data[i + 1] = Math.min(255, data[i + 1] * gFactor);
+                         data[i + 2] = Math.min(255, data[i + 2] * bFactor);
+                     }
+                     exportCtx.putImageData(imageData, 0, 0);
+                 }
+            }
+            exportCtx.restore();
+        }
+        
+        return exportCanvas.toDataURL(`image/${format}`, quality);
       },
       getMaskData: () => {
         const activeLayer = layers.find(l => l.id === activeLayerId);
@@ -706,7 +858,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             tempCtx.globalAlpha = opacity / 100;
             
             if (layer.type === LayerType.IMAGE || layer.type === LayerType.PIXEL) {
-                tempCtx.globalCompositeOperation = blendMode;
+                tempCtx.globalCompositeOperation = blendMode as GlobalCompositeOperation;
                 if (sourceCanvas && sourceCanvas.width > 0) {
                     const layerWidth = width ?? sourceCanvas.width;
                     const layerHeight = height ?? sourceCanvas.height;

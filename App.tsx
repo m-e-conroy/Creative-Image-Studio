@@ -1274,22 +1274,57 @@ const handleEdit = useCallback(async () => {
     URL.revokeObjectURL(url);
   }, [layers, themeName, isDarkMode]);
 
-  const handleExportImage = useCallback(() => {
+  const handleExportImage = useCallback(async () => {
     if (!canvasRef.current) return;
-    const dataUrl = canvasRef.current.getCanvasAsDataURL({
-      format: exportFormat,
-      quality: jpegQuality / 100
-    });
-    if (dataUrl) {
-      const link = document.createElement('a');
-      link.href = dataUrl;
-      link.download = `creative-studio-export-${Date.now()}.${exportFormat}`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+
+    // Use high-resolution export if original dimensions are known
+    if (imageDimensions) {
+        setIsLoading(true);
+        setLoadingMessage('Preparing high-res export...');
+        setError(null);
+        try {
+            const dataUrl = await canvasRef.current.getExportDataURL({
+                format: exportFormat,
+                quality: jpegQuality / 100,
+                width: imageDimensions.width,
+                height: imageDimensions.height,
+            });
+
+            if (dataUrl) {
+                const link = document.createElement('a');
+                link.href = dataUrl;
+                link.download = `creative-studio-export-${Date.now()}.${exportFormat}`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } else {
+                setError("Failed to export image at high resolution.");
+            }
+        } catch (e: any) {
+            console.error("High-res export failed:", e);
+            setError(e.message || "An error occurred during export.");
+        } finally {
+            setIsLoading(false);
+            setLoadingMessage('');
+            setIsExportModalOpen(false);
+        }
+    } else {
+        // Fallback to screen resolution if no base image dimensions are available
+        const dataUrl = canvasRef.current.getCanvasAsDataURL({
+            format: exportFormat,
+            quality: jpegQuality / 100
+        });
+        if (dataUrl) {
+            const link = document.createElement('a');
+            link.href = dataUrl;
+            link.download = `creative-studio-export-${Date.now()}.${exportFormat}`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+        setIsExportModalOpen(false);
     }
-    setIsExportModalOpen(false);
-  }, [exportFormat, jpegQuality]);
+  }, [exportFormat, jpegQuality, imageDimensions]);
 
   const handleProjectFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
