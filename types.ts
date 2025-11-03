@@ -157,3 +157,11 @@ export interface ComfyUIGenerateSettings {
     lora: string;
     setLoadingMessage: (message: string) => void;
 }
+
+export interface PageState {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  backgroundColor: string;
+}

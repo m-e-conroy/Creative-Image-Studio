@@ -5,10 +5,10 @@ import { ImageCanvas } from './components/ImageCanvas';
 import * as geminiService from './services/geminiService';
 import * as comfyuiService from './services/comfyuiService';
 import { ImageCanvasMethods } from './components/ImageCanvas';
-import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, Stroke, ClipArtCategory, TechnicalModifier, ImageAdjustments, Layer, LayerType, PexelsPhoto, AIEngine, ComfyUIConnectionStatus, ComfyUIWorkflow } from './types';
+import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, Stroke, ClipArtCategory, TechnicalModifier, ImageAdjustments, Layer, LayerType, PexelsPhoto, AIEngine, ComfyUIConnectionStatus, ComfyUIWorkflow, PageState } from './types';
 import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, CLIP_ART_CATEGORIES, TECHNICAL_MODIFIERS, INITIAL_COLOR_PRESETS, DEFAULT_ADJUSTMENTS, COMFYUI_WORKFLOWS } from './constants';
 import { THEMES, DEFAULT_THEME } from './themes';
-import { DownloadIcon, SettingsIcon, CropIcon, CheckIcon, CloseIcon, SaveProjectIcon, OpenProjectIcon, UploadIcon } from './components/Icons';
+import { DownloadIcon, SettingsIcon, SaveProjectIcon, OpenProjectIcon, UploadIcon } from './components/Icons';
 import { ImageGallery } from './components/ImageGallery';
 
 type Tab = 'generate' | 'edit' | 'settings';
@@ -41,7 +41,6 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   
   const [generatedImages, setGeneratedImages] = useState<string[]>([]);
-  const [imageDimensions, setImageDimensions] = useState<{width: number, height: number} | null>(null);
   
   const [clipArtCategories, setClipArtCategories] = useState<ClipArtCategory[]>(CLIP_ART_CATEGORIES);
   const [selectedClipArtCategoryName, setSelectedClipArtCategoryName] = useState<string>(CLIP_ART_CATEGORIES[0].name);
@@ -51,6 +50,7 @@ const App: React.FC = () => {
   const [activeLayerId, setActiveLayerId] = useState<string | null>(null);
   const [history, setHistory] = useState<Layer[][]>([]);
   const [isEditingMask, setIsEditingMask] = useState<boolean>(false);
+  const [page, setPage] = useState<PageState | null>(null);
 
 
   const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null);
@@ -74,8 +74,6 @@ const App: React.FC = () => {
   const [colorPresets, setColorPresets] = useState<string[]>(INITIAL_COLOR_PRESETS);
   
   // Cropping State
-  const [isCropping, setIsCropping] = useState<boolean>(false);
-  const [cropRequest, setCropRequest] = useState<number>(0);
   const [collapseRequest, setCollapseRequest] = useState<number>(0);
   
   // Save/Export/Open State
@@ -84,7 +82,6 @@ const App: React.FC = () => {
   const [jpegQuality, setJpegQuality] = useState<number>(92);
   const [isOpenOptionsOpen, setIsOpenOptionsOpen] = useState<boolean>(false);
   const [isMergeConfirmModalOpen, setIsMergeConfirmModalOpen] = useState<boolean>(false);
-  const [isCropConfirmModalOpen, setIsCropConfirmModalOpen] = useState<boolean>(false);
 
   // Theme state
   const [themeName, setThemeName] = useState(() => localStorage.getItem('themeName') || DEFAULT_THEME.name);
@@ -224,18 +221,15 @@ const App: React.FC = () => {
             setError("Canvas is not ready. Please try again in a moment.");
             return;
         }
-
-        const canvasRatio = canvasDimensions.width / canvasDimensions.height;
-        const imageRatio = img.width / img.height;
-
-        let initialWidth, initialHeight;
-        if (canvasRatio > imageRatio) {
-            initialHeight = canvasDimensions.height;
-            initialWidth = initialHeight * imageRatio;
-        } else {
-            initialWidth = canvasDimensions.width;
-            initialHeight = initialWidth / imageRatio;
-        }
+        
+        const newPage: PageState = {
+            width: img.width,
+            height: img.height,
+            x: (canvasDimensions.width - img.width) / 2,
+            y: (canvasDimensions.height - img.height) / 2,
+            backgroundColor: 'rgb(var(--color-base-200))',
+        };
+        setPage(newPage);
 
         const newLayer: Layer = {
             id: `layer_${Date.now()}`,
@@ -244,21 +238,23 @@ const App: React.FC = () => {
             src: imageUrl,
             isVisible: true,
             opacity: 100,
-            x: canvasDimensions.width / 2 - initialWidth / 2,
-            y: canvasDimensions.height / 2 - initialHeight / 2,
-            width: initialWidth,
-            height: initialHeight,
+            x: newPage.x,
+            y: newPage.y,
+            width: newPage.width,
+            height: newPage.height,
             rotation: 0,
             blendMode: 'source-over',
         };
-        const newLayers = [newLayer]; // Start with a fresh canvas for a new base image
+        const newLayers = [newLayer];
         setLayers(newLayers);
         setActiveLayerId(newLayer.id);
-        updateHistory(newLayers);
+        // FIX: Pass Layer[] directly, not Layer[][], to updateHistory.
+        updateHistory(newLayers); // Set history with the new state
         setActiveTab('edit');
     };
+    img.crossOrigin = "Anonymous";
     img.src = imageUrl;
-}, [layers, updateHistory]);
+  }, [updateHistory]);
   
   const handleGenerate = useCallback(async () => {
     if (aiEngine === 'gemini' && !prompt.subject) {
@@ -280,7 +276,7 @@ const App: React.FC = () => {
     setLayers([]);
     setActiveLayerId(null);
     setGeneratedImages([]);
-    setImageDimensions(null);
+    setPage(null);
     setActiveTab('generate');
     setHistory([]);
     setIsEditingMask(false);
@@ -331,7 +327,7 @@ const App: React.FC = () => {
   const handleImageUpload = useCallback((file: File) => {
     setError(null);
     setGeneratedImages([]);
-    setImageDimensions(null);
+    setPage(null);
     setIsEditingMask(false);
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -347,17 +343,17 @@ const App: React.FC = () => {
     setLayers([]); // Start fresh with the selected image
     addImageLayer(imageUrl, 'Background');
     setGeneratedImages([]);
-    setImageDimensions(null);
+    setPage(null);
     setIsEditingMask(false);
   }, [addImageLayer]);
 
   const handleAnalyzeImage = useCallback(async () => {
-    if (!canvasRef.current) return;
+    if (!canvasRef.current || !page) return;
     setIsLoading(true);
     setLoadingMessage('Analyzing image...');
     setError(null);
     try {
-        const flatImageData = canvasRef.current.getCanvasAsDataURL();
+        const flatImageData = await canvasRef.current.getPageContentAsDataURL();
         if (!flatImageData) throw new Error("Could not get canvas data to analyze.");
 
         const [meta, data] = flatImageData.split(',');
@@ -373,12 +369,16 @@ const App: React.FC = () => {
         setIsLoading(false);
         setLoadingMessage('');
     }
-}, []);
+}, [page]);
 
 const handleEdit = useCallback(async () => {
     if (!editPrompt || !canvasRef.current || !activeLayerId) {
       setError('Please enter an editing prompt and select a layer.');
       return;
+    }
+    if (!page) {
+        setError("No page is defined for editing.");
+        return;
     }
     const activeLayer = layers.find(l => l.id === activeLayerId);
     if (!activeLayer) {
@@ -399,11 +399,9 @@ const handleEdit = useCallback(async () => {
     setError(null);
 
     try {
-        // 1. Get the flattened image of all visible layers as the context.
-        const baseImageDataUrl = canvasRef.current.getCanvasAsDataURL();
-        if (!baseImageDataUrl) throw new Error("Could not get the current canvas image.");
+        const baseImageDataUrl = await canvasRef.current.getPageContentAsDataURL({ includeBackground: false });
+        if (!baseImageDataUrl) throw new Error("Could not get the current page image.");
 
-        // 2. Get a full-canvas mask from the active layer's content or mask.
         const maskDataUrl = await canvasRef.current.getMaskForLayer(activeLayerId);
         if (!maskDataUrl) throw new Error("Could not generate a mask from the selected layer.");
         
@@ -413,15 +411,11 @@ const handleEdit = useCallback(async () => {
         
         const finalPrompt = `Using the full image as context, apply the following change ONLY to the masked (white) area: ${editPrompt}. Blend the new content seamlessly with the existing visible image.`;
 
-        // 3. Call the edit service with the full context and specific mask.
         const result = await geminiService.editImage(baseData, mimeType, finalPrompt, maskData);
       
         if (result.image) {
             const newImageSrc = `data:${mimeType};base64,${result.image}`;
-            const canvasDimensions = canvasRef.current.getCanvasDimensions();
-            if (!canvasDimensions) throw new Error("Could not get canvas dimensions for the new layer.");
 
-            // 4. Create a new, full-sized image layer with the result.
             const newLayer: Layer = {
                 id: `layer_${Date.now()}`,
                 name: `Edit: ${editPrompt.substring(0, 15)}...`,
@@ -429,10 +423,10 @@ const handleEdit = useCallback(async () => {
                 src: newImageSrc,
                 isVisible: true,
                 opacity: 100,
-                x: 0,
-                y: 0,
-                width: canvasDimensions.width,
-                height: canvasDimensions.height,
+                x: page.x,
+                y: page.y,
+                width: page.width,
+                height: page.height,
                 rotation: 0,
                 blendMode: 'source-over',
             };
@@ -455,11 +449,11 @@ const handleEdit = useCallback(async () => {
         setIsLoading(false);
         setLoadingMessage('');
     }
-  }, [editPrompt, layers, activeLayerId, updateHistory]);
+  }, [editPrompt, layers, activeLayerId, updateHistory, page]);
 
   const handleRemixImage = useCallback(async () => {
-    if (!editPrompt || !canvasRef.current || !hasImage) {
-        setError('Please enter a prompt and have some content on the canvas to remix.');
+    if (!editPrompt || !canvasRef.current || !hasImage || !page) {
+        setError('Please enter a prompt and have an image on the artboard to remix.');
         return;
     }
 
@@ -468,8 +462,8 @@ const handleEdit = useCallback(async () => {
     setError(null);
 
     try {
-        const flatImageData = canvasRef.current.getCanvasAsDataURL();
-        if (!flatImageData) throw new Error("Could not get canvas data to remix.");
+        const flatImageData = await canvasRef.current.getPageContentAsDataURL({ includeBackground: false });
+        if (!flatImageData) throw new Error("Could not get page data to remix.");
 
         const [meta, data] = flatImageData.split(',');
         const mimeType = meta.split(';')[0].split(':')[1];
@@ -478,8 +472,6 @@ const handleEdit = useCallback(async () => {
 
         if (result.image) {
             const newImageSrc = `data:${mimeType};base64,${result.image}`;
-            const canvasDimensions = canvasRef.current.getCanvasDimensions();
-            if (!canvasDimensions) throw new Error("Could not get canvas dimensions for the new layer.");
             
             const newLayer: Layer = {
                 id: `layer_${Date.now()}`,
@@ -488,10 +480,10 @@ const handleEdit = useCallback(async () => {
                 src: newImageSrc,
                 isVisible: true,
                 opacity: 100,
-                x: 0,
-                y: 0,
-                width: canvasDimensions.width,
-                height: canvasDimensions.height,
+                x: page.x,
+                y: page.y,
+                width: page.width,
+                height: page.height,
                 rotation: 0,
                 blendMode: 'source-over',
             };
@@ -512,7 +504,7 @@ const handleEdit = useCallback(async () => {
         setIsLoading(false);
         setLoadingMessage('');
     }
-}, [editPrompt, layers, remixPreservation, updateHistory, hasImage]);
+}, [editPrompt, layers, remixPreservation, updateHistory, hasImage, page]);
 
   const handleOutpaint = useCallback(async (direction: 'up' | 'down' | 'left' | 'right') => {
     if (!canvasRef.current) return;
@@ -520,7 +512,7 @@ const handleEdit = useCallback(async () => {
     setLoadingMessage('Expanding the scene...');
     setError(null);
     try {
-      const flatImageData = canvasRef.current.getCanvasAsDataURL();
+      const flatImageData = await canvasRef.current.getPageContentAsDataURL({ includeBackground: true });
       if (!flatImageData) throw new Error("Could not get flattened canvas data.");
 
       const { data, mimeType, maskData, pasteX, pasteY, newWidth, newHeight } = await canvasRef.current.getExpandedCanvasData(flatImageData, direction, outpaintAmount);
@@ -529,34 +521,7 @@ const handleEdit = useCallback(async () => {
       
       if (result.image) {
         const imageUrl = `data:image/png;base64,${result.image}`;
-        
-        // Create the new outpainted layer
-        const newBackgroundLayer: Layer = { id: `layer_${Date.now()}`, name: `Outpaint ${direction}`, type: LayerType.IMAGE, src: imageUrl, isVisible: true, opacity: 100, x: 0, y: 0, width: newWidth, height: newHeight, rotation: 0, blendMode: 'source-over' };
-        
-        // Translate existing layers to fit on the new canvas
-        const translatedLayers = layers.map(layer => {
-            const newPos = { x: layer.x + pasteX, y: layer.y + pasteY };
-            if (layer.type === LayerType.PIXEL) {
-                const translatedStrokes = layer.strokes?.map(stroke => ({
-                    ...stroke,
-                    points: stroke.points.map(p => ({ x: p.x + pasteX, y: p.y + pasteY }))
-                }));
-                const translatedShapes = layer.placedShapes?.map(shape => ({
-                    ...shape,
-                    x: shape.x + pasteX,
-                    y: shape.y + pasteY
-                }));
-                return { ...layer, ...newPos, strokes: translatedStrokes, placedShapes: translatedShapes };
-            }
-            return { ...layer, ...newPos };
-        });
-        
-        // Place the new outpainted layer at the bottom and the translated layers on top
-        const newLayers = [newBackgroundLayer, ...translatedLayers];
-        setLayers(newLayers);
-        setActiveLayerId(newLayers[newLayers.length - 1].id); // Keep active layer on top
-        updateHistory(newLayers);
-        setIsEditingMask(false);
+        addImageLayer(imageUrl, `Outpaint ${direction}`);
       } else {
          setError(result.text || 'The model could not expand the image. Please try again.');
       }
@@ -567,63 +532,9 @@ const handleEdit = useCallback(async () => {
       setIsLoading(false);
       setLoadingMessage('');
     }
-  }, [outpaintPrompt, outpaintAmount, layers, updateHistory]);
+  }, [outpaintPrompt, outpaintAmount, layers, updateHistory, addImageLayer]);
 
   // --- Cropping ---
-  const handleStartCrop = () => setIsCropping(true);
-  
-  const handleCancelCrop = () => {
-    canvasRef.current?.clearCropSelection();
-    setIsCropping(false);
-  };
-
-  const handleConfirmCrop = () => {
-    if (!canvasRef.current) return;
-    setIsCropConfirmModalOpen(true);
-  };
-
-  const handleApplyCrop = () => {
-    setCropRequest(Date.now());
-    setIsCropConfirmModalOpen(false);
-  };
-  
-  useEffect(() => {
-    if (cropRequest === 0) return;
-
-    const performCrop = () => {
-        if (!canvasRef.current) return;
-
-        setIsLoading(true);
-        setLoadingMessage('Cropping canvas...');
-        
-        // This timeout ensures the loading state has a chance to render before the potentially blocking canvas operation
-        setTimeout(() => {
-            try {
-                const cropResult = canvasRef.current!.applyCrop();
-                if (cropResult) {
-                    const { dataUrl, width, height } = cropResult;
-                    const newLayer: Layer = { id: `layer_${Date.now()}`, name: 'Cropped Image', type: LayerType.IMAGE, src: dataUrl, isVisible: true, opacity: 100, x: 0, y: 0, width, height, rotation: 0, blendMode: 'source-over' };
-                    const newLayers = [newLayer];
-                    setLayers(newLayers);
-                    setActiveLayerId(newLayer.id);
-                    updateHistory(newLayers);
-                    setIsEditingMask(false);
-                } else {
-                    throw new Error("Cropping failed. Please ensure you have selected a valid area.");
-                }
-            } catch (e: any) {
-                console.error(e);
-                setError(e.message || 'Failed to crop canvas.');
-            } finally {
-                setIsLoading(false);
-                setLoadingMessage('');
-                setIsCropping(false);
-            }
-        }, 50);
-    };
-
-    performCrop();
-  }, [cropRequest, updateHistory]);
   
   useEffect(() => {
     if (collapseRequest === 0) return;
@@ -635,10 +546,10 @@ const handleEdit = useCallback(async () => {
         setLoadingMessage('Merging layers...');
         setError(null);
 
-        setTimeout(() => {
+        setTimeout(async () => {
             try {
-                const dataUrl = canvasRef.current!.getCanvasAsDataURL();
-                const dimensions = canvasRef.current!.getCanvasDimensions();
+                const dataUrl = await canvasRef.current!.getPageContentAsDataURL({ includeBackground: true });
+                const dimensions = page;
                 
                 if (dataUrl && dimensions) {
                     const newLayer: Layer = {
@@ -648,8 +559,8 @@ const handleEdit = useCallback(async () => {
                         src: dataUrl,
                         isVisible: true,
                         opacity: 100,
-                        x: 0,
-                        y: 0,
+                        x: dimensions.x,
+                        y: dimensions.y,
                         width: dimensions.width,
                         height: dimensions.height,
                         rotation: 0,
@@ -661,7 +572,7 @@ const handleEdit = useCallback(async () => {
                     updateHistory(newLayers);
                     setIsEditingMask(false);
                 } else {
-                    throw new Error("Could not merge layers. The canvas may be empty.");
+                    throw new Error("Could not merge layers. The page may be empty.");
                 }
             } catch (e: any) {
                 console.error("Failed to merge layers:", e);
@@ -676,7 +587,7 @@ const handleEdit = useCallback(async () => {
     
     performCollapse();
 
-  }, [collapseRequest, updateHistory]);
+  }, [collapseRequest, updateHistory, page]);
 
 
   // --- Layer Management ---
@@ -688,8 +599,8 @@ const handleEdit = useCallback(async () => {
       type: type,
       isVisible: true,
       opacity: 100,
-      x: 0,
-      y: 0,
+      x: page?.x || 0,
+      y: page?.y || 0,
       rotation: 0,
       blendMode: 'source-over',
     };
@@ -705,7 +616,7 @@ const handleEdit = useCallback(async () => {
     setActiveLayerId(newLayer.id);
     updateHistory(newLayers);
     setIsEditingMask(false);
-  }, [layers, updateHistory]);
+  }, [layers, updateHistory, page]);
 
   const handleCollapseLayers = useCallback(() => {
     if (layers.length < 2) return;
@@ -763,10 +674,9 @@ const handleEdit = useCallback(async () => {
     setActiveLayerId(null);
     setHistory([]);
     setEditPrompt('');
-    setImageDimensions(null);
+    setPage(null);
     setSelectedShapeId(null);
     setIsEditingMask(false);
-    canvasRef.current?.clearCropSelection();
   }, []);
 
   const handleDeleteLayer = useCallback((id: string) => {
@@ -956,12 +866,10 @@ const handleEdit = useCallback(async () => {
 
         let imageDataUrlForMasking: string | null = null;
         
-        // Prioritize the original, full-resolution source for image layers
         if (activeLayer.type === LayerType.IMAGE && activeLayer.src) {
             imageDataUrlForMasking = activeLayer.src;
         } else {
-            // Fallback to the canvas view for pixel layers or images without a direct src
-            imageDataUrlForMasking = canvasRef.current.getCanvasAsDataURL();
+            imageDataUrlForMasking = await canvasRef.current.getPageContentAsDataURL();
         }
 
         if (!imageDataUrlForMasking) {
@@ -1030,7 +938,6 @@ const handleEdit = useCallback(async () => {
     if (!isEditingMask) {
       setSelectedShapeId(null);
     }
-    canvasRef.current?.clearCropSelection();
   }, [layers, activeLayerId, isEditingMask, updateHistory]);
 
   // --- Handlers passed to children that modify layer state ---
@@ -1260,6 +1167,7 @@ const handleEdit = useCallback(async () => {
     const projectState = {
       version: '1.0.0',
       layers,
+      page,
       themeName,
       isDarkMode
     };
@@ -1273,48 +1181,21 @@ const handleEdit = useCallback(async () => {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-  }, [layers, themeName, isDarkMode]);
+  }, [layers, page, themeName, isDarkMode]);
 
   const handleExportImage = useCallback(async () => {
-    if (!canvasRef.current) return;
+    if (!canvasRef.current || !page) return;
 
-    // Use high-resolution export if original dimensions are known
-    if (imageDimensions) {
-        setIsLoading(true);
-        setLoadingMessage('Preparing high-res export...');
-        setError(null);
-        try {
-            const dataUrl = await canvasRef.current.getExportDataURL({
-                format: exportFormat,
-                quality: jpegQuality / 100,
-                width: imageDimensions.width,
-                height: imageDimensions.height,
-            });
-
-            if (dataUrl) {
-                const link = document.createElement('a');
-                link.href = dataUrl;
-                link.download = `creative-studio-export-${Date.now()}.${exportFormat}`;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-            } else {
-                setError("Failed to export image at high resolution.");
-            }
-        } catch (e: any) {
-            console.error("High-res export failed:", e);
-            setError(e.message || "An error occurred during export.");
-        } finally {
-            setIsLoading(false);
-            setLoadingMessage('');
-            setIsExportModalOpen(false);
-        }
-    } else {
-        // Fallback to screen resolution if no base image dimensions are available
-        const dataUrl = canvasRef.current.getCanvasAsDataURL({
+    setIsLoading(true);
+    setLoadingMessage('Preparing export...');
+    setError(null);
+    try {
+        const dataUrl = await canvasRef.current.getPageContentAsDataURL({
             format: exportFormat,
-            quality: jpegQuality / 100
+            quality: jpegQuality / 100,
+            includeBackground: false,
         });
+
         if (dataUrl) {
             const link = document.createElement('a');
             link.href = dataUrl;
@@ -1322,10 +1203,18 @@ const handleEdit = useCallback(async () => {
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
+        } else {
+            setError("Failed to export image.");
         }
+    } catch (e: any) {
+        console.error("Export failed:", e);
+        setError(e.message || "An error occurred during export.");
+    } finally {
+        setIsLoading(false);
+        setLoadingMessage('');
         setIsExportModalOpen(false);
     }
-  }, [exportFormat, jpegQuality, imageDimensions]);
+  }, [exportFormat, jpegQuality, page]);
 
   const handleProjectFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -1338,6 +1227,7 @@ const handleEdit = useCallback(async () => {
         if (projectState && projectState.version && Array.isArray(projectState.layers)) {
           // A very basic validation passed, load the project.
           setLayers(projectState.layers);
+          setPage(projectState.page || null);
           setThemeName(projectState.themeName || DEFAULT_THEME.name);
           setIsDarkMode(projectState.isDarkMode || false);
           
@@ -1451,8 +1341,8 @@ const handleRemoveStyleImage = useCallback(() => {
 }, []);
 
 const handleApplyStyleTransfer = useCallback(async () => {
-    if (!styleImage || !canvasRef.current || !hasImage) {
-        setError('Please ensure you have an image on the canvas and have uploaded a style image.');
+    if (!styleImage || !canvasRef.current || !hasImage || !page) {
+        setError('Please ensure you have an image on the artboard and have uploaded a style image.');
         return;
     }
 
@@ -1461,8 +1351,8 @@ const handleApplyStyleTransfer = useCallback(async () => {
     setError(null);
 
     try {
-        const contentImageDataUrl = canvasRef.current.getCanvasAsDataURL();
-        if (!contentImageDataUrl) throw new Error("Could not get canvas data for style transfer.");
+        const contentImageDataUrl = await canvasRef.current.getPageContentAsDataURL({ includeBackground: false });
+        if (!contentImageDataUrl) throw new Error("Could not get page data for style transfer.");
 
         const [contentMeta, contentData] = contentImageDataUrl.split(',');
         const contentMime = contentMeta.split(';')[0].split(':')[1];
@@ -1474,8 +1364,6 @@ const handleApplyStyleTransfer = useCallback(async () => {
 
         if (result.image) {
             const newImageSrc = `data:${contentMime};base64,${result.image}`;
-            const canvasDimensions = canvasRef.current.getCanvasDimensions();
-            if (!canvasDimensions) throw new Error("Could not get canvas dimensions for the new layer.");
             
             const newLayer: Layer = {
                 id: `layer_${Date.now()}`,
@@ -1484,10 +1372,10 @@ const handleApplyStyleTransfer = useCallback(async () => {
                 src: newImageSrc,
                 isVisible: true,
                 opacity: 100,
-                x: 0,
-                y: 0,
-                width: canvasDimensions.width,
-                height: canvasDimensions.height,
+                x: page.x,
+                y: page.y,
+                width: page.width,
+                height: page.height,
                 rotation: 0,
                 blendMode: 'source-over',
             };
@@ -1508,7 +1396,7 @@ const handleApplyStyleTransfer = useCallback(async () => {
         setIsLoading(false);
         setLoadingMessage('');
     }
-}, [styleImage, layers, styleStrength, updateHistory, hasImage]);
+}, [styleImage, layers, styleStrength, updateHistory, hasImage, page]);
 
   // --- Other handlers ---
   const handleAddColorPreset = useCallback(() => {
@@ -1598,6 +1486,21 @@ const handleApplyStyleTransfer = useCallback(async () => {
     }
   }, []);
 
+  const handlePageSizeChange = useCallback((width: number, height: number) => {
+    setPage(prev => {
+        if (!prev) return null;
+        const canvasDimensions = canvasRef.current?.getCanvasDimensions();
+        if (!canvasDimensions) return prev;
+        return {
+            ...prev,
+            width,
+            height,
+            x: (canvasDimensions.width - width) / 2,
+            y: (canvasDimensions.height - height) / 2,
+        };
+    });
+  }, []);
+
   const handlePromptChange = (part: PromptPart, value: string) => setPrompt(prev => ({ ...prev, [part]: value }));
   const handleToggleThemeMode = useCallback(() => setIsDarkMode(prev => !prev), []);
 
@@ -1630,8 +1533,8 @@ const handleApplyStyleTransfer = useCallback(async () => {
                 <div>
                     <label htmlFor="export-format" className="block text-sm font-medium text-text-secondary mb-1">Format</label>
                     <select id="export-format" value={exportFormat} onChange={e => setExportFormat(e.target.value as ExportFormat)} className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary">
-                        <option value="png">PNG (Best Quality)</option>
-                        <option value="jpeg">JPEG (Good for Web)</option>
+                        <option value="png">PNG (Transparent)</option>
+                        <option value="jpeg">JPEG (Smaller Size)</option>
                         <option value="webp">WebP (Modern Format)</option>
                     </select>
                 </div>
@@ -1661,20 +1564,6 @@ const handleApplyStyleTransfer = useCallback(async () => {
             </div>
         </div>
       )}
-
-      {isCropConfirmModalOpen && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={() => setIsCropConfirmModalOpen(false)}>
-            <div className="bg-base-200 p-6 rounded-lg shadow-xl space-y-4 w-full max-w-sm" onClick={e => e.stopPropagation()}>
-                <h2 className="text-xl font-bold text-text-primary">Confirm Crop</h2>
-                <p className="text-text-secondary">This will merge all visible layers and crop the canvas. This action cannot be undone.</p>
-                <div className="flex justify-end gap-2">
-                    <button onClick={() => setIsCropConfirmModalOpen(false)} className="px-4 py-2 rounded-md bg-base-300 hover:bg-base-300/80 text-text-secondary font-semibold">Cancel</button>
-                    <button onClick={handleApplyCrop} className="px-4 py-2 rounded-md bg-red-600 hover:bg-red-700 text-white font-semibold">Apply Crop</button>
-                </div>
-            </div>
-        </div>
-      )}
-
 
       <div className="min-h-screen bg-base-100 flex font-sans">
         {isPanelOpen && <div onClick={() => setIsPanelOpen(false)} className="fixed inset-0 bg-black/60 z-40 md:hidden" aria-hidden="true" />}
@@ -1747,6 +1636,9 @@ const handleApplyStyleTransfer = useCallback(async () => {
             comfyUIWorkflows={COMFYUI_WORKFLOWS}
             selectedComfyUIWorkflow={selectedComfyUIWorkflow}
             onSelectedComfyUIWorkflowChange={setSelectedComfyUIWorkflow}
+            // Page props
+            page={page}
+            onPageSizeChange={handlePageSizeChange}
           />
           {error && (<div className="bg-red-500/20 border border-red-500 text-red-300 p-3 rounded-md text-sm"><p className="font-semibold">Error</p><p>{error}</p></div>)}
         </aside>
@@ -1755,19 +1647,9 @@ const handleApplyStyleTransfer = useCallback(async () => {
           <div className="w-full h-full flex items-center justify-center relative">
             {hasImage && !isLoading && (
               <div className="absolute top-3 right-3 z-30 flex items-center gap-2">
-                {isCropping ? (
-                  <>
-                    <button onClick={handleConfirmCrop} className="flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white font-bold px-4 py-2 rounded-lg shadow-lg transition-all duration-200 transform hover:scale-105" title="Apply Crop"><CheckIcon/> Apply</button>
-                    <button onClick={handleCancelCrop} className="flex items-center gap-2 bg-base-300 hover:bg-base-300/80 text-text-secondary font-bold px-4 py-2 rounded-lg shadow-lg transition-all duration-200 transform hover:scale-105" title="Cancel Crop"><CloseIcon/> Cancel</button>
-                  </>
-                ) : (
-                  <>
-                    <button onClick={handleSaveProject} className="bg-base-200/80 hover:bg-brand-primary text-text-primary hover:text-white p-2 rounded-full transition-colors duration-200" aria-label="Save Project" title="Save Project"><SaveProjectIcon /></button>
-                    <button onClick={() => setIsExportModalOpen(true)} className="bg-base-200/80 hover:bg-brand-primary text-text-primary hover:text-white p-2 rounded-full transition-colors duration-200" aria-label="Export Image" title="Export Image"><DownloadIcon /></button>
-                    <button onClick={handleStartCrop} className="bg-base-200/80 hover:bg-brand-primary text-text-primary hover:text-white p-2 rounded-full transition-colors duration-200" aria-label="Crop Canvas" title="Crop Canvas"><CropIcon /></button>
-                  </>
-                )}
-                 {imageDimensions && !isCropping && (<div className="absolute top-full right-0 mt-2 bg-black/60 text-white text-xs px-2 py-1 rounded-md pointer-events-none">{imageDimensions.width} x {imageDimensions.height}px</div>)}
+                <button onClick={handleSaveProject} className="bg-base-200/80 hover:bg-brand-primary text-text-primary hover:text-white p-2 rounded-full transition-colors duration-200" aria-label="Save Project" title="Save Project"><SaveProjectIcon /></button>
+                <button onClick={() => setIsExportModalOpen(true)} className="bg-base-200/80 hover:bg-brand-primary text-text-primary hover:text-white p-2 rounded-full transition-colors duration-200" aria-label="Export Image" title="Export Image"><DownloadIcon /></button>
+                 {page && (<div className="absolute top-full right-0 mt-2 bg-black/60 text-white text-xs px-2 py-1 rounded-md pointer-events-none">{page.width} x {page.height}px</div>)}
               </div>
             )}
             {generatedImages.length > 0 ? (
@@ -1776,14 +1658,13 @@ const handleApplyStyleTransfer = useCallback(async () => {
               <ImageCanvas
                 ref={canvasRef}
                 layers={layers}
+                page={page}
                 activeLayerId={activeLayerId}
                 isEditingMask={isEditingMask}
                 isLoading={isLoading} loadingMessage={loadingMessage} editMode={editMode} brushSize={brushSize} brushColor={brushColor}
                 onUploadClick={handleOpenImageClick}
-                isCropping={isCropping}
                 selectedShapeId={selectedShapeId} onAddStroke={handleAddStroke} onAddShape={handleAddShape}
-                // FIX: Changed onUpdateShape to handleUpdateShape as onUpdateShape was not defined.
-                onUpdateShape={handleUpdateShape} onSelectShape={setSelectedShapeId} onImageLoad={setImageDimensions}
+                onUpdateShape={handleUpdateShape} onSelectShape={setSelectedShapeId} 
                 onShapeInteractionEnd={handleShapeInteractionEnd}
                 onStrokeInteractionEnd={handleStrokeInteractionEnd}
                 onUpdateLayerMask={handleUpdateLayerMask}

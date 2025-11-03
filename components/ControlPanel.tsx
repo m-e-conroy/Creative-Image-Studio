@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, ClipArtCategory, TechnicalModifier, ImageAdjustments, Layer, LayerType, Theme, PexelsPhoto, AIEngine, ComfyUIConnectionStatus, ComfyUIWorkflow } from '../types';
+import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, ClipArtCategory, TechnicalModifier, ImageAdjustments, Layer, LayerType, Theme, PexelsPhoto, AIEngine, ComfyUIConnectionStatus, ComfyUIWorkflow, PageState } from '../types';
 import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, TECHNICAL_MODIFIERS } from '../constants';
-import { BrushIcon, ClearIcon, DrawIcon, EditIcon, GenerateIcon, MaskIcon, ResetIcon, FilterIcon, RewriteIcon, RandomIcon, UploadIcon, OutpaintIcon, ArrowUpIcon, ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon, CropIcon, IdeaIcon, UndoIcon, SaveIcon, RotateIcon, SettingsIcon, CloseIcon, CopyIcon, CheckIcon, LogoIcon, AddIcon, OpenProjectIcon, PexelsIcon, ChevronDownIcon, SearchIcon, MoveIcon, PaletteIcon } from './Icons';
+// FIX: Removed unused `CropIcon` import.
+import { BrushIcon, ClearIcon, DrawIcon, EditIcon, GenerateIcon, MaskIcon, ResetIcon, FilterIcon, RewriteIcon, RandomIcon, UploadIcon, OutpaintIcon, ArrowUpIcon, ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon, IdeaIcon, UndoIcon, SaveIcon, RotateIcon, SettingsIcon, CloseIcon, CopyIcon, CheckIcon, LogoIcon, AddIcon, OpenProjectIcon, PexelsIcon, ChevronDownIcon, SearchIcon, MoveIcon, PaletteIcon } from './Icons';
 import { ThemeSwitcher } from './ThemeSwitcher';
 import { LayersPanel } from './LayersPanel';
 
@@ -129,6 +130,9 @@ interface ControlPanelProps {
   comfyUIWorkflows: ComfyUIWorkflow[];
   selectedComfyUIWorkflow: ComfyUIWorkflow;
   onSelectedComfyUIWorkflowChange: (workflow: ComfyUIWorkflow) => void;
+  // Page props
+  page: PageState | null;
+  onPageSizeChange: (width: number, height: number) => void;
 }
 
 const TabButton: React.FC<{
@@ -158,31 +162,33 @@ const MiniLoader: React.FC = () => (
 );
 
 const InteractivePromptInput: React.FC<{
-  part: PromptPart;
+  part: PromptPart | 'edit';
   label: string;
   placeholder: string;
-  prompt: PromptState;
-  onPromptChange: (part: PromptPart, value: string) => void;
-  onRewritePrompt: (part: PromptPart) => void;
-  rewritingPrompt: PromptPart | null;
+  prompt: PromptState | string;
+  onPromptChange: (part: PromptPart | 'edit', value: string) => void;
+  onRewritePrompt: (part: PromptPart | 'edit') => void;
+  rewritingPrompt: PromptPart | 'edit' | null;
   onRandomPrompt: (part: PromptPart | 'edit') => void;
   randomizingPrompt: PromptPart | 'edit' | null;
-  onGetSuggestions: (part: PromptPart, value: string) => void;
-  suggestions: string[];
-  suggestionsLoading: boolean;
+  onGetSuggestions?: (part: PromptPart, value: string) => void;
+  suggestions?: string[];
+  suggestionsLoading?: boolean;
   isLoading: boolean;
   rows?: number;
 }> = ({ part, label, placeholder, prompt, onPromptChange, onRewritePrompt, rewritingPrompt, onRandomPrompt, randomizingPrompt, onGetSuggestions, suggestions, suggestionsLoading, isLoading, rows = 3 }) => {
     const [isCopied, setIsCopied] = useState(false);
+    const value = typeof prompt === 'string' ? prompt : prompt[part];
 
     const handleSuggestionClick = (suggestion: string) => {
-        const currentValue = prompt[part];
+        if (part === 'edit' || !onGetSuggestions) return;
+        const currentValue = typeof prompt === 'string' ? prompt : prompt[part];
         const separator = currentValue.trim() === '' ? '' : ', ';
         onPromptChange(part, `${currentValue}${separator}${suggestion}`);
     };
 
     const handleCopy = () => {
-      navigator.clipboard.writeText(prompt[part]).then(() => {
+      navigator.clipboard.writeText(value).then(() => {
           setIsCopied(true);
           setTimeout(() => setIsCopied(false), 2000);
       });
@@ -199,7 +205,7 @@ const InteractivePromptInput: React.FC<{
           <textarea
             id={`prompt-${part}`}
             rows={rows}
-            value={prompt[part]}
+            value={value}
             onChange={(e) => onPromptChange(part, e.target.value)}
             placeholder={placeholder}
             className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary focus:border-brand-primary transition pr-44 text-text-primary"
@@ -208,7 +214,7 @@ const InteractivePromptInput: React.FC<{
           <div className="absolute top-2 right-2 flex items-center space-x-1">
             <button
                 onClick={handleClear}
-                disabled={isLoading || !prompt[part]}
+                disabled={isLoading || !value}
                 className="p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-primary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
                 aria-label={`Clear ${part} prompt`}
                 title={`Clear ${part} prompt`}
@@ -217,22 +223,24 @@ const InteractivePromptInput: React.FC<{
             </button>
             <button
                 onClick={handleCopy}
-                disabled={isLoading || !prompt[part]}
+                disabled={isLoading || !value}
                 className="p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-primary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
                 aria-label={`Copy ${part} prompt`}
                 title={isCopied ? 'Copied!' : `Copy ${part} prompt`}
             >
                 {isCopied ? <CheckIcon /> : <CopyIcon />}
             </button>
-             <button
-                onClick={() => onGetSuggestions(part, prompt[part])}
-                disabled={isLoading || !!rewritingPrompt || !!randomizingPrompt || suggestionsLoading || !prompt[part]}
-                className="p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-primary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
-                aria-label={`Get ideas for ${part}`}
-                title={`Get ideas for ${part}`}
-            >
-                {suggestionsLoading ? <MiniLoader /> : <IdeaIcon />}
-            </button>
+             {onGetSuggestions && (
+                <button
+                    onClick={() => part !== 'edit' && onGetSuggestions(part, value)}
+                    disabled={isLoading || !!rewritingPrompt || !!randomizingPrompt || suggestionsLoading || !value}
+                    className="p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-primary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
+                    aria-label={`Get ideas for ${part}`}
+                    title={`Get ideas for ${part}`}
+                >
+                    {suggestionsLoading ? <MiniLoader /> : <IdeaIcon />}
+                </button>
+             )}
             <button
                 onClick={() => onRandomPrompt(part)}
                 disabled={isLoading || !!rewritingPrompt || !!randomizingPrompt}
@@ -244,7 +252,7 @@ const InteractivePromptInput: React.FC<{
             </button>
             <button
                 onClick={() => onRewritePrompt(part)}
-                disabled={isLoading || !!rewritingPrompt || !!randomizingPrompt || !prompt[part]}
+                disabled={isLoading || !!rewritingPrompt || !!randomizingPrompt || !value}
                 className="p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-primary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
                 aria-label={`Enhance ${part} prompt`}
                 title={`Enhance ${part} prompt`}
@@ -253,14 +261,14 @@ const InteractivePromptInput: React.FC<{
             </button>
           </div>
         </div>
-        {(suggestionsLoading || suggestions.length > 0) && (
+        {(suggestionsLoading || (suggestions && suggestions.length > 0)) && (
             <div className="mt-2 p-2 bg-base-200 rounded-md">
                 <p className="text-xs font-semibold text-text-secondary mb-1 flex items-center gap-1"><IdeaIcon /> Inspiration</p>
                 {suggestionsLoading ? (
                     <p className="text-xs text-text-secondary animate-pulse">Getting ideas...</p>
                 ) : (
                     <div className="flex flex-wrap gap-1">
-                        {suggestions.map((s, i) => (
+                        {suggestions?.map((s, i) => (
                             <button 
                                 key={i} 
                                 onClick={() => handleSuggestionClick(s)} 
@@ -288,7 +296,7 @@ const GeminiGeneratePanel: React.FC<Pick<ControlPanelProps, 'prompt' | 'onPrompt
       label="Subject" 
       placeholder="e.g., A majestic lion" 
       prompt={prompt} 
-      onPromptChange={onPromptChange} 
+      onPromptChange={onPromptChange as any} 
       onRewritePrompt={onRewritePrompt} 
       rewritingPrompt={rewritingPrompt} 
       onRandomPrompt={onRandomPrompt} 
@@ -303,7 +311,7 @@ const GeminiGeneratePanel: React.FC<Pick<ControlPanelProps, 'prompt' | 'onPrompt
       label="Background" 
       placeholder="e.g., on a rocky cliff at sunset" 
       prompt={prompt} 
-      onPromptChange={onPromptChange} 
+      onPromptChange={onPromptChange as any} 
       onRewritePrompt={onRewritePrompt} 
       rewritingPrompt={rewritingPrompt} 
       onRandomPrompt={onRandomPrompt} 
@@ -318,7 +326,7 @@ const GeminiGeneratePanel: React.FC<Pick<ControlPanelProps, 'prompt' | 'onPrompt
       label="Negative Prompt" 
       placeholder="e.g., text, watermarks, blurry, deformed" 
       prompt={prompt} 
-      onPromptChange={onPromptChange} 
+      onPromptChange={onPromptChange as any} 
       onRewritePrompt={onRewritePrompt} 
       rewritingPrompt={rewritingPrompt} 
       onRandomPrompt={onRandomPrompt} 
@@ -715,10 +723,9 @@ const AdjustmentControls: React.FC<{
 );
 
 
-const EditTab: React.FC<Omit<ControlPanelProps, 'prompt' | 'onPromptChange' | 'onGetSuggestions' | 'subjectSuggestions' | 'backgroundSuggestions' | 'negativePromptSuggestions' | 'suggestionsLoading' | 'style' | 'setStyle' | 'lighting' | 'setLighting' | 'composition' | 'setComposition' | 'technicalModifier' | 'setTechnicalModifier' | 'aspectRatio' | 'setAspectRatio' | 'onGenerate' | 'onClose' | 'activeTab' | 'setActiveTab' | 'themes' | 'activeTheme' | 'onThemeChange' | 'isDarkMode' | 'onToggleThemeMode' | 'onClearCustomShapes' | 'onOpenOptionsClick' | 'pexelsApiKey' | 'onSetPexelsApiKey' | 'aiEngine' | 'onAiEngineChange' | 'comfyUIServerAddress' | 'onComfyUIServerAddressChange' | 'comfyUIConnectionStatus' | 'onConnectToComfyUI' | 'comfyUICheckpointModels' | 'comfyUILoraModels' | 'selectedComfyUICheckpoint' | 'onSelectedComfyUICheckpointChange' | 'selectedComfyUILora' | 'onSelectedComfyUILoraChange' | 'comfyUIWorkflows' | 'selectedComfyUIWorkflow' | 'onSelectedComfyUIWorkflowChange'>> = (props) => {
+const EditTab: React.FC<Omit<ControlPanelProps, 'prompt' | 'onPromptChange' | 'onGetSuggestions' | 'subjectSuggestions' | 'backgroundSuggestions' | 'negativePromptSuggestions' | 'suggestionsLoading' | 'style' | 'setStyle' | 'lighting' | 'setLighting' | 'composition' | 'setComposition' | 'technicalModifier' | 'setTechnicalModifier' | 'aspectRatio' | 'setAspectRatio' | 'onGenerate' | 'onClose' | 'activeTab' | 'setActiveTab' | 'themes' | 'activeTheme' | 'onThemeChange' | 'isDarkMode' | 'onToggleThemeMode' | 'onClearCustomShapes' | 'onOpenOptionsClick' | 'pexelsApiKey' | 'onSetPexelsApiKey' | 'aiEngine' | 'onAiEngineChange' | 'comfyUIServerAddress' | 'onComfyUIServerAddressChange' | 'comfyUIConnectionStatus' | 'onConnectToComfyUI' | 'comfyUICheckpointModels' | 'comfyUILoraModels' | 'selectedComfyUICheckpoint' | 'onSelectedComfyUICheckpointChange' | 'selectedComfyUILora' | 'onSelectedComfyUILoraChange' | 'comfyUIWorkflows' | 'selectedComfyUIWorkflow' | 'onSelectedComfyUIWorkflowChange' | 'page' | 'onPageSizeChange'>> = (props) => {
     const { editPrompt, setEditPrompt, editMode, setEditMode, brushSize, setBrushSize, brushColor, setBrushColor, onEdit, onAnalyzeImage, onClear, onReset, onUndo, canUndo, isLoading, onRandomPrompt, randomizingPrompt, onOutpaint, outpaintPrompt, setOutpaintPrompt, outpaintAmount, setOutpaintAmount, clipArtCategories, selectedClipArtCategoryName, setSelectedClipArtCategoryName, onSaveShape, selectedShapeId, onDeleteSelectedShape, isEditingMask, colorPresets, onAddColorPreset, hasImage, onLayerAdjustmentChange, onResetLayerAdjustments, onLayerFilterChange, onRemixImage, remixPreservation, setRemixPreservation } = props;
     const [newShapeName, setNewShapeName] = useState('');
-    const [isEditPromptCopied, setIsEditPromptCopied] = useState(false);
     const [isPexelsOpen, setIsPexelsOpen] = useState(false);
 
 
@@ -735,17 +742,6 @@ const EditTab: React.FC<Omit<ControlPanelProps, 'prompt' | 'onPromptChange' | 'o
     
     const handleDragStart = (e: React.DragEvent<HTMLImageElement>, shape: ClipArtShape) => {
         e.dataTransfer.setData('text/plain', shape.dataUrl);
-    };
-    
-    const handleEditCopy = () => {
-        navigator.clipboard.writeText(editPrompt).then(() => {
-            setIsEditPromptCopied(true);
-            setTimeout(() => setIsEditPromptCopied(false), 2000);
-        });
-    };
-
-    const handleEditClear = () => {
-        setEditPrompt('');
     };
 
     const isPixelLayerActive = activeLayer?.type === LayerType.PIXEL;
@@ -777,7 +773,7 @@ const EditTab: React.FC<Omit<ControlPanelProps, 'prompt' | 'onPromptChange' | 'o
             <AdjustmentControls 
                 adjustments={activeLayer.adjustments} 
                 onAdjustmentChange={onLayerAdjustmentChange}
-                onResetLayerAdjustments={onResetLayerAdjustments}
+                onResetAdjustments={onResetLayerAdjustments}
                 onFilterChange={onLayerFilterChange}
                 isLoading={isLoading}
             />
@@ -861,57 +857,19 @@ const EditTab: React.FC<Omit<ControlPanelProps, 'prompt' | 'onPromptChange' | 'o
                   </div>
               )}
               <div>
-                  <label htmlFor="edit-prompt" className="block text-sm font-medium text-text-secondary mb-1">Editing Prompt</label>
-                  <div className="relative">
-                      <textarea id="edit-prompt" rows={3} value={editPrompt} onChange={(e) => setEditPrompt(e.target.value)} placeholder={placeholderText} className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-secondary focus:border-brand-secondary transition text-text-primary pr-44" disabled={isLoading || randomizingPrompt === 'edit'} />
-                      <div className="absolute top-2 right-2 flex items-center space-x-1">
-                          <button
-                              onClick={() => props.onRewritePrompt('edit')}
-                              disabled={isLoading || props.rewritingPrompt === 'edit' || randomizingPrompt === 'edit' || !editPrompt}
-                              className="p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-secondary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
-                              aria-label="Enhance edit prompt"
-                              title="Enhance edit prompt"
-                          >
-                              {props.rewritingPrompt === 'edit' ? <MiniLoader /> : <RewriteIcon />}
-                          </button>
-                          <button
-                              onClick={onAnalyzeImage}
-                              disabled={isLoading || !hasImage}
-                              className="p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-secondary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
-                              aria-label="Analyze image to create prompt"
-                              title="Analyze image to create prompt"
-                          >
-                              <IdeaIcon />
-                          </button>
-                          <button
-                              onClick={handleEditClear}
-                              disabled={isLoading || !editPrompt}
-                              className="p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-secondary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
-                              aria-label="Clear edit prompt"
-                              title="Clear edit prompt"
-                          >
-                              <CloseIcon />
-                          </button>
-                          <button
-                              onClick={handleEditCopy}
-                              disabled={isLoading || !editPrompt}
-                              className="p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-secondary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
-                              aria-label="Copy edit prompt"
-                              title={isEditPromptCopied ? 'Copied!' : 'Copy edit prompt'}
-                          >
-                              {isEditPromptCopied ? <CheckIcon /> : <CopyIcon />}
-                          </button>
-                          <button
-                              onClick={() => onRandomPrompt('edit')}
-                              disabled={isLoading || randomizingPrompt === 'edit'}
-                              className="p-1 rounded-full bg-base-200/50 text-text-secondary hover:bg-brand-secondary hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
-                              aria-label="Generate random edit prompt"
-                              title="Generate random edit prompt"
-                          >
-                              {randomizingPrompt === 'edit' ? <MiniLoader /> : <RandomIcon />}
-                          </button>
-                      </div>
-                  </div>
+                <InteractivePromptInput
+                  part="edit"
+                  label="Editing Prompt"
+                  placeholder={placeholderText}
+                  prompt={editPrompt}
+                  onPromptChange={(part, value) => setEditPrompt(value)}
+                  onRewritePrompt={props.onRewritePrompt}
+                  rewritingPrompt={props.rewritingPrompt}
+                  onRandomPrompt={onRandomPrompt}
+                  randomizingPrompt={randomizingPrompt}
+                  isLoading={isLoading}
+                  rows={3}
+                />
               </div>
               <button onClick={onEdit} disabled={isLoading || !editPrompt} className="w-full flex items-center justify-center gap-2 bg-brand-secondary hover:bg-brand-secondary/80 disabled:bg-base-300 text-white font-bold py-2 px-4 rounded-md transition duration-200"><EditIcon /> Apply Masked Edit</button>
           </>
@@ -1007,8 +965,8 @@ const EditTab: React.FC<Omit<ControlPanelProps, 'prompt' | 'onPromptChange' | 'o
     </div>
 )};
 
-const SettingsTab: React.FC<Pick<ControlPanelProps, 'onClearCustomShapes' | 'themes' | 'activeTheme' | 'onThemeChange' | 'isDarkMode' | 'onToggleThemeMode' | 'pexelsApiKey' | 'onSetPexelsApiKey' | 'aiEngine' | 'onAiEngineChange' | 'comfyUIServerAddress' | 'onComfyUIServerAddressChange' | 'comfyUIConnectionStatus' | 'onConnectToComfyUI' | 'isLoading'>> = (props) => {
-    const { onClearCustomShapes, themes, activeTheme, onThemeChange, isDarkMode, onToggleThemeMode, pexelsApiKey, onSetPexelsApiKey, aiEngine, onAiEngineChange, comfyUIServerAddress, onComfyUIServerAddressChange, comfyUIConnectionStatus, onConnectToComfyUI, isLoading } = props;
+const SettingsTab: React.FC<Pick<ControlPanelProps, 'onClearCustomShapes' | 'themes' | 'activeTheme' | 'onThemeChange' | 'isDarkMode' | 'onToggleThemeMode' | 'pexelsApiKey' | 'onSetPexelsApiKey' | 'aiEngine' | 'onAiEngineChange' | 'comfyUIServerAddress' | 'onComfyUIServerAddressChange' | 'comfyUIConnectionStatus' | 'onConnectToComfyUI' | 'isLoading' | 'page' | 'onPageSizeChange'>> = (props) => {
+    const { onClearCustomShapes, themes, activeTheme, onThemeChange, isDarkMode, onToggleThemeMode, pexelsApiKey, onSetPexelsApiKey, aiEngine, onAiEngineChange, comfyUIServerAddress, onComfyUIServerAddressChange, comfyUIConnectionStatus, onConnectToComfyUI, isLoading, page, onPageSizeChange } = props;
 
     const handleClearClick = () => {
         if (window.confirm("Are you sure you want to delete all your saved custom clip art, colors, API keys and reset the theme? This action cannot be undone.")) {
@@ -1026,6 +984,36 @@ const SettingsTab: React.FC<Pick<ControlPanelProps, 'onClearCustomShapes' | 'the
     return (
         <div className="flex flex-col space-y-4">
             <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2"><SettingsIcon /> Application Settings</h2>
+            
+            <div className="p-3 bg-base-100/50 rounded-md space-y-2">
+                <h3 className="text-md font-semibold text-text-primary">Page Setup</h3>
+                <div className="grid grid-cols-2 gap-2">
+                    <div>
+                        <label htmlFor="page-width" className="block text-sm font-medium text-text-secondary">Width (px)</label>
+                        <input
+                            id="page-width"
+                            type="number"
+                            value={page?.width || 0}
+                            onChange={(e) => onPageSizeChange(parseInt(e.target.value, 10), page?.height || 0)}
+                            className="mt-1 w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary text-sm"
+                            disabled={!page || isLoading}
+                        />
+                    </div>
+                    <div>
+                        <label htmlFor="page-height" className="block text-sm font-medium text-text-secondary">Height (px)</label>
+                        <input
+                            id="page-height"
+                            type="number"
+                            value={page?.height || 0}
+                            onChange={(e) => onPageSizeChange(page?.width || 0, parseInt(e.target.value, 10))}
+                            className="mt-1 w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary text-sm"
+                            disabled={!page || isLoading}
+                        />
+                    </div>
+                </div>
+                <p className="text-xs text-text-secondary">Controls the final output size of your image.</p>
+            </div>
+
 
             <div className="p-3 bg-base-100/50 rounded-md space-y-3">
                 <div className="flex items-center justify-between">

@@ -1,11 +1,13 @@
+
 import React, { useRef, useEffect, useState, useImperativeHandle, forwardRef, useCallback } from 'react';
-import { EditMode, PlacedShape, Stroke, Point, ImageAdjustments, Layer, LayerType } from '../types';
+import { EditMode, PlacedShape, Stroke, Point, ImageAdjustments, Layer, LayerType, PageState } from '../types';
 import { Loader } from './Loader';
 import { UploadIcon } from './Icons';
 import { FILTERS } from '../constants';
 
 interface ImageCanvasProps {
   layers: Layer[];
+  page: PageState | null;
   activeLayerId: string | null;
   isEditingMask: boolean;
   isLoading: boolean;
@@ -14,13 +16,11 @@ interface ImageCanvasProps {
   brushSize: number;
   brushColor: string;
   onUploadClick: () => void;
-  isCropping: boolean;
   selectedShapeId: string | null;
   onAddStroke: (stroke: Stroke) => void;
   onAddShape: (shape: Omit<PlacedShape, 'id' | 'rotation' | 'color'>) => void;
   onUpdateShape: (id: string, updates: Partial<Omit<PlacedShape, 'id'>>) => void;
   onSelectShape: (id: string | null) => void;
-  onImageLoad: (dimensions: { width: number; height: number; }) => void;
   onStrokeInteractionEnd: (stroke: Stroke) => void;
   onShapeInteractionEnd: () => void;
   onUpdateLayerMask: (layerId: string, maskDataUrl: string) => void;
@@ -30,10 +30,9 @@ interface ImageCanvasProps {
 }
 
 interface Rect { x: number; y: number; width: number; height: number; }
-type InteractionMode = 'idle' | 'drawing' | 'masking' | 'cropping' | 'moving' | 'resizing' | 'rotating' | 'moving-crop' | 'resizing-crop' | 'moving-layer';
+type InteractionMode = 'idle' | 'drawing' | 'masking' | 'moving' | 'resizing' | 'rotating' | 'moving-layer';
 type ResizeHandle = 'tl' | 'tr' | 'bl' | 'br';
 type Handle = ResizeHandle | 'rotate';
-type CropResizeHandle = 'tl' | 'tr' | 'bl' | 'br';
 
 
 interface InteractionState {
@@ -47,17 +46,13 @@ interface InteractionState {
   layerCenter?: Point;
   startAngle?: number;
   currentStroke?: Stroke;
-  cropResizeHandle?: CropResizeHandle | null;
-  cropMoveStartOffset?: Point | null;
 }
 
 export interface ImageCanvasMethods {
   getCanvasAsDataURL: (options?: { format?: 'png' | 'jpeg' | 'webp'; quality?: number; ignoreFilters?: boolean; fillStyle?: string; }) => string | null;
-  getExportDataURL: (options: { format?: 'png' | 'jpeg' | 'webp'; quality?: number; width: number; height: number; }) => Promise<string | null>;
+  getPageContentAsDataURL: (options?: { format?: 'png' | 'jpeg' | 'webp'; quality?: number; includeBackground?: boolean; }) => Promise<string | null>;
   getMaskData: () => string | null;
   getExpandedCanvasData: (baseImageDataUrl: string, direction: 'up' | 'down' | 'left' | 'right', amount: number) => Promise<{ data: string; mimeType: string; maskData: string; pasteX: number; pasteY: number; newWidth: number; newHeight: number; }>;
-  applyCrop: () => { dataUrl: string; width: number; height: number; } | null;
-  clearCropSelection: () => void;
   getCanvasDimensions: () => { width: number; height: number } | null;
   rasterizeLayer: (layerId: string) => Promise<{ newImageDataUrl: string; newMaskDataUrl?: string; newWidth: number; newHeight: number; } | null>;
   getMaskForLayer: (layerId: string) => Promise<string | null>;
@@ -68,17 +63,6 @@ const MIN_LAYER_SIZE = 20;
 const ROTATE_HANDLE_OFFSET = 20;
 
 type OffscreenCanvasEntry = { canvas: HTMLCanvasElement; image?: HTMLImageElement; dirty: boolean; };
-
-const getCropHandles = (rect: Rect): Record<CropResizeHandle, Rect> => {
-    const { x, y, width, height } = rect;
-    const size = HANDLE_SIZE;
-    return {
-        tl: { x: x - size / 2, y: y - size / 2, width: size, height: size },
-        tr: { x: x + width - size / 2, y: y - size / 2, width: size, height: size },
-        bl: { x: x - size / 2, y: y + height - size / 2, width: size, height: size },
-        br: { x: x + width - size / 2, y: y + height - size / 2, width: size, height: size },
-    };
-};
 
 const rotatePoint = (point: Point, center: Point, angle: number): Point => {
     const dx = point.x - center.x;
@@ -112,18 +96,6 @@ const getTransformHandles = (layer: Layer): Record<Handle, Point> => {
     };
 };
 
-const getHandleAtPoint = (point: Point, rect: Rect): CropResizeHandle | null => {
-    const handles = getCropHandles(rect);
-    for (const key in handles) {
-        const handleRect = handles[key as CropResizeHandle];
-        if (point.x >= handleRect.x && point.x <= handleRect.x + handleRect.width &&
-            point.y >= handleRect.y && point.y <= handleRect.y + handleRect.height) {
-            return key as CropResizeHandle;
-        }
-    }
-    return null;
-};
-
 const getHandleAtPointForLayer = (point: Point, layer: Layer): Handle | null => {
     const handles = getTransformHandles(layer);
     const size = HANDLE_SIZE;
@@ -145,7 +117,7 @@ const isPointInRect = (point: Point, rect: Rect) => {
 
 export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
   (props, ref) => {
-    const { layers, activeLayerId, isEditingMask, isLoading, loadingMessage, editMode, brushSize, brushColor, onUploadClick, isCropping, selectedShapeId, onAddStroke, onAddShape, onUpdateShape, onSelectShape, onImageLoad, onStrokeInteractionEnd, onShapeInteractionEnd, onUpdateLayerMask, onUpdateLayer, onInteractionEndWithHistory, onLayerTransformEnd } = props;
+    const { layers, page, activeLayerId, isEditingMask, isLoading, loadingMessage, editMode, brushSize, brushColor, onUploadClick, selectedShapeId, onAddStroke, onAddShape, onUpdateShape, onSelectShape, onStrokeInteractionEnd, onShapeInteractionEnd, onUpdateLayerMask, onUpdateLayer, onInteractionEndWithHistory, onLayerTransformEnd } = props;
     
     const mainCanvasRef = useRef<HTMLCanvasElement>(null);
     const interactionCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -156,7 +128,6 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
     const tempCompositeCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
     const interactionStateRef = useRef<InteractionState>({ mode: 'idle' });
-    const cropRectRef = useRef<Rect | null>(null);
     const lastDrawnLayerState = useRef<string | null>(null);
 
     const getCanvas = () => mainCanvasRef.current;
@@ -175,7 +146,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         const isPixelLayerActive = activeLayer?.type === LayerType.PIXEL;
     
         const showBrushCursor = (editMode === EditMode.SKETCH && isPixelLayerActive && !selectedShapeId) || isEditingMask;
-        if (showBrushCursor && !isCropping) {
+        if (showBrushCursor) {
             const { x, y } = interactionStateRef.current.startPoint || { x: -1000, y: -1000 };
             const radius = brushSize / 2;
             ctx.lineWidth = 1;
@@ -200,22 +171,6 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             }
             ctx.fill();
             ctx.stroke();
-        }
-        
-        if (cropRectRef.current && isCropping) {
-            const rect = cropRectRef.current;
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.clearRect(rect.x, rect.y, rect.width, rect.height);
-            
-            const handles = getCropHandles(rect);
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-            Object.values(handles).forEach(handle => {
-                ctx.fillRect(handle.x, handle.y, handle.width, handle.height);
-            });
         }
         
         if (editMode === EditMode.MOVE && activeLayer && (activeLayer.type === LayerType.IMAGE) && activeLayer.width && activeLayer.height) {
@@ -247,12 +202,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             ctx.stroke();
         }
 
-    }, [editMode, brushSize, brushColor, selectedShapeId, isEditingMask, isCropping, layers, activeLayerId]);
-
-    const clearCropSelection = useCallback(() => {
-      cropRectRef.current = null;
-      drawInteractionLayer();
-    }, [drawInteractionLayer]);
+    }, [editMode, brushSize, brushColor, selectedShapeId, isEditingMask, layers, activeLayerId]);
     
     const getFlattenedCanvas = (): HTMLCanvasElement | null => {
         const canvas = getCanvas();
@@ -264,6 +214,161 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         }
         return flatCanvas;
     };
+
+    const drawLayersToContext = async (
+        ctx: CanvasRenderingContext2D,
+        targetWidth: number,
+        targetHeight: number,
+        sourcePage: PageState,
+        includeBackground: boolean
+    ) => {
+        const scaleX = targetWidth / sourcePage.width;
+        const scaleY = targetHeight / sourcePage.height;
+    
+        if (includeBackground) {
+            const pageBg = getComputedStyle(document.documentElement).getPropertyValue('--color-base-200').trim();
+            ctx.fillStyle = `rgb(${pageBg})`;
+            ctx.fillRect(0, 0, targetWidth, targetHeight);
+        }
+    
+        const loadImage = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+            const img = new Image();
+            img.crossOrigin = "Anonymous";
+            img.onload = () => resolve(img);
+            img.onerror = (err) => reject(new Error(`Could not load image for export. ${err}`));
+            img.src = src;
+        });
+
+        const snapshotCanvas = document.createElement('canvas');
+        snapshotCanvas.width = targetWidth;
+        snapshotCanvas.height = targetHeight;
+        const snapshotCtx = snapshotCanvas.getContext('2d');
+    
+        for (const layer of layers) {
+            if (!layer.isVisible) continue;
+    
+            if (layer.type === LayerType.ADJUSTMENT) {
+                if (snapshotCtx) {
+                    snapshotCtx.clearRect(0, 0, targetWidth, targetHeight);
+                    snapshotCtx.drawImage(ctx.canvas, 0, 0);
+                }
+            }
+    
+            ctx.save();
+            ctx.globalAlpha = layer.opacity / 100;
+            
+            if (layer.type === LayerType.IMAGE || layer.type === LayerType.PIXEL) {
+                ctx.globalCompositeOperation = (layer.blendMode || 'source-over') as GlobalCompositeOperation;
+    
+                const layerContentCanvas = document.createElement('canvas');
+                const layerContentCtx = layerContentCanvas.getContext('2d', { willReadFrequently: true });
+                if (!layerContentCtx) {
+                    ctx.restore();
+                    continue;
+                }
+    
+                if (layer.type === LayerType.IMAGE && layer.src) {
+                    const img = await loadImage(layer.src);
+                    layerContentCanvas.width = img.width;
+                    layerContentCanvas.height = img.height;
+                    layerContentCtx.drawImage(img, 0, 0);
+                } else if (layer.type === LayerType.PIXEL) {
+                    const mainCanvas = getCanvas();
+                    if (!mainCanvas) continue;
+                    layerContentCanvas.width = mainCanvas.width;
+                    layerContentCanvas.height = mainCanvas.height;
+                    
+                    layer.strokes?.forEach(stroke => {
+                        layerContentCtx.strokeStyle = stroke.color;
+                        layerContentCtx.lineWidth = stroke.size;
+                        layerContentCtx.lineCap = 'round';
+                        layerContentCtx.lineJoin = 'round';
+                        layerContentCtx.beginPath();
+                        if (stroke.points.length > 0) {
+                            layerContentCtx.moveTo(stroke.points[0].x, stroke.points[0].y);
+                            for (let i = 1; i < stroke.points.length; i++) {
+                                layerContentCtx.lineTo(stroke.points[i].x, stroke.points[i].y);
+                            }
+                            layerContentCtx.stroke();
+                        }
+                    });
+                    
+                    for (const shape of (layer.placedShapes || [])) {
+                        const shapeImg = await loadImage(shape.dataUrl);
+                        layerContentCtx.save();
+                        layerContentCtx.translate(shape.x, shape.y);
+                        layerContentCtx.rotate(shape.rotation);
+                        layerContentCtx.drawImage(shapeImg, -shape.width/2, -shape.height/2, shape.width, shape.height);
+                        layerContentCtx.restore();
+                    }
+                }
+    
+                if (layer.maskSrc && layer.maskEnabled) {
+                    const maskImg = await loadImage(layer.maskSrc);
+                    layerContentCtx.globalCompositeOperation = 'destination-in';
+                    const maskCanvas = document.createElement('canvas');
+                    maskCanvas.width = layerContentCanvas.width;
+                    maskCanvas.height = layerContentCanvas.height;
+                    const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
+                    if(maskCtx){
+                        maskCtx.drawImage(maskImg, 0, 0, maskCanvas.width, maskCanvas.height);
+                        const imageData = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
+                        const data = imageData.data;
+                        for (let i = 0; i < data.length; i += 4) {
+                            const luminance = (data[i] * 0.299) + (data[i+1] * 0.587) + (data[i+2] * 0.114);
+                            data[i+3] = luminance > 128 ? 255 : 0;
+                        }
+                        maskCtx.putImageData(imageData, 0, 0);
+                        layerContentCtx.drawImage(maskCanvas, 0, 0);
+                    }
+                }
+                
+                const { x=0, y=0, width, height, rotation=0 } = layer;
+                const finalWidth = width ?? layerContentCanvas.width;
+                const finalHeight = height ?? layerContentCanvas.height;
+                const finalX = x;
+                const finalY = y;
+                
+                const centerX = finalX + finalWidth / 2;
+                const centerY = finalY + finalHeight / 2;
+    
+                const transformedCenterX = (centerX - sourcePage.x) * scaleX;
+                const transformedCenterY = (centerY - sourcePage.y) * scaleY;
+    
+                ctx.translate(transformedCenterX, transformedCenterY);
+                ctx.rotate(rotation);
+                
+                ctx.drawImage(layerContentCanvas, - (finalWidth * scaleX) / 2, - (finalHeight * scaleY) / 2, finalWidth * scaleX, finalHeight * scaleY);
+    
+            } else if (layer.type === LayerType.ADJUSTMENT && layer.adjustments && snapshotCtx) {
+                 const { brightness, contrast, red, green, blue, filter: filterName } = layer.adjustments;
+                 const filterPreset = FILTERS.find(f => f.name === filterName);
+                 const presetFilterValue = filterPreset && filterPreset.name !== 'None' ? filterPreset.value : '';
+                 const cssFilters = `${presetFilterValue} brightness(${brightness}%) contrast(${contrast}%)`;
+    
+                 ctx.clearRect(0, 0, targetWidth, targetHeight);
+                 ctx.filter = cssFilters;
+                 ctx.drawImage(snapshotCanvas, 0, 0);
+                 ctx.filter = 'none';
+    
+                 const imageData = ctx.getImageData(0, 0, targetWidth, targetHeight);
+                 const data = imageData.data;
+                 const rFactor = red / 100;
+                 const gFactor = green / 100;
+                 const bFactor = blue / 100;
+                 if (rFactor !== 1 || gFactor !== 1 || bFactor !== 1) {
+                     for (let i = 0; i < data.length; i += 4) {
+                         data[i] = Math.min(255, data[i] * rFactor);
+                         data[i + 1] = Math.min(255, data[i + 1] * gFactor);
+                         data[i + 2] = Math.min(255, data[i + 2] * bFactor);
+                     }
+                     ctx.putImageData(imageData, 0, 0);
+                 }
+            }
+            ctx.restore();
+        }
+    };
+
 
     useImperativeHandle(ref, () => ({
       getCanvasAsDataURL: (options: { format?: 'png' | 'jpeg' | 'webp'; quality?: number; ignoreFilters?: boolean; fillStyle?: string; } = {}) => {
@@ -286,154 +391,18 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         const mimeType = `image/${format}`;
         return flatCanvas.toDataURL(mimeType, quality);
       },
-      getExportDataURL: async (options: { format?: 'png' | 'jpeg' | 'webp'; quality?: number; width: number; height: number; }) => {
-        const { format = 'png', quality = 0.92, width: targetWidth, height: targetHeight } = options;
-        
-        const mainCanvas = getCanvas();
-        if (!mainCanvas || mainCanvas.width === 0) {
-            console.error("Main canvas not available for export.");
-            return null;
-        }
+      getPageContentAsDataURL: async (options = {}) => {
+        const { format = 'png', quality = 0.92, includeBackground = false } = options;
+        if (!page) return null;
 
         const exportCanvas = document.createElement('canvas');
-        exportCanvas.width = targetWidth;
-        exportCanvas.height = targetHeight;
-        const exportCtx = exportCanvas.getContext('2d', { willReadFrequently: true });
-        if (!exportCtx) {
-            console.error("Could not create export canvas context.");
-            return null;
-        }
+        exportCanvas.width = page.width;
+        exportCanvas.height = page.height;
+        const exportCtx = exportCanvas.getContext('2d');
+        if (!exportCtx) return null;
 
-        const scaleX = targetWidth / mainCanvas.width;
-        const scaleY = targetHeight / mainCanvas.height;
+        await drawLayersToContext(exportCtx, page.width, page.height, page, includeBackground);
 
-        const loadImage = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
-            const img = new Image();
-            img.crossOrigin = "Anonymous";
-            img.onload = () => resolve(img);
-            img.onerror = (err) => reject(new Error(`Could not load image for export. ${err}`));
-            img.src = src;
-        });
-
-        for (const layer of layers) {
-            if (!layer.isVisible) continue;
-
-            const snapshotBeforeAdjustment = document.createElement('canvas');
-            snapshotBeforeAdjustment.width = targetWidth;
-            snapshotBeforeAdjustment.height = targetHeight;
-            const snapshotCtx = snapshotBeforeAdjustment.getContext('2d');
-            if (snapshotCtx) snapshotCtx.drawImage(exportCanvas, 0, 0);
-
-            exportCtx.save();
-            exportCtx.globalAlpha = layer.opacity / 100;
-            
-            if (layer.type === LayerType.IMAGE || layer.type === LayerType.PIXEL) {
-                exportCtx.globalCompositeOperation = (layer.blendMode || 'source-over') as GlobalCompositeOperation;
-
-                const layerContentCanvas = document.createElement('canvas');
-                const layerContentCtx = layerContentCanvas.getContext('2d', { willReadFrequently: true });
-                if (!layerContentCtx) {
-                    exportCtx.restore();
-                    continue;
-                }
-
-                if (layer.type === LayerType.IMAGE && layer.src) {
-                    const img = await loadImage(layer.src);
-                    layerContentCanvas.width = img.width;
-                    layerContentCanvas.height = img.height;
-                    layerContentCtx.drawImage(img, 0, 0);
-                } else if (layer.type === LayerType.PIXEL) {
-                    layerContentCanvas.width = targetWidth;
-                    layerContentCanvas.height = targetHeight;
-                    
-                    layer.strokes?.forEach(stroke => {
-                        layerContentCtx.strokeStyle = stroke.color;
-                        layerContentCtx.lineWidth = stroke.size * scaleX;
-                        layerContentCtx.lineCap = 'round';
-                        layerContentCtx.lineJoin = 'round';
-                        layerContentCtx.beginPath();
-                        if (stroke.points.length > 0) {
-                            layerContentCtx.moveTo(stroke.points[0].x * scaleX, stroke.points[0].y * scaleY);
-                            for (let i = 1; i < stroke.points.length; i++) {
-                                layerContentCtx.lineTo(stroke.points[i].x * scaleX, stroke.points[i].y * scaleY);
-                            }
-                            layerContentCtx.stroke();
-                        }
-                    });
-                    
-                    for (const shape of (layer.placedShapes || [])) {
-                        const shapeImg = await loadImage(shape.dataUrl);
-                        layerContentCtx.save();
-                        layerContentCtx.translate(shape.x * scaleX, shape.y * scaleY);
-                        layerContentCtx.rotate(shape.rotation);
-                        layerContentCtx.drawImage(shapeImg, -shape.width/2 * scaleX, -shape.height/2 * scaleY, shape.width * scaleX, shape.height * scaleY);
-                        layerContentCtx.restore();
-                    }
-                }
-
-                if (layer.maskSrc && layer.maskEnabled) {
-                    const maskImg = await loadImage(layer.maskSrc);
-                    layerContentCtx.globalCompositeOperation = 'destination-in';
-                    const maskCanvas = document.createElement('canvas');
-                    maskCanvas.width = layerContentCanvas.width;
-                    maskCanvas.height = layerContentCanvas.height;
-                    const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
-                    if(maskCtx){
-                        maskCtx.drawImage(maskImg, 0, 0, maskCanvas.width, maskCanvas.height);
-                        const imageData = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
-                        const data = imageData.data;
-                        for (let i = 0; i < data.length; i += 4) {
-                            const luminance = (data[i] * 0.299) + (data[i+1] * 0.587) + (data[i+2] * 0.114);
-                            data[i+3] = luminance > 128 ? 255 : 0;
-                        }
-                        maskCtx.putImageData(imageData, 0, 0);
-                        layerContentCtx.drawImage(maskCanvas, 0, 0);
-                    }
-                }
-                
-                const { x=0, y=0, width, height, rotation=0 } = layer;
-                const finalWidth = (width ?? mainCanvas.width) * scaleX;
-                const finalHeight = (height ?? mainCanvas.height) * scaleY;
-                const finalX = x * scaleX;
-                const finalY = y * scaleY;
-                
-                const centerX = finalX + finalWidth / 2;
-                const centerY = finalY + finalHeight / 2;
-
-                exportCtx.translate(centerX, centerY);
-                exportCtx.rotate(rotation);
-                exportCtx.translate(-centerX, -centerY);
-                
-                exportCtx.drawImage(layerContentCanvas, finalX, finalY, finalWidth, finalHeight);
-
-            } else if (layer.type === LayerType.ADJUSTMENT && layer.adjustments && snapshotCtx) {
-                 const { brightness, contrast, red, green, blue, filter: filterName } = layer.adjustments;
-                 const filterPreset = FILTERS.find(f => f.name === filterName);
-                 const presetFilterValue = filterPreset && filterPreset.name !== 'None' ? filterPreset.value : '';
-                 const cssFilters = `${presetFilterValue} brightness(${brightness}%) contrast(${contrast}%)`;
-
-                 exportCtx.clearRect(0, 0, targetWidth, targetHeight);
-                 exportCtx.filter = cssFilters;
-                 exportCtx.drawImage(snapshotBeforeAdjustment, 0, 0);
-                 exportCtx.filter = 'none';
-
-                 const imageData = exportCtx.getImageData(0, 0, targetWidth, targetHeight);
-                 const data = imageData.data;
-                 const rFactor = red / 100;
-                 const gFactor = green / 100;
-                 const bFactor = blue / 100;
-                 if (rFactor !== 1 || gFactor !== 1 || bFactor !== 1) {
-                     for (let i = 0; i < data.length; i += 4) {
-                         data[i] = Math.min(255, data[i] * rFactor);
-                         data[i + 1] = Math.min(255, data[i + 1] * gFactor);
-                         data[i + 2] = Math.min(255, data[i + 2] * bFactor);
-                     }
-                     exportCtx.putImageData(imageData, 0, 0);
-                 }
-            }
-            exportCtx.restore();
-        }
-        
         return exportCanvas.toDataURL(`image/${format}`, quality);
       },
       getMaskData: () => {
@@ -467,25 +436,6 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         
         return maskCanvas.toDataURL('image/png').split(',')[1];
       },
-      applyCrop: () => {
-        const flatCanvas = getFlattenedCanvas();
-        const rect = cropRectRef.current;
-        if (!flatCanvas || !rect || rect.width <= 0 || rect.height <= 0) return null;
-
-        const croppedCanvas = document.createElement('canvas');
-        const finalWidth = Math.round(rect.width);
-        const finalHeight = Math.round(rect.height);
-        croppedCanvas.width = finalWidth;
-        croppedCanvas.height = finalHeight;
-        const croppedCtx = croppedCanvas.getContext('2d');
-        if (!croppedCtx) return null;
-
-        croppedCtx.drawImage(flatCanvas, rect.x, rect.y, rect.width, rect.height, 0, 0, finalWidth, finalHeight);
-        
-        clearCropSelection();
-        return { dataUrl: croppedCanvas.toDataURL('image/png'), width: finalWidth, height: finalHeight };
-      },
-      clearCropSelection: clearCropSelection,
       getCanvasDimensions: () => {
         const canvas = getCanvas();
         return canvas ? { width: canvas.width, height: canvas.height } : null;
@@ -613,12 +563,11 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
       },
       getMaskForLayer: async (layerId) => {
           const layer = layers.find(l => l.id === layerId);
-          const canvas = getCanvas();
-          if (!layer || !canvas) return null;
+          if (!layer || !page) return null;
 
           const maskCanvas = document.createElement('canvas');
-          maskCanvas.width = canvas.width;
-          maskCanvas.height = canvas.height;
+          maskCanvas.width = page.width;
+          maskCanvas.height = page.height;
           const ctx = maskCanvas.getContext('2d');
           if (!ctx) return null;
 
@@ -633,14 +582,14 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
               const { x = 0, y = 0, width = 0, height = 0, rotation = 0 } = layer;
               if (width === 0 || height === 0) return null;
               
-              const centerX = x + width / 2;
-              const centerY = y + height / 2;
+              const centerX = (x - page.x) + width / 2;
+              const centerY = (y - page.y) + height / 2;
               
               ctx.save();
               ctx.translate(centerX, centerY);
               ctx.rotate(rotation);
               ctx.translate(-centerX, -centerY);
-              ctx.drawImage(maskImg, x, y, width, height); 
+              ctx.drawImage(maskImg, x - page.x, y - page.y, width, height); 
               ctx.restore();
           } else if (layer.type === LayerType.PIXEL) {
               ctx.fillStyle = 'white';
@@ -652,9 +601,9 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                   ctx.lineJoin = 'round';
                   ctx.beginPath();
                   if(stroke.points.length > 0) {
-                      ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+                      ctx.moveTo(stroke.points[0].x - page.x, stroke.points[0].y - page.y);
                       for (let i = 1; i < stroke.points.length; i++) {
-                          ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+                          ctx.lineTo(stroke.points[i].x - page.x, stroke.points[i].y - page.y);
                       }
                       ctx.stroke();
                   }
@@ -671,7 +620,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
 
               layer.placedShapes?.forEach((shape, index) => {
                   ctx.save();
-                  ctx.translate(shape.x, shape.y);
+                  ctx.translate(shape.x - page.x, shape.y - page.y);
                   ctx.rotate(shape.rotation);
                   
                   const shapeImg = shapeImages[index];
@@ -843,7 +792,6 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         try {
             const theme = window.getComputedStyle(document.documentElement);
             const base300 = `rgb(${theme.getPropertyValue('--color-base-300').trim()})`;
-            // Use the secondary text color with low opacity for a softer, less distracting grid
             const gridLineColor = `rgba(${theme.getPropertyValue('--color-text-secondary').trim()}, 0.05)`;
             const gridSize = 20;
 
@@ -867,6 +815,15 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             console.warn("Could not draw theme-aware grid, using fallback.", e);
             tempCtx.fillStyle = '#e4e4e4'; // Fallback color
             tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+        }
+
+        if (page) {
+            const pageBg = getComputedStyle(document.documentElement).getPropertyValue('--color-base-200').trim();
+            tempCtx.fillStyle = `rgb(${pageBg})`;
+            tempCtx.fillRect(page.x, page.y, page.width, page.height);
+            tempCtx.strokeStyle = 'rgba(0,0,0,0.1)';
+            tempCtx.lineWidth = 1;
+            tempCtx.strokeRect(page.x - 0.5, page.y - 0.5, page.width + 1, page.height + 1);
         }
 
         for (const layer of layers) {
@@ -910,7 +867,6 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                     matrixElement.setAttribute('values', matrix);
                 }
 
-                // Create a temporary canvas to hold the current state
                 const snapshotCanvas = document.createElement('canvas');
                 snapshotCanvas.width = tempCanvas.width;
                 snapshotCanvas.height = tempCanvas.height;
@@ -921,11 +877,10 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                 };
                 snapshotCtx.drawImage(tempCanvas, 0, 0);
 
-                // Apply the filter to the main temp canvas by drawing the snapshot onto it with the filter
                 tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
                 tempCtx.filter = `${cssFilters} url(#adjustment-filter)`;
                 tempCtx.drawImage(snapshotCanvas, 0, 0);
-                tempCtx.filter = 'none'; // Reset for subsequent layers
+                tempCtx.filter = 'none';
             }
             
             tempCtx.restore();
@@ -934,7 +889,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(tempCanvas, 0, 0);
 
-    }, [layers, renderLayerToOffscreen]);
+    }, [layers, renderLayerToOffscreen, page]);
 
 
     useEffect(() => {
@@ -956,22 +911,10 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             interactionCanvas.height = canvas.height;
         }
 
-        const firstImageLayer = layers.find(l => l.type === LayerType.IMAGE && l.src);
-        if (firstImageLayer?.src) {
-            const img = offscreenCanvasesRef.current.get(firstImageLayer.id)?.image;
-            if (img && img.complete) {
-                onImageLoad({ width: img.width, height: img.height });
-            } else {
-                const tempImg = new Image();
-                tempImg.onload = () => { onImageLoad({ width: tempImg.width, height: tempImg.height }); };
-                tempImg.src = firstImageLayer.src;
-            }
-        }
-        
         offscreenCanvasesRef.current.forEach(val => val.dirty = true);
         offscreenMasksRef.current.forEach(val => val.dirty = true);
         drawLayers();
-    }, [layers, onImageLoad, drawLayers]);
+    }, [drawLayers]);
 
     useEffect(() => {
         initCanvases();
@@ -1069,27 +1012,6 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             }
         }
 
-        if (isCropping) {
-             if (cropRectRef.current) {
-                const handle = getHandleAtPoint(point, cropRectRef.current);
-                if (handle) {
-                    interactionStateRef.current = { mode: 'resizing-crop', startPoint: point, cropResizeHandle: handle };
-                    return;
-                }
-                if (isPointInRect(point, cropRectRef.current)) {
-                    interactionStateRef.current = {
-                        mode: 'moving-crop',
-                        startPoint: point,
-                        cropMoveStartOffset: { x: point.x - cropRectRef.current.x, y: point.y - cropRectRef.current.y }
-                    };
-                    return;
-                }
-            }
-            interactionStateRef.current = { mode: 'cropping', startPoint: point };
-            cropRectRef.current = { x: point.x, y: point.y, width: 0, height: 0 };
-            return;
-        }
-
         if (isEditingMask) {
             let localPoint = point;
             if (activeLayer.type === LayerType.IMAGE) {
@@ -1130,7 +1052,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             interactionStateRef.current.mode = 'drawing';
             const newStroke: Stroke = {
                 id: `stroke_${Date.now()}`,
-                points: [{x: point.x - (activeLayer.x || 0), y: point.y - (activeLayer.y || 0)}],
+                points: [{x: point.x, y: point.y}],
                 color: brushColor,
                 size: brushSize,
             };
@@ -1141,23 +1063,14 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
 
     const handleMouseMove = (e: React.MouseEvent) => {
         const point = getCanvasCoordinates(e);
-        const { mode, startPoint, prevPoint, currentStroke, layerStart, handle, layerCenter, startAngle } = interactionStateRef.current;
+        const { mode, prevPoint, currentStroke, layerStart, handle, layerCenter, startAngle } = interactionStateRef.current;
         const canvas = getInteractionCanvas();
         if (!canvas) return;
         const activeLayer = layers.find(l => l.id === activeLayerId);
         const isPixelLayerActive = activeLayer?.type === LayerType.PIXEL;
 
         let cursorStyle = 'auto';
-        if (isCropping) {
-            const cropHandle = cropRectRef.current ? getHandleAtPoint(point, cropRectRef.current) : null;
-            if (cropHandle) {
-                cursorStyle = (cropHandle === 'tl' || cropHandle === 'br') ? 'nwse-resize' : 'nesw-resize';
-            } else if (cropRectRef.current && isPointInRect(point, cropRectRef.current)) {
-                cursorStyle = 'move';
-            } else {
-                cursorStyle = 'crosshair';
-            }
-        } else if (editMode === EditMode.MOVE && activeLayer && activeLayer.type === LayerType.IMAGE) {
+        if (editMode === EditMode.MOVE && activeLayer && activeLayer.type === LayerType.IMAGE) {
             const transformHandle = getHandleAtPointForLayer(point, activeLayer);
             if (transformHandle === 'rotate') {
                 cursorStyle = 'grabbing'; // Or a custom rotate cursor
@@ -1227,31 +1140,6 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                 }));
             }
             interactionStateRef.current.prevPoint = point;
-        } else if (mode === 'cropping' && startPoint && cropRectRef.current) {
-            cropRectRef.current.x = Math.min(startPoint.x, point.x);
-            cropRectRef.current.y = Math.min(startPoint.y, point.y);
-            cropRectRef.current.width = Math.abs(startPoint.x - point.x);
-            cropRectRef.current.height = Math.abs(startPoint.y - point.y);
-        } else if (mode === 'moving-crop' && cropRectRef.current && interactionStateRef.current.cropMoveStartOffset) {
-            const { cropMoveStartOffset } = interactionStateRef.current;
-            let newX = point.x - cropMoveStartOffset.x;
-            let newY = point.y - cropMoveStartOffset.y;
-            newX = Math.max(0, Math.min(newX, canvas.width - cropRectRef.current.width));
-            newY = Math.max(0, Math.min(newY, canvas.height - cropRectRef.current.height));
-            cropRectRef.current.x = newX;
-            cropRectRef.current.y = newY;
-        } else if (mode === 'resizing-crop' && cropRectRef.current && interactionStateRef.current.cropResizeHandle) {
-            const rect = cropRectRef.current;
-            const handle = interactionStateRef.current.cropResizeHandle;
-            const oldRight = rect.x + rect.width;
-            const oldBottom = rect.y + rect.height;
-
-            switch (handle) {
-                case 'tl': rect.width = oldRight - point.x; rect.height = oldBottom - point.y; rect.x = point.x; rect.y = point.y; break;
-                case 'tr': rect.width = point.x - rect.x; rect.height = oldBottom - point.y; rect.y = point.y; break;
-                case 'bl': rect.width = oldRight - point.x; rect.height = point.y - rect.y; rect.x = point.x; break;
-                case 'br': rect.width = point.x - rect.x; rect.height = point.y - rect.y; break;
-            }
         } else if (mode === 'masking' && activeLayerId) {
             const maskData = offscreenMasksRef.current.get(activeLayerId);
             const maskCtx = maskData?.canvas.getContext('2d');
@@ -1269,7 +1157,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                 drawLayers();
             }
         } else if (mode === 'drawing' && currentStroke && activeLayer) {
-            const localPoint = { x: point.x - (activeLayer.x || 0), y: point.y - (activeLayer.y || 0) };
+            const localPoint = { x: point.x, y: point.y };
             const updatedStroke = { ...currentStroke, points: [...currentStroke.points, localPoint] };
             interactionStateRef.current.currentStroke = updatedStroke;
             
@@ -1298,11 +1186,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         const canvas = getInteractionCanvas();
         if (canvas) canvas.style.cursor = 'auto';
 
-        if (mode === 'resizing-crop' && cropRectRef.current) {
-            const rect = cropRectRef.current;
-            if (rect.width < 0) { rect.x += rect.width; rect.width *= -1; }
-            if (rect.height < 0) { rect.y += rect.height; rect.height *= -1; }
-        } else if (mode === 'masking' && activeLayerId) {
+        if (mode === 'masking' && activeLayerId) {
             const maskData = offscreenMasksRef.current.get(activeLayerId);
             if (maskData) {
                 const maskCtx = maskData.canvas.getContext('2d');
@@ -1347,8 +1231,8 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                 const size = 100;
                 const newShape: Omit<PlacedShape, 'id' | 'rotation' | 'color'> = {
                     dataUrl,
-                    x: point.x - (activeLayer.x || 0),
-                    y: point.y - (activeLayer.y || 0),
+                    x: point.x,
+                    y: point.y,
                     width: size,
                     height: size * (img.height / img.width),
                 };

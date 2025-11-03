@@ -38,128 +38,104 @@ export async function generateImage(
 ): Promise<string[]> {
   return handleApiCall(async () => {
     const response = await ai.models.generateImages({
-        model: 'imagen-4.0-generate-001',
-        prompt: prompt,
-        config: {
-          numberOfImages: config.numberOfImages,
-          outputMimeType: 'image/jpeg',
-          aspectRatio: config.aspectRatio as "1:1" | "16:9" | "9:16" | "4:3" | "3:4",
-        },
+      model: 'imagen-4.0-generate-001',
+      prompt,
+      config: {
+        numberOfImages: config.numberOfImages,
+        aspectRatio: config.aspectRatio as "1:1" | "3:4" | "4:3" | "9:16" | "16:9",
+        outputMimeType: 'image/png',
+      },
     });
 
-    if (response.generatedImages && response.generatedImages.length > 0) {
-        return response.generatedImages.map(img => img.image.imageBytes);
-    }
-    
-    throw new Error("Image generation failed, no images returned.");
+    return response.generatedImages.map(img => img.image.imageBytes);
+  });
+}
+
+export async function describeImage(
+  imageDataBase64: string,
+  mimeType: string
+): Promise<string> {
+  return handleApiCall(async () => {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              data: imageDataBase64,
+              mimeType,
+            },
+          },
+          { text: "Describe this image in detail, focusing on the main subject, background elements, and overall style. Be descriptive but concise." },
+        ],
+      },
+    });
+    return response.text;
   });
 }
 
 export async function editImage(
-  base64ImageData: string,
+  imageDataBase64: string,
   mimeType: string,
   prompt: string,
-  base64MaskData?: string
-): Promise<{ text?: string; image?: string }> {
+  maskDataBase64?: string
+): Promise<{ image: string | null; text: string | null }> {
   return handleApiCall(async () => {
-    const parts: any[] = [];
+    const parts: any[] = [
+      {
+        inlineData: {
+          data: imageDataBase64,
+          mimeType,
+        },
+      },
+      { text: prompt },
+    ];
 
-    if (base64MaskData) {
-      // For masked edits, the model expects the mask first to provide context.
+    if (maskDataBase64) {
       parts.push({
         inlineData: {
-          data: base64MaskData,
-          mimeType: 'image/png',
-        },
-      });
-      parts.push({
-        inlineData: {
-          data: base64ImageData,
-          mimeType: mimeType,
-        },
-      });
-    } else {
-      // For non-masked edits, just send the image.
-      parts.push({
-        inlineData: {
-          data: base64ImageData,
-          mimeType: mimeType,
+          data: maskDataBase64,
+          mimeType: 'image/png', // Masks are usually PNG
         },
       });
     }
-
-    parts.push({ text: prompt });
 
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
       contents: { parts },
       config: {
-        responseModalities: [Modality.IMAGE, Modality.TEXT],
+        responseModalities: [Modality.IMAGE],
       },
     });
-    
-    const result: { text?: string; image?: string } = {};
-    const candidate = response.candidates?.[0];
 
-    // Safely access parts and ensure it's an array to prevent crashes.
-    if (candidate?.content?.parts && Array.isArray(candidate.content.parts)) {
-        for (const part of candidate.content.parts) {
-          if (part.text) {
-            result.text = part.text;
-          } else if (part.inlineData) {
-            result.image = part.inlineData.data;
-          }
-        }
-    }
-
-    // If no image was found, provide a more detailed error message if possible.
-    if (!result.image && candidate) {
-      if (candidate.finishReason && candidate.finishReason !== 'STOP' && candidate.finishReason !== 'FINISH_REASON_UNSPECIFIED') {
-        const reason = candidate.finishReason.charAt(0).toUpperCase() + candidate.finishReason.slice(1).toLowerCase().replace(/_/g, ' ');
-        result.text = `Image generation failed. Reason: ${reason}. Please adjust your prompt or mask.`;
+    for (const part of response.candidates[0].content.parts) {
+      if (part.inlineData) {
+        return { image: part.inlineData.data, text: null };
       }
-    } else if (!result.image && !candidate) {
-        result.text = "The model did not return a response. This may be due to a network issue or a problem with the input.";
     }
-
-    if(!result.image) {
-        console.warn("Model response did not contain an image part.", { response, result });
-    }
-
-    return result;
+    return { image: null, text: response.text };
   });
 }
 
 export async function remixImage(
-  base64ImageData: string,
+  imageDataBase64: string,
   mimeType: string,
   prompt: string,
-  preservation: number // 0-100
-): Promise<{ text?: string; image?: string }> {
+  remixPreservation: number
+): Promise<{ image: string | null; text: string | null }> {
   return handleApiCall(async () => {
-    const strength = 100 - preservation;
-    let strengthInstruction = '';
-    if (strength <= 20) {
-      strengthInstruction = "Stick VERY closely to the source image. The text prompt should only introduce minor details or stylistic nuances. The original composition, subjects, and colors must be almost entirely preserved.";
-    } else if (strength <= 50) {
-      strengthInstruction = "Create a balanced blend. Integrate the prompt's concepts while respecting the original image's composition and general mood. Some transformation is expected.";
-    } else if (strength <= 80) {
-        strengthInstruction = "Heavily favor the creative direction of the text prompt. Use the source image for compositional and color palette inspiration, but feel free to radically transform the subject and style.";
+    let preservationPrompt = '';
+    if (remixPreservation > 80) {
+      preservationPrompt = 'Make very subtle changes based on the prompt, preserving the original image as much as possible.';
+    } else if (remixPreservation > 50) {
+      preservationPrompt = 'Make moderate changes based on the prompt, but keep the core elements and composition of the original image.';
+    } else if (remixPreservation > 20) {
+      preservationPrompt = 'Reimagine the image significantly based on the prompt, using the original image as loose inspiration.';
     } else {
-        strengthInstruction = "Almost completely disregard the source image's subject matter. Use it only as a vague reference for color and basic shapes. The text prompt is the primary driver of the final output. Be extremely creative and transformative.";
+      preservationPrompt = 'Completely transform the image based on the prompt, only using the original for basic color and shape ideas.';
     }
 
-    const fullPrompt = `
-      **Task**: Perform an image-to-image generation (a "remix").
-      **Source Image**: Provided as input.
-      **Text Prompt**: "${prompt}"
-
-      **Instructions**:
-      1. Creatively merge the artistic style, subject, and composition of the source image with the concepts described in the text prompt.
-      2. The "Creative Strength" for this task is ${strength}%. ${strengthInstruction}
-      3. Ensure all new elements from the prompt are seamlessly and naturally integrated into the scene, matching the lighting, perspective, and style.
-      4. The output must be an image only, with the exact same dimensions as the input image. Do not output text.
-    `;
+    const finalPrompt = `${prompt}. ${preservationPrompt}`;
 
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
@@ -167,281 +143,239 @@ export async function remixImage(
         parts: [
           {
             inlineData: {
-              data: base64ImageData,
-              mimeType: mimeType,
+              data: imageDataBase64,
+              mimeType,
             },
           },
-          { text: fullPrompt },
+          { text: finalPrompt },
         ],
       },
       config: {
-        responseModalities: [Modality.IMAGE, Modality.TEXT],
+        responseModalities: [Modality.IMAGE],
       },
     });
 
-    const result: { text?: string; image?: string } = {};
-    const candidate = response.candidates?.[0];
-
-    if (candidate?.content?.parts && Array.isArray(candidate.content.parts)) {
-        for (const part of candidate.content.parts) {
-            if (part.text) {
-                result.text = part.text;
-            } else if (part.inlineData) {
-                result.image = part.inlineData.data;
-            }
-        }
+    for (const part of response.candidates[0].content.parts) {
+      if (part.inlineData) {
+        return { image: part.inlineData.data, text: null };
+      }
     }
-
-    if (!result.image && candidate?.finishReason && candidate.finishReason !== 'STOP') {
-        const reason = candidate.finishReason.charAt(0).toUpperCase() + candidate.finishReason.slice(1).toLowerCase().replace(/_/g, ' ');
-        result.text = `Image remix failed. Reason: ${reason}. Please adjust your prompt.`;
-    }
-
-    return result;
+    return { image: null, text: response.text };
   });
 }
 
 export async function findAndMaskObjects(
-  base64ImageData: string,
+  imageDataBase64: string,
   mimeType: string,
   prompt: string
-): Promise<{ text?: string; image?: string }> {
+): Promise<{ image: string | null; text: string | null }> {
   return handleApiCall(async () => {
+    const finalPrompt = `Analyze the provided image. Your task is to generate a segmentation mask for the object(s) described as: "${prompt}". The output image must be a mask where the specified object(s) are pure white (#FFFFFF) and everything else is pure black (#000000). Do not include any other colors, shades, or anti-aliasing.`;
+
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
       contents: {
         parts: [
           {
             inlineData: {
-              data: base64ImageData,
-              mimeType: mimeType,
+              data: imageDataBase64,
+              mimeType,
             },
           },
-          { text: `Please identify the '${prompt}' in the image. Create a clean, hard-edged, binary mask. The identified object must be solid white (#FFFFFF) and the background must be solid black (#000000). The output should be an image of the mask only, with the exact same dimensions as the original.` },
+          { text: finalPrompt },
         ],
       },
       config: {
-        responseModalities: [Modality.IMAGE, Modality.TEXT],
+        responseModalities: [Modality.IMAGE],
       },
     });
 
-    const result: { text?: string; image?: string } = {};
-    const candidate = response.candidates?.[0];
-
-    if (candidate?.content?.parts && Array.isArray(candidate.content.parts)) {
-        for (const part of candidate.content.parts) {
-            if (part.text) {
-                result.text = part.text;
-            } else if (part.inlineData) {
-                result.image = part.inlineData.data;
-            }
-        }
+    for (const part of response.candidates[0].content.parts) {
+      if (part.inlineData) {
+        return { image: part.inlineData.data, text: null };
+      }
     }
-     if (!result.image && candidate?.finishReason && candidate.finishReason !== 'STOP') {
-        const reason = candidate.finishReason.charAt(0).toUpperCase() + candidate.finishReason.slice(1).toLowerCase().replace(/_/g, ' ');
-        result.text = `Mask generation failed. Reason: ${reason}. Please adjust your prompt.`;
-    }
-
-    return result;
+    return { image: null, text: response.text };
   });
 }
 
-
-export async function describeImage(
-  base64ImageData: string,
-  mimeType: string
-): Promise<string> {
-  return handleApiCall(async () => {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: {
-        parts: [
-          {
-            inlineData: {
-              data: base64ImageData,
-              mimeType: mimeType,
-            },
-          },
-          {
-            text: 'Describe this image in detail. The description should be suitable to be used as a prompt for an AI image generation model. Focus on the subject, background, style, and composition. Do not include any preamble or explanation, only the prompt description.',
-          },
-        ],
-      },
-    });
-
-    return response.text.trim();
-  });
-}
-
-export async function rewritePrompt(prompt: string, part: PromptPart | 'edit'): Promise<string> {
-    if (!prompt.trim()) {
-      return prompt;
-    }
-
-    return handleApiCall(async () => {
-        const instructionMap: Record<PromptPart | 'edit', string> = {
-          subject: "You are an expert prompt engineer for generative AI image models. Your task is to rewrite the user's description of a subject to be more vivid, descriptive, and detailed. Focus on enhancing the subject's appearance, characteristics, actions, and emotions, while keeping the core concept intact. Only return the rewritten prompt, with no preamble or explanation.",
-          background: "You are an expert prompt engineer for generative AI image models. Your task is to rewrite the user's description of a background to create a rich and immersive environment. Focus on describing the setting, atmosphere, lighting, and surrounding elements in greater detail. Keep the core idea of the background intact. Only return the rewritten prompt, with no preamble or explanation.",
-          negativePrompt: "You are an expert prompt engineer for generative AI image models. Your task is to rewrite the user's negative prompt to be more effective. Focus on clear, concise terms that exclude unwanted elements, styles, or qualities. Keep the core concepts of the exclusion intact. Only return the rewritten prompt, with no preamble or explanation.",
-          edit: "You are an expert prompt engineer for generative AI image models. Your task is to rewrite the user's editing instruction to be clearer, more descriptive, and more likely to produce a good result from an inpainting or masked editing model. Focus on specifying the change, the style, and how it should blend with the rest of the image. Keep the core instruction intact. Only return the rewritten prompt, with no preamble or explanation."
-        };
-
-        const systemInstruction = instructionMap[part];
-
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: `Rewrite this prompt for an image's ${part}: "${prompt}"`,
-          config: {
-            systemInstruction,
-          },
-        });
-
-        return response.text.trim().replace(/^"|"$/g, ''); // Trim quotes if model adds them
-    });
-}
-
-export async function getPromptSuggestions(prompt: string, part: PromptPart): Promise<string[]> {
-    return handleApiCall(async () => {
-        const systemInstruction = `You are a creative assistant for an AI image generator. The user is writing a prompt for the '${part}' of their image. Based on their input, provide 3 short, inspiring phrases to help them add more detail. The suggestions MUST be additive statements or descriptive phrases, NOT questions. For example, if the user types 'a dog', you could suggest ['wearing a tiny hat', 'on a skateboard', 'in the style of Van Gogh']. If the part is 'negativePrompt', suggest things to EXCLUDE, like ['blurry', 'text', 'watermark']. Return the suggestions as a JSON array of strings.`;
-        
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: `The user has typed: "${prompt}"`,
-            config: {
-                systemInstruction,
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.ARRAY,
-                    items: {
-                        type: Type.STRING,
-                    },
-                },
+export async function searchPexelsPhotos(
+    apiKey: string,
+    query: string,
+    page: number
+): Promise<PexelsPhoto[]> {
+    try {
+        const res = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&page=${page}&per_page=15`, {
+            headers: {
+                Authorization: apiKey,
             },
         });
-        
-        try {
-            const jsonText = response.text.trim();
-            const suggestions = JSON.parse(jsonText);
-            if (Array.isArray(suggestions) && suggestions.every(s => typeof s === 'string')) {
-                return suggestions;
+
+        if (!res.ok) {
+            if (res.status === 403) {
+                throw new Error("Invalid Pexels API Key.");
             }
-            return [];
-        } catch (e) {
-            console.error("Failed to parse suggestions JSON:", e);
-            return [];
+            throw new Error(`Failed to fetch from Pexels. Status: ${res.status}`);
         }
-    });
-}
-
-export async function generateRandomPrompt(part: PromptPart | 'edit'): Promise<string> {
-    return handleApiCall(async () => {
-        const instructionMap: Record<PromptPart | 'edit', string> = {
-            subject: "You are a creative idea generator for an AI image model. Generate a short, interesting, and visually rich subject for an image. Be imaginative. Provide only the subject description, with no preamble or explanation.",
-            background: "You are a creative idea generator for an AI image model. Generate a short, evocative description of a background or setting for an image. Provide only the background description, with no preamble or explanation.",
-            negativePrompt: "You are a creative idea generator for an AI image model. Generate a short, common negative prompt for an image, listing unwanted qualities. For example, 'ugly, tiling, poorly drawn hands, watermark'. Provide only the negative prompt, with no preamble or explanation.",
-            edit: "You are a creative idea generator for an AI image editing model. Generate a short, creative instruction for editing an existing image. For example, 'make the sky a galaxy' or 'add a small, sleeping fox in the corner'. Provide only the editing instruction, with no preamble or explanation."
-        };
-
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: `Generate a random prompt for an image's ${part}.`,
-            config: {
-                systemInstruction: instructionMap[part],
-                temperature: 1,
-            },
-        });
-
-        return response.text.trim().replace(/^"|"$/g, ''); // Trim quotes if model adds them
-    });
+        const data = await res.json();
+        return data.photos;
+    } catch (e: any) {
+        console.error("Pexels API Error:", e);
+        throw new Error(e.message || "An unknown error occurred while searching for photos on Pexels.");
+    }
 }
 
 export async function applyStyleTransfer(
-  contentImageB64: string,
-  contentMime: string,
-  styleImageB64: string,
-  styleMime: string,
-  strength: number
-): Promise<{ text?: string; image?: string }> {
+  contentImageData: string,
+  contentMimeType: string,
+  styleImageData: string,
+  styleMimeType: string,
+  styleStrength: number,
+): Promise<{ image: string | null; text: string | null }> {
   return handleApiCall(async () => {
-    let strengthInstruction = '';
-    if (strength <= 30) {
-      strengthInstruction = "Subtly influence the content image with the style reference. Introduce elements of the style's color palette and texture, but the content image's original form and details should remain dominant and clearly recognizable.";
-    } else if (strength <= 70) {
-      strengthInstruction = "Create a balanced fusion. The content image's composition and subjects should be clear, but rendered with the distinct brushstrokes, color grading, and mood of the style reference. This is a true artistic blend.";
-    } else if (strength <= 90) {
-      strengthInstruction = "Strongly apply the style reference. The content image's structure should be used as a blueprint, but completely reinterpret it with the style's visual language. The final image should feel much closer to the style reference than the original content.";
+    let strengthPrompt = '';
+    if (styleStrength > 80) {
+      strengthPrompt = 'Apply the style very strongly, prioritizing the style image over the content image.';
+    } else if (styleStrength > 50) {
+      strengthPrompt = 'Apply the style with a good balance between the style and content images.';
+    } else if (styleStrength > 20) {
+      strengthPrompt = 'Apply the style subtly, preserving more of the original content image.';
     } else {
-      strengthInstruction = "Completely transform the content image into the style reference. Deconstruct the original content and rebuild it using only the artistic elements of the style image. The original composition may be altered to better fit the new style. The result should be as if the artist of the style reference created the content image from scratch.";
+      strengthPrompt = 'Apply only a hint of the style, keeping the content image mostly unchanged.';
     }
 
-    const fullPrompt = `
-      **Task**: Perform a style transfer.
-      **Content Image**: The first image provided.
-      **Style Reference**: The second image provided.
-
-      **Instructions**:
-      1. Analyze the artistic style of the style reference image. This includes its color palette, brushstrokes, texture, lighting, and overall mood.
-      2. Recreate the content image, preserving its core composition and subject matter, but render it entirely in the style of the style reference.
-      3. The desired "Style Strength" is approximately ${strength}%. ${strengthInstruction}
-      4. The output MUST be an image only, with the exact same dimensions as the content image. Do not output text.
-    `;
+    const prompt = `Perform a style transfer. Use the first image as the content reference and the second image as the style reference. ${strengthPrompt}`;
 
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
       contents: {
         parts: [
-          { inlineData: { data: contentImageB64, mimeType: contentMime } },
-          { inlineData: { data: styleImageB64, mimeType: styleMime } },
-          { text: fullPrompt },
+          { inlineData: { data: contentImageData, mimeType: contentMimeType } },
+          { inlineData: { data: styleImageData, mimeType: styleMimeType } },
+          { text: prompt },
         ],
       },
       config: {
-        responseModalities: [Modality.IMAGE, Modality.TEXT],
+        responseModalities: [Modality.IMAGE],
       },
     });
     
-    const result: { text?: string; image?: string } = {};
-    const candidate = response.candidates?.[0];
-
-    if (candidate?.content?.parts && Array.isArray(candidate.content.parts)) {
-        for (const part of candidate.content.parts) {
-            if (part.text) {
-                result.text = part.text;
-            } else if (part.inlineData) {
-                result.image = part.inlineData.data;
-            }
-        }
+    for (const part of response.candidates[0].content.parts) {
+      if (part.inlineData) {
+        return { image: part.inlineData.data, text: null };
+      }
     }
-
-    if (!result.image && candidate?.finishReason && candidate.finishReason !== 'STOP') {
-        const reason = candidate.finishReason.charAt(0).toUpperCase() + candidate.finishReason.slice(1).toLowerCase().replace(/_/g, ' ');
-        result.text = `Style transfer failed. Reason: ${reason}. Please try a different style image or strength.`;
-    }
-
-    return result;
+    return { image: null, text: response.text };
   });
 }
 
-// Fix: Renamed function to correct typo from searchPelsPhotos to searchPexelsPhotos.
-export async function searchPexelsPhotos(apiKey: string, query: string, page: number = 1, perPage: number = 15): Promise<PexelsPhoto[]> {
-  if (!apiKey) {
-    throw new Error("Pexels API key is not configured. Please add it in the Settings tab.");
-  }
+export async function rewritePrompt(
+  prompt: string,
+  part: PromptPart | 'edit'
+): Promise<string> {
   return handleApiCall(async () => {
-    const response = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&page=${page}&per_page=${perPage}`, {
-      headers: {
-        Authorization: apiKey,
+    let instruction = '';
+    switch (part) {
+      case 'subject':
+        instruction = 'Rewrite the following image subject prompt to be more descriptive, evocative, and detailed. Focus on visual elements.';
+        break;
+      case 'background':
+        instruction = 'Rewrite the following image background description to be more vivid and atmospheric. Add details about lighting and environment.';
+        break;
+      case 'negativePrompt':
+        instruction = 'Expand upon the following negative prompt for an AI image generator. Add more common terms to avoid bad quality images, but keep it concise.';
+        break;
+      case 'edit':
+        instruction = 'Rewrite the following image editing instruction to be clearer and more direct for an AI. Focus on a single, actionable change.';
+        break;
+    }
+
+    const fullPrompt = `${instruction}\n\nPrompt: "${prompt}"\n\nRewritten Prompt:`;
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: fullPrompt,
+      config: {
+        stopSequences: ['"']
+      }
+    });
+    return response.text.trim().replace(/^"/, '').replace(/"$/, '');
+  });
+}
+
+export async function getPromptSuggestions(
+  prompt: string,
+  part: PromptPart
+): Promise<string[]> {
+  return handleApiCall(async () => {
+    let instruction = '';
+    switch (part) {
+      case 'subject':
+        instruction = 'Based on the image subject, suggest 3-5 related concepts or details to add.';
+        break;
+      case 'background':
+        instruction = 'Based on the image background description, suggest 3-5 related environmental details or lighting styles to add.';
+        break;
+      case 'negativePrompt':
+        instruction = 'Based on the negative prompt keywords, suggest 3-5 more related terms to help improve image quality.';
+        break;
+    }
+    const fullPrompt = `${instruction}\n\nCurrent prompt: "${prompt}"`;
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: fullPrompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            suggestions: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
+            },
+          },
+          required: ["suggestions"],
+        },
       },
     });
 
-    if (!response.ok) {
-        if (response.status === 401) {
-            throw new Error("Invalid Pexels API Key provided. Please check it in the settings.");
-        }
-      const errorData = await response.json();
-      throw new Error(`Pexels API error: ${errorData.error || response.statusText}`);
+    try {
+      const jsonStr = response.text.trim();
+      const json = JSON.parse(jsonStr);
+      if (json.suggestions && Array.isArray(json.suggestions)) {
+        return json.suggestions.slice(0, 5);
+      }
+      return [];
+    } catch (e) {
+      console.error("Failed to parse suggestions JSON:", e);
+      return [];
     }
-    const data = await response.json();
-    return data.photos || [];
+  });
+}
+
+export async function generateRandomPrompt(
+  part: PromptPart | 'edit'
+): Promise<string> {
+  return handleApiCall(async () => {
+    let instruction = '';
+    switch (part) {
+      case 'subject':
+        instruction = 'Generate a random, creative, and visually interesting subject for an image. Be concise.';
+        break;
+      case 'background':
+        instruction = 'Generate a random, creative, and visually interesting background for an image. Be concise.';
+        break;
+      case 'negativePrompt':
+        instruction = 'Generate a standard, good-quality negative prompt for an AI image generator.';
+        break;
+      case 'edit':
+        instruction = 'Generate a random, simple image editing instruction, like "add a hat" or "make it nighttime".';
+        break;
+    }
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: instruction,
+    });
+    return response.text.trim().replace(/^"/, '').replace(/"$/, '');
   });
 }
