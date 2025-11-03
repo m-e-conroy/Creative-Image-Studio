@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, ClipArtCategory, TechnicalModifier, ImageAdjustments, Layer, LayerType, Theme, PexelsPhoto, AIEngine, ComfyUIConnectionStatus, ComfyUIWorkflow } from '../types';
 import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, TECHNICAL_MODIFIERS } from '../constants';
@@ -20,6 +21,7 @@ interface ControlPanelProps {
   onGetSuggestions: (part: PromptPart, value: string) => void;
   subjectSuggestions: string[];
   backgroundSuggestions: string[];
+  negativePromptSuggestions: string[];
   suggestionsLoading: PromptPart | null;
   editPrompt: string;
   setEditPrompt: (value: string) => void;
@@ -33,8 +35,6 @@ interface ControlPanelProps {
   setTechnicalModifier: (modifier: TechnicalModifier) => void;
   aspectRatio: string;
   setAspectRatio: (value: string) => void;
-  numImages: number;
-  setNumImages: (value: number) => void;
   onGenerate: () => void;
   onEdit: () => void;
   onAnalyzeImage: () => void;
@@ -171,7 +171,8 @@ const InteractivePromptInput: React.FC<{
   suggestions: string[];
   suggestionsLoading: boolean;
   isLoading: boolean;
-}> = ({ part, label, placeholder, prompt, onPromptChange, onRewritePrompt, rewritingPrompt, onRandomPrompt, randomizingPrompt, onGetSuggestions, suggestions, suggestionsLoading, isLoading }) => {
+  rows?: number;
+}> = ({ part, label, placeholder, prompt, onPromptChange, onRewritePrompt, rewritingPrompt, onRandomPrompt, randomizingPrompt, onGetSuggestions, suggestions, suggestionsLoading, isLoading, rows = 3 }) => {
     const [isCopied, setIsCopied] = useState(false);
 
     const handleSuggestionClick = (suggestion: string) => {
@@ -197,7 +198,7 @@ const InteractivePromptInput: React.FC<{
         <div className="relative">
           <textarea
             id={`prompt-${part}`}
-            rows={2}
+            rows={rows}
             value={prompt[part]}
             onChange={(e) => onPromptChange(part, e.target.value)}
             placeholder={placeholder}
@@ -277,8 +278,8 @@ const InteractivePromptInput: React.FC<{
 };
 
 
-const GeminiGeneratePanel: React.FC<Pick<ControlPanelProps, 'prompt' | 'onPromptChange' | 'onRewritePrompt' | 'rewritingPrompt' | 'onRandomPrompt' | 'randomizingPrompt' | 'onGetSuggestions' | 'subjectSuggestions' | 'backgroundSuggestions' | 'suggestionsLoading' | 'style' | 'setStyle' | 'lighting' | 'setLighting' | 'composition' | 'setComposition' | 'technicalModifier' | 'setTechnicalModifier' | 'aspectRatio' | 'setAspectRatio' | 'numImages' | 'setNumImages' | 'onGenerate' | 'isLoading'>> = ({
-  prompt, onPromptChange, onRewritePrompt, rewritingPrompt, onRandomPrompt, randomizingPrompt, onGetSuggestions, subjectSuggestions, backgroundSuggestions, suggestionsLoading, style, setStyle, lighting, setLighting, composition, setComposition, technicalModifier, setTechnicalModifier, aspectRatio, setAspectRatio, numImages, setNumImages, onGenerate, isLoading
+const GeminiGeneratePanel: React.FC<Pick<ControlPanelProps, 'prompt' | 'onPromptChange' | 'onRewritePrompt' | 'rewritingPrompt' | 'onRandomPrompt' | 'randomizingPrompt' | 'onGetSuggestions' | 'subjectSuggestions' | 'backgroundSuggestions' | 'negativePromptSuggestions' | 'suggestionsLoading' | 'style' | 'setStyle' | 'lighting' | 'setLighting' | 'composition' | 'setComposition' | 'technicalModifier' | 'setTechnicalModifier' | 'aspectRatio' | 'setAspectRatio' | 'onGenerate' | 'isLoading'>> = ({
+  prompt, onPromptChange, onRewritePrompt, rewritingPrompt, onRandomPrompt, randomizingPrompt, onGetSuggestions, subjectSuggestions, backgroundSuggestions, negativePromptSuggestions, suggestionsLoading, style, setStyle, lighting, setLighting, composition, setComposition, technicalModifier, setTechnicalModifier, aspectRatio, setAspectRatio, onGenerate, isLoading
 }) => (
   <div className="flex flex-col space-y-4">
     <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2">1. Describe Your Image</h2>
@@ -312,6 +313,22 @@ const GeminiGeneratePanel: React.FC<Pick<ControlPanelProps, 'prompt' | 'onPrompt
       suggestionsLoading={suggestionsLoading === 'background'}
       isLoading={isLoading} 
     />
+     <InteractivePromptInput 
+      part="negativePrompt" 
+      label="Negative Prompt" 
+      placeholder="e.g., text, watermarks, blurry, deformed" 
+      prompt={prompt} 
+      onPromptChange={onPromptChange} 
+      onRewritePrompt={onRewritePrompt} 
+      rewritingPrompt={rewritingPrompt} 
+      onRandomPrompt={onRandomPrompt} 
+      randomizingPrompt={randomizingPrompt} 
+      onGetSuggestions={onGetSuggestions}
+      suggestions={negativePromptSuggestions}
+      suggestionsLoading={suggestionsLoading === 'negativePrompt'}
+      isLoading={isLoading}
+      rows={2}
+    />
     
     <div className="grid grid-cols-2 gap-4">
       <div>
@@ -343,17 +360,11 @@ const GeminiGeneratePanel: React.FC<Pick<ControlPanelProps, 'prompt' | 'onPrompt
       </div>
     </div>
 
-    <div className="grid grid-cols-2 gap-4">
-      <div>
-        <label htmlFor="aspectRatio" className="block text-sm font-medium text-text-secondary mb-1">Image Size</label>
-        <select id="aspectRatio" value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value)} className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary focus:border-brand-primary transition" disabled={isLoading || !!rewritingPrompt || !!randomizingPrompt}>
-          {SUPPORTED_ASPECT_RATIOS.map(ar => <option key={ar.value} value={ar.value}>{ar.name}</option>)}
-        </select>
-      </div>
-      <div>
-        <label htmlFor="numImages" className="block text-sm font-medium text-text-secondary mb-1">Images ({numImages})</label>
-        <input id="numImages" type="range" min="1" max="4" value={numImages} onChange={(e) => setNumImages(Number(e.target.value))} className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer" disabled={isLoading || !!rewritingPrompt || !!randomizingPrompt} />
-      </div>
+    <div>
+      <label htmlFor="aspectRatio" className="block text-sm font-medium text-text-secondary mb-1">Image Size</label>
+      <select id="aspectRatio" value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value)} className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary focus:border-brand-primary transition" disabled={isLoading || !!rewritingPrompt || !!randomizingPrompt}>
+        {SUPPORTED_ASPECT_RATIOS.map(ar => <option key={ar.value} value={ar.value}>{ar.name}</option>)}
+      </select>
     </div>
 
     <button onClick={onGenerate} disabled={isLoading || !prompt.subject || !!rewritingPrompt || !!randomizingPrompt} className="w-full flex items-center justify-center gap-2 bg-brand-primary hover:bg-brand-primary/80 disabled:bg-base-300 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition duration-200">
@@ -396,12 +407,16 @@ const ComfyUIGeneratePanel: React.FC<Pick<ControlPanelProps, 'prompt' | 'onPromp
                 </div>
             )}
             <div>
-                <label htmlFor="prompt-subject" className="block text-sm font-medium text-text-secondary mb-1">Positive Prompt</label>
-                <textarea id="prompt-subject" rows={3} value={prompt.subject} onChange={(e) => onPromptChange('subject', e.target.value)} placeholder="e.g., A majestic lion, cinematic lighting..." className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary" disabled={isLoading || !isConnected} />
+                <label htmlFor="prompt-subject-comfy" className="block text-sm font-medium text-text-secondary mb-1">Subject (Positive Prompt)</label>
+                <textarea id="prompt-subject-comfy" rows={3} value={prompt.subject} onChange={(e) => onPromptChange('subject', e.target.value)} placeholder="e.g., A majestic lion, cinematic lighting..." className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary" disabled={isLoading || !isConnected} />
+            </div>
+             <div>
+                <label htmlFor="prompt-background-comfy" className="block text-sm font-medium text-text-secondary mb-1">Background (Positive Prompt)</label>
+                <textarea id="prompt-background-comfy" rows={3} value={prompt.background} onChange={(e) => onPromptChange('background', e.target.value)} placeholder="e.g., on a rocky cliff at sunset" className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary" disabled={isLoading || !isConnected} />
             </div>
             <div>
-                <label htmlFor="prompt-background" className="block text-sm font-medium text-text-secondary mb-1">Negative Prompt</label>
-                <textarea id="prompt-background" rows={2} value={prompt.background} onChange={(e) => onPromptChange('background', e.target.value)} placeholder="e.g., ugly, deformed, blurry..." className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary" disabled={isLoading || !isConnected} />
+                <label htmlFor="prompt-negative-comfy" className="block text-sm font-medium text-text-secondary mb-1">Negative Prompt</label>
+                <textarea id="prompt-negative-comfy" rows={2} value={prompt.negativePrompt} onChange={(e) => onPromptChange('negativePrompt', e.target.value)} placeholder="e.g., ugly, deformed, blurry..." className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary" disabled={isLoading || !isConnected} />
             </div>
             <button onClick={onGenerate} disabled={isLoading || !prompt.subject || !isConnected} className="w-full flex items-center justify-center gap-2 bg-brand-primary hover:bg-brand-primary/80 disabled:bg-base-300 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition duration-200">
                 <GenerateIcon /> {isLoading ? 'Generating...' : 'Generate'}
@@ -700,7 +715,7 @@ const AdjustmentControls: React.FC<{
 );
 
 
-const EditTab: React.FC<Omit<ControlPanelProps, 'prompt' | 'onPromptChange' | 'onGetSuggestions' | 'subjectSuggestions' | 'backgroundSuggestions' | 'suggestionsLoading' | 'style' | 'setStyle' | 'lighting' | 'setLighting' | 'composition' | 'setComposition' | 'technicalModifier' | 'setTechnicalModifier' | 'aspectRatio' | 'setAspectRatio' | 'numImages' | 'setNumImages' | 'onGenerate' | 'onClose' | 'activeTab' | 'setActiveTab' | 'themes' | 'activeTheme' | 'onThemeChange' | 'isDarkMode' | 'onToggleThemeMode' | 'onClearCustomShapes' | 'onOpenOptionsClick' | 'pexelsApiKey' | 'onSetPexelsApiKey' | 'aiEngine' | 'onAiEngineChange' | 'comfyUIServerAddress' | 'onComfyUIServerAddressChange' | 'comfyUIConnectionStatus' | 'onConnectToComfyUI' | 'comfyUICheckpointModels' | 'comfyUILoraModels' | 'selectedComfyUICheckpoint' | 'onSelectedComfyUICheckpointChange' | 'selectedComfyUILora' | 'onSelectedComfyUILoraChange' | 'comfyUIWorkflows' | 'selectedComfyUIWorkflow' | 'onSelectedComfyUIWorkflowChange'>> = (props) => {
+const EditTab: React.FC<Omit<ControlPanelProps, 'prompt' | 'onPromptChange' | 'onGetSuggestions' | 'subjectSuggestions' | 'backgroundSuggestions' | 'negativePromptSuggestions' | 'suggestionsLoading' | 'style' | 'setStyle' | 'lighting' | 'setLighting' | 'composition' | 'setComposition' | 'technicalModifier' | 'setTechnicalModifier' | 'aspectRatio' | 'setAspectRatio' | 'onGenerate' | 'onClose' | 'activeTab' | 'setActiveTab' | 'themes' | 'activeTheme' | 'onThemeChange' | 'isDarkMode' | 'onToggleThemeMode' | 'onClearCustomShapes' | 'onOpenOptionsClick' | 'pexelsApiKey' | 'onSetPexelsApiKey' | 'aiEngine' | 'onAiEngineChange' | 'comfyUIServerAddress' | 'onComfyUIServerAddressChange' | 'comfyUIConnectionStatus' | 'onConnectToComfyUI' | 'comfyUICheckpointModels' | 'comfyUILoraModels' | 'selectedComfyUICheckpoint' | 'onSelectedComfyUICheckpointChange' | 'selectedComfyUILora' | 'onSelectedComfyUILoraChange' | 'comfyUIWorkflows' | 'selectedComfyUIWorkflow' | 'onSelectedComfyUIWorkflowChange'>> = (props) => {
     const { editPrompt, setEditPrompt, editMode, setEditMode, brushSize, setBrushSize, brushColor, setBrushColor, onEdit, onAnalyzeImage, onClear, onReset, onUndo, canUndo, isLoading, onRandomPrompt, randomizingPrompt, onOutpaint, outpaintPrompt, setOutpaintPrompt, outpaintAmount, setOutpaintAmount, clipArtCategories, selectedClipArtCategoryName, setSelectedClipArtCategoryName, onSaveShape, selectedShapeId, onDeleteSelectedShape, isEditingMask, colorPresets, onAddColorPreset, hasImage, onLayerAdjustmentChange, onResetLayerAdjustments, onLayerFilterChange, onRemixImage, remixPreservation, setRemixPreservation } = props;
     const [newShapeName, setNewShapeName] = useState('');
     const [isEditPromptCopied, setIsEditPromptCopied] = useState(false);
@@ -762,7 +777,7 @@ const EditTab: React.FC<Omit<ControlPanelProps, 'prompt' | 'onPromptChange' | 'o
             <AdjustmentControls 
                 adjustments={activeLayer.adjustments} 
                 onAdjustmentChange={onLayerAdjustmentChange}
-                onResetAdjustments={onResetLayerAdjustments}
+                onResetLayerAdjustments={onResetLayerAdjustments}
                 onFilterChange={onLayerFilterChange}
                 isLoading={isLoading}
             />

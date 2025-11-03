@@ -282,6 +282,7 @@ export async function rewritePrompt(prompt: string, part: PromptPart | 'edit'): 
         const instructionMap: Record<PromptPart | 'edit', string> = {
           subject: "You are an expert prompt engineer for generative AI image models. Your task is to rewrite the user's description of a subject to be more vivid, descriptive, and detailed. Focus on enhancing the subject's appearance, characteristics, actions, and emotions, while keeping the core concept intact. Only return the rewritten prompt, with no preamble or explanation.",
           background: "You are an expert prompt engineer for generative AI image models. Your task is to rewrite the user's description of a background to create a rich and immersive environment. Focus on describing the setting, atmosphere, lighting, and surrounding elements in greater detail. Keep the core idea of the background intact. Only return the rewritten prompt, with no preamble or explanation.",
+          negativePrompt: "You are an expert prompt engineer for generative AI image models. Your task is to rewrite the user's negative prompt to be more effective. Focus on clear, concise terms that exclude unwanted elements, styles, or qualities. Keep the core concepts of the exclusion intact. Only return the rewritten prompt, with no preamble or explanation.",
           edit: "You are an expert prompt engineer for generative AI image models. Your task is to rewrite the user's editing instruction to be clearer, more descriptive, and more likely to produce a good result from an inpainting or masked editing model. Focus on specifying the change, the style, and how it should blend with the rest of the image. Keep the core instruction intact. Only return the rewritten prompt, with no preamble or explanation."
         };
 
@@ -301,7 +302,7 @@ export async function rewritePrompt(prompt: string, part: PromptPart | 'edit'): 
 
 export async function getPromptSuggestions(prompt: string, part: PromptPart): Promise<string[]> {
     return handleApiCall(async () => {
-        const systemInstruction = `You are a creative assistant for an AI image generator. The user is writing a prompt for the '${part}' of their image. Based on their input, provide 3 short, inspiring phrases to help them add more detail. The suggestions MUST be additive statements or descriptive phrases, NOT questions. For example, if the user types 'a dog', you could suggest ['wearing a tiny hat', 'on a skateboard', 'in the style of Van Gogh']. Return the suggestions as a JSON array of strings.`;
+        const systemInstruction = `You are a creative assistant for an AI image generator. The user is writing a prompt for the '${part}' of their image. Based on their input, provide 3 short, inspiring phrases to help them add more detail. The suggestions MUST be additive statements or descriptive phrases, NOT questions. For example, if the user types 'a dog', you could suggest ['wearing a tiny hat', 'on a skateboard', 'in the style of Van Gogh']. If the part is 'negativePrompt', suggest things to EXCLUDE, like ['blurry', 'text', 'watermark']. Return the suggestions as a JSON array of strings.`;
         
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
@@ -337,6 +338,7 @@ export async function generateRandomPrompt(part: PromptPart | 'edit'): Promise<s
         const instructionMap: Record<PromptPart | 'edit', string> = {
             subject: "You are a creative idea generator for an AI image model. Generate a short, interesting, and visually rich subject for an image. Be imaginative. Provide only the subject description, with no preamble or explanation.",
             background: "You are a creative idea generator for an AI image model. Generate a short, evocative description of a background or setting for an image. Provide only the background description, with no preamble or explanation.",
+            negativePrompt: "You are a creative idea generator for an AI image model. Generate a short, common negative prompt for an image, listing unwanted qualities. For example, 'ugly, tiling, poorly drawn hands, watermark'. Provide only the negative prompt, with no preamble or explanation.",
             edit: "You are a creative idea generator for an AI image editing model. Generate a short, creative instruction for editing an existing image. For example, 'make the sky a galaxy' or 'add a small, sleeping fox in the corner'. Provide only the editing instruction, with no preamble or explanation."
         };
 

@@ -1,4 +1,3 @@
-
 export type AspectRatioValue = "1:1" | "4:3" | "3:4" | "16:9" | "9:16";
 
 export enum EditMode {
@@ -35,6 +34,7 @@ export interface Filter {
 export interface PromptState {
   subject: string; // Used for Gemini subject & ComfyUI positive prompt
   background: string; // Used for Gemini background & ComfyUI negative prompt
+  negativePrompt: string;
 }
 
 export type PromptPart = keyof PromptState;

@@ -24,7 +24,7 @@ declare global {
 const findDefault = <T extends { name: string }>(arr: T[], name: string): T => arr.find(item => item.name === name) || arr[0];
 
 const App: React.FC = () => {
-  const [prompt, setPrompt] = useState<PromptState>({ subject: '', background: '' });
+  const [prompt, setPrompt] = useState<PromptState>({ subject: '', background: '', negativePrompt: '' });
   const [editPrompt, setEditPrompt] = useState<string>('');
   const [outpaintPrompt, setOutpaintPrompt] = useState<string>('Extend the scene seamlessly, matching the original image\'s style and lighting.');
   const [outpaintAmount, setOutpaintAmount] = useState<number>(50);
@@ -56,7 +56,6 @@ const App: React.FC = () => {
   const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null);
   
   const [aspectRatio, setAspectRatio] = useState<string>(SUPPORTED_ASPECT_RATIOS[0].value);
-  const [numImages, setNumImages] = useState<number>(1);
   
   const [editMode, setEditMode] = useState<EditMode>(EditMode.MOVE);
   const [brushSize, setBrushSize] = useState<number>(40);
@@ -68,6 +67,7 @@ const App: React.FC = () => {
 
   const [subjectSuggestions, setSubjectSuggestions] = useState<string[]>([]);
   const [backgroundSuggestions, setBackgroundSuggestions] = useState<string[]>([]);
+  const [negativePromptSuggestions, setNegativePromptSuggestions] = useState<string[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState<PromptPart | null>(null);
 
   const [isPanelOpen, setIsPanelOpen] = useState(false);
@@ -293,15 +293,19 @@ const App: React.FC = () => {
 
         if (aiEngine === 'gemini') {
             const promptParts = [ prompt.subject, prompt.background ? `background of ${prompt.background}` : '', style.prompt, lighting.prompt, composition.prompt, technicalModifier.prompt ].filter(Boolean);
-            const combinedPrompt = promptParts.join(', ');
+            let combinedPrompt = promptParts.join(', ');
+            if (prompt.negativePrompt) {
+                combinedPrompt += `. Negative prompt: ${prompt.negativePrompt}`;
+            }
             const imageB64s = await geminiService.generateImage(combinedPrompt, { aspectRatio, numberOfImages: 1 });
             imageB64 = imageB64s[0];
         } else { // ComfyUI
+             const positivePrompt = [prompt.subject, prompt.background].filter(Boolean).join(', ');
              imageB64 = await comfyuiService.generateImage({
                 serverAddress: comfyUIServerAddress,
                 workflow: selectedComfyUIWorkflow.json,
-                positivePrompt: prompt.subject,
-                negativePrompt: prompt.background,
+                positivePrompt: positivePrompt,
+                negativePrompt: prompt.negativePrompt,
                 checkpoint: selectedComfyUICheckpoint,
                 lora: selectedComfyUILora,
                 setLoadingMessage: setLoadingMessage,
@@ -1542,17 +1546,23 @@ const handleApplyStyleTransfer = useCallback(async () => {
   }, [prompt, editPrompt]);
   const handleGetSuggestions = useCallback(async (part: PromptPart, value: string) => {
     if (!value.trim() || value.length < 4) {
-      if (part === 'subject') setSubjectSuggestions([]); else setBackgroundSuggestions([]);
+      if (part === 'subject') setSubjectSuggestions([]);
+      else if (part === 'background') setBackgroundSuggestions([]);
+      else setNegativePromptSuggestions([]);
       return;
     }
     setSuggestionsLoading(part);
     try {
       const suggestions = await geminiService.getPromptSuggestions(value, part);
-      if (part === 'subject') setSubjectSuggestions(suggestions); else setBackgroundSuggestions(suggestions);
+      if (part === 'subject') setSubjectSuggestions(suggestions);
+      else if (part === 'background') setBackgroundSuggestions(suggestions);
+      else setNegativePromptSuggestions(suggestions);
     } catch (e: any) {
       console.error("Failed to get suggestions", e);
       setError(e.message || "Failed to fetch prompt suggestions.");
-      if (part === 'subject') setSubjectSuggestions([]); else setBackgroundSuggestions([]);
+      if (part === 'subject') setSubjectSuggestions([]);
+      else if (part === 'background') setBackgroundSuggestions([]);
+      else setNegativePromptSuggestions([]);
     } finally { setSuggestionsLoading(null); }
   }, []);
   const handleRandomPrompt = useCallback(async (part: PromptPart | 'edit') => {
@@ -1676,10 +1686,11 @@ const handleApplyStyleTransfer = useCallback(async () => {
             onClose={() => setIsPanelOpen(false)}
             activeTab={activeTab} setActiveTab={setActiveTab} prompt={prompt} onPromptChange={handlePromptChange} onRewritePrompt={handleRewritePrompt}
             rewritingPrompt={rewritingPrompt} onRandomPrompt={handleRandomPrompt} randomizingPrompt={randomizingPrompt} onGetSuggestions={handleGetSuggestions}
-            subjectSuggestions={subjectSuggestions} backgroundSuggestions={backgroundSuggestions} suggestionsLoading={suggestionsLoading}
+            subjectSuggestions={subjectSuggestions} backgroundSuggestions={backgroundSuggestions} negativePromptSuggestions={negativePromptSuggestions}
+            suggestionsLoading={suggestionsLoading}
             editPrompt={editPrompt} setEditPrompt={setEditPrompt} style={style} setStyle={setStyle} lighting={lighting} setLighting={setLighting}
             composition={composition} setComposition={setComposition} technicalModifier={technicalModifier} setTechnicalModifier={setTechnicalModifier}
-            aspectRatio={aspectRatio} setAspectRatio={setAspectRatio} numImages={numImages} setNumImages={setNumImages}
+            aspectRatio={aspectRatio} setAspectRatio={setAspectRatio}
             onGenerate={handleGenerate} onEdit={handleEdit} onAnalyzeImage={handleAnalyzeImage} onOutpaint={handleOutpaint} outpaintPrompt={outpaintPrompt} setOutpaintPrompt={setOutpaintPrompt}
             outpaintAmount={outpaintAmount} setOutpaintAmount={setOutpaintAmount} 
             onOpenOptionsClick={() => setIsOpenOptionsOpen(true)} isLoading={isLoading} hasImage={hasImage} editMode={editMode} setEditMode={setEditMode}
