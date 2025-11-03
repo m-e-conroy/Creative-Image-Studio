@@ -1,4 +1,3 @@
-
 import React, { useRef, useEffect, useState, useImperativeHandle, forwardRef, useCallback } from 'react';
 import { EditMode, PlacedShape, Stroke, Point, ImageAdjustments, Layer, LayerType } from '../types';
 import { Loader } from './Loader';
@@ -840,8 +839,35 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         const tempCtx = tempCanvas.getContext('2d');
         if (!tempCtx) return;
 
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
+        // Draw grid background first
+        try {
+            const theme = window.getComputedStyle(document.documentElement);
+            const base300 = `rgb(${theme.getPropertyValue('--color-base-300').trim()})`;
+            // Use the secondary text color with low opacity for a softer, less distracting grid
+            const gridLineColor = `rgba(${theme.getPropertyValue('--color-text-secondary').trim()}, 0.05)`;
+            const gridSize = 20;
+
+            tempCtx.fillStyle = base300;
+            tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+            
+            tempCtx.strokeStyle = gridLineColor;
+            tempCtx.lineWidth = 1;
+            
+            tempCtx.beginPath();
+            for (let x = 0.5; x <= tempCanvas.width; x += gridSize) {
+                tempCtx.moveTo(x, 0);
+                tempCtx.lineTo(x, tempCanvas.height);
+            }
+            for (let y = 0.5; y <= tempCanvas.height; y += gridSize) {
+                tempCtx.moveTo(0, y);
+                tempCtx.lineTo(tempCanvas.width, y);
+            }
+            tempCtx.stroke();
+        } catch (e) {
+            console.warn("Could not draw theme-aware grid, using fallback.", e);
+            tempCtx.fillStyle = '#e4e4e4'; // Fallback color
+            tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+        }
 
         for (const layer of layers) {
             if (!layer.isVisible) continue;
@@ -920,42 +946,31 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         const interactionCanvas = getInteractionCanvas();
         const container = containerRef.current;
         if (!container || !canvas || !interactionCanvas) return;
-        
+    
+        const { clientWidth, clientHeight } = container;
+    
+        if (canvas.width !== clientWidth || canvas.height !== clientHeight) {
+            canvas.width = clientWidth > 0 ? clientWidth : 512;
+            canvas.height = clientHeight > 0 ? clientHeight : 512;
+            interactionCanvas.width = canvas.width;
+            interactionCanvas.height = canvas.height;
+        }
+
         const firstImageLayer = layers.find(l => l.type === LayerType.IMAGE && l.src);
-        if (!firstImageLayer?.src) {
-             const { clientWidth, clientHeight } = container;
-             canvas.width = clientWidth > 0 ? clientWidth : 512;
-             canvas.height = clientHeight > 0 ? clientHeight : 512;
-             interactionCanvas.width = canvas.width;
-             interactionCanvas.height = canvas.height;
-             drawLayers();
-             return;
-        };
-
-        const img = new Image();
-        img.onload = () => {
-            const containerRatio = container.clientWidth / container.clientHeight;
-            const imageRatio = img.width / img.height;
-            let width, height;
-
-            if (containerRatio > imageRatio) {
-                height = container.clientHeight;
-                width = height * imageRatio;
+        if (firstImageLayer?.src) {
+            const img = offscreenCanvasesRef.current.get(firstImageLayer.id)?.image;
+            if (img && img.complete) {
+                onImageLoad({ width: img.width, height: img.height });
             } else {
-                width = container.clientWidth;
-                height = width / imageRatio;
+                const tempImg = new Image();
+                tempImg.onload = () => { onImageLoad({ width: tempImg.width, height: tempImg.height }); };
+                tempImg.src = firstImageLayer.src;
             }
-            canvas.width = width;
-            canvas.height = height;
-            interactionCanvas.width = width;
-            interactionCanvas.height = height;
-
-            offscreenCanvasesRef.current.forEach(val => val.dirty = true);
-            offscreenMasksRef.current.forEach(val => val.dirty = true);
-            drawLayers();
-            onImageLoad({ width: img.width, height: img.height });
-        };
-        img.src = firstImageLayer.src;
+        }
+        
+        offscreenCanvasesRef.current.forEach(val => val.dirty = true);
+        offscreenMasksRef.current.forEach(val => val.dirty = true);
+        drawLayers();
     }, [layers, onImageLoad, drawLayers]);
 
     useEffect(() => {
@@ -1348,7 +1363,12 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
     };
 
     return (
-        <div ref={containerRef} className="w-full h-full flex items-center justify-center bg-base-300 rounded-lg overflow-hidden relative" onDrop={handleDrop} onDragOver={handleDragOver}>
+        <div 
+          ref={containerRef} 
+          className="w-full h-full flex items-center justify-center rounded-lg overflow-hidden relative bg-base-300" 
+          onDrop={handleDrop} 
+          onDragOver={handleDragOver}
+        >
             <svg width="0" height="0" style={{ position: 'absolute' }}>
                 <defs>
                     <filter id="adjustment-filter">
@@ -1365,7 +1385,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             )}
             {layers.length === 0 && !isLoading && (
                 <div className="absolute inset-0 z-10 flex flex-col items-center justify-center text-center p-4">
-                    <button onClick={onUploadClick} className="flex flex-col items-center justify-center p-8 border-2 border-dashed border-base-300 hover:border-brand-primary rounded-lg transition-colors group">
+                    <button onClick={onUploadClick} className="flex flex-col items-center justify-center p-8 bg-base-200 border-2 border-base-300 hover:border-brand-primary rounded-lg transition-colors group shadow-lg">
                         <UploadIcon />
                         <p className="mt-2 font-semibold text-text-secondary group-hover:text-brand-primary">Upload an Image to Start Editing</p>
                         <p className="text-sm text-text-secondary">or generate one from the panel</p>

@@ -214,32 +214,29 @@ const App: React.FC = () => {
   const updateHistory = useCallback((newLayers: Layer[]) => {
       setHistory(prev => [...prev, newLayers]);
   }, []);
-  
-  const calculateInitialLayerDimensions = (img: { width: number, height: number }) => {
-    const maxWidth = imageDimensions?.width ? imageDimensions.width * 0.9 : 800;
-    const maxHeight = imageDimensions?.height ? imageDimensions.height * 0.9 : 800;
-
-    const imageRatio = img.width / img.height;
-    let initialWidth = img.width;
-    let initialHeight = img.height;
-
-    if (initialWidth > maxWidth) {
-      initialWidth = maxWidth;
-      initialHeight = initialWidth / imageRatio;
-    }
-
-    if (initialHeight > maxHeight) {
-      initialHeight = maxHeight;
-      initialWidth = initialHeight * imageRatio;
-    }
-
-    return { width: initialWidth, height: initialHeight };
-  };
 
   const addImageLayer = useCallback((imageUrl: string, name: string) => {
     const img = new Image();
     img.onload = () => {
-        const { width, height } = calculateInitialLayerDimensions(img);
+        const canvasDimensions = canvasRef.current?.getCanvasDimensions();
+        if (!canvasDimensions || canvasDimensions.width === 0) {
+            console.error("Canvas not ready for adding image layer.");
+            setError("Canvas is not ready. Please try again in a moment.");
+            return;
+        }
+
+        const canvasRatio = canvasDimensions.width / canvasDimensions.height;
+        const imageRatio = img.width / img.height;
+
+        let initialWidth, initialHeight;
+        if (canvasRatio > imageRatio) {
+            initialHeight = canvasDimensions.height;
+            initialWidth = initialHeight * imageRatio;
+        } else {
+            initialWidth = canvasDimensions.width;
+            initialHeight = initialWidth / imageRatio;
+        }
+
         const newLayer: Layer = {
             id: `layer_${Date.now()}`,
             name,
@@ -247,21 +244,21 @@ const App: React.FC = () => {
             src: imageUrl,
             isVisible: true,
             opacity: 100,
-            x: (imageDimensions?.width ?? width) / 2 - width / 2,
-            y: (imageDimensions?.height ?? height) / 2 - height / 2,
-            width,
-            height,
+            x: canvasDimensions.width / 2 - initialWidth / 2,
+            y: canvasDimensions.height / 2 - initialHeight / 2,
+            width: initialWidth,
+            height: initialHeight,
             rotation: 0,
             blendMode: 'source-over',
         };
-        const newLayers = [...layers, newLayer];
+        const newLayers = [newLayer]; // Start with a fresh canvas for a new base image
         setLayers(newLayers);
         setActiveLayerId(newLayer.id);
         updateHistory(newLayers);
         setActiveTab('edit');
     };
     img.src = imageUrl;
-  }, [layers, updateHistory, imageDimensions]);
+}, [layers, updateHistory]);
   
   const handleGenerate = useCallback(async () => {
     if (aiEngine === 'gemini' && !prompt.subject) {
@@ -1753,9 +1750,9 @@ const handleApplyStyleTransfer = useCallback(async () => {
           />
           {error && (<div className="bg-red-500/20 border border-red-500 text-red-300 p-3 rounded-md text-sm"><p className="font-semibold">Error</p><p>{error}</p></div>)}
         </aside>
-        <main className="flex-1 flex items-center justify-center p-4 md:p-6 bg-base-100/50 relative">
+        <main className="flex-1 flex items-center justify-center bg-base-100/50 relative">
           <button onClick={() => setIsPanelOpen(true)} className="md:hidden fixed bottom-4 left-4 z-30 bg-brand-primary text-white p-3 rounded-full shadow-lg hover:bg-brand-primary/80 transition-colors" aria-label="Open controls panel"><SettingsIcon /></button>
-          <div className="w-full h-full max-w-[800px] max-h-[800px] flex items-center justify-center relative">
+          <div className="w-full h-full flex items-center justify-center relative">
             {hasImage && !isLoading && (
               <div className="absolute top-3 right-3 z-30 flex items-center gap-2">
                 {isCropping ? (
