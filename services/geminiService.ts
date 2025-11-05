@@ -277,16 +277,16 @@ export async function rewritePrompt(
     let instruction = '';
     switch (part) {
       case 'subject':
-        instruction = 'Rewrite the following image subject prompt to be more descriptive, evocative, and detailed. Focus on visual elements.';
+        instruction = 'Rewrite the following image subject prompt to be more descriptive, evocative, and detailed. Provide only ONE single rewritten prompt. Do not provide a list of options or any conversational text.';
         break;
       case 'background':
-        instruction = 'Rewrite the following image background description to be more vivid and atmospheric. Add details about lighting and environment.';
+        instruction = 'Rewrite the following image background description to be more vivid and atmospheric. Provide only ONE single rewritten prompt. Do not provide a list of options or any conversational text.';
         break;
       case 'negativePrompt':
-        instruction = 'Expand upon the following negative prompt for an AI image generator. Add more common terms to avoid bad quality images, but keep it concise.';
+        instruction = 'Expand upon the following negative prompt for an AI image generator. Provide only ONE single expanded prompt. Do not provide a list of options or any conversational text.';
         break;
       case 'edit':
-        instruction = 'Rewrite the following image editing instruction to be clearer and more direct for an AI. Focus on a single, actionable change.';
+        instruction = 'Rewrite the following image editing instruction to be clearer and more direct for an AI. Provide only ONE single rewritten instruction. Do not provide a list of options or any conversational text.';
         break;
     }
 

@@ -1,4 +1,3 @@
-
 import React, { useRef, useEffect, useState, useImperativeHandle, forwardRef, useCallback } from 'react';
 import { EditMode, PlacedShape, Stroke, Point, ImageAdjustments, Layer, LayerType, PageState } from '../types';
 import { Loader } from './Loader';
@@ -391,7 +390,8 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         const mimeType = `image/${format}`;
         return flatCanvas.toDataURL(mimeType, quality);
       },
-      getPageContentAsDataURL: async (options = {}) => {
+      // FIX: Explicitly type the options parameter to resolve destructuring errors.
+      getPageContentAsDataURL: async (options: { format?: 'png' | 'jpeg' | 'webp'; quality?: number; includeBackground?: boolean; } = {}) => {
         const { format = 'png', quality = 0.92, includeBackground = false } = options;
         if (!page) return null;
 
@@ -1050,9 +1050,11 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             }
         } else if (activeLayer.type === LayerType.PIXEL && editMode === EditMode.SKETCH) {
             interactionStateRef.current.mode = 'drawing';
+            const layerX = activeLayer.x || 0;
+            const layerY = activeLayer.y || 0;
             const newStroke: Stroke = {
                 id: `stroke_${Date.now()}`,
-                points: [{x: point.x, y: point.y}],
+                points: [{ x: point.x - layerX, y: point.y - layerY }],
                 color: brushColor,
                 size: brushSize,
             };
@@ -1157,7 +1159,9 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                 drawLayers();
             }
         } else if (mode === 'drawing' && currentStroke && activeLayer) {
-            const localPoint = { x: point.x, y: point.y };
+            const layerX = activeLayer.x || 0;
+            const layerY = activeLayer.y || 0;
+            const localPoint = { x: point.x - layerX, y: point.y - layerY };
             const updatedStroke = { ...currentStroke, points: [...currentStroke.points, localPoint] };
             interactionStateRef.current.currentStroke = updatedStroke;
             
@@ -1170,7 +1174,8 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                      ctx.lineCap = 'round';
                      ctx.lineJoin = 'round';
                      ctx.beginPath();
-                     ctx.moveTo(currentStroke.points[currentStroke.points.length - 1].x, currentStroke.points[currentStroke.points.length - 1].y);
+                     const lastPoint = currentStroke.points[currentStroke.points.length-1];
+                     ctx.moveTo(lastPoint.x, lastPoint.y);
                      ctx.lineTo(localPoint.x, localPoint.y);
                      ctx.stroke();
                      drawLayers();
@@ -1225,14 +1230,16 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
 
         const dataUrl = e.dataTransfer.getData('text/plain');
         if (dataUrl.startsWith('data:image')) {
+            const layerX = activeLayer.x || 0;
+            const layerY = activeLayer.y || 0;
             const point = getCanvasCoordinates(e);
             const img = new Image();
             img.onload = () => {
                 const size = 100;
                 const newShape: Omit<PlacedShape, 'id' | 'rotation' | 'color'> = {
                     dataUrl,
-                    x: point.x,
-                    y: point.y,
+                    x: point.x - layerX,
+                    y: point.y - layerY,
                     width: size,
                     height: size * (img.height / img.width),
                 };
