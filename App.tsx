@@ -1,4 +1,7 @@
 
+
+
+
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { ControlPanel } from './components/ControlPanel';
 import { ImageCanvas } from './components/ImageCanvas';
@@ -244,6 +247,8 @@ const App: React.FC = () => {
             height: newPage.height,
             rotation: 0,
             blendMode: 'source-over',
+            scaleX: 1,
+            scaleY: 1,
         };
         const newLayers = [newLayer];
         setLayers(newLayers);
@@ -324,20 +329,163 @@ const App: React.FC = () => {
     comfyUIServerAddress, comfyUIConnectionStatus, selectedComfyUIWorkflow, selectedComfyUICheckpoint, selectedComfyUILora
   ]);
 
+  const handleGenerateFourViews = useCallback(async () => {
+    if (aiEngine === 'gemini' && !prompt.subject) {
+      setError('Please enter a subject to generate 4 views.');
+      return;
+    }
+    if (aiEngine !== 'gemini') {
+        setError('4-view generation is currently only supported with the Gemini AI engine.');
+        return;
+    }
+
+    setIsLoading(true);
+    setLoadingMessage('Generating 4 distinct views...');
+    setError(null);
+    setLayers([]);
+    setActiveLayerId(null);
+    setGeneratedImages([]);
+    setPage(null);
+    setActiveTab('generate');
+    setHistory([]);
+    setIsEditingMask(false);
+
+    try {
+        const baseParts = [prompt.background ? `background of ${prompt.background}` : '', style.prompt, lighting.prompt, composition.prompt, technicalModifier.prompt].filter(Boolean);
+        const baseSuffix = baseParts.length ? `, ${baseParts.join(', ')}` : '';
+        const negative = prompt.negativePrompt ? `. Negative prompt: ${prompt.negativePrompt}` : '';
+
+        const views = [
+            { name: 'Front View', prefix: `Front view of ${prompt.subject}` },
+            { name: 'Back View', prefix: `Back view of ${prompt.subject}, seen from behind` },
+            { name: 'Right View', prefix: `Right side profile view of ${prompt.subject}` },
+            { name: 'Left View', prefix: `Left side profile view of ${prompt.subject}` }
+        ];
+
+        // Generate in parallel
+        const promises = views.map(async (view) => {
+            const fullPrompt = `${view.prefix}${baseSuffix}${negative}`;
+            try {
+                const images = await geminiService.generateImage(fullPrompt, { aspectRatio, numberOfImages: 1 });
+                return { name: view.name, imageB64: images[0] };
+            } catch (e) {
+                console.error(`Failed to generate ${view.name}`, e);
+                return { name: view.name, imageB64: null, error: e };
+            }
+        });
+
+        const results = await Promise.all(promises);
+        const successfulResults = results.filter(r => r.imageB64 !== null);
+
+        if (successfulResults.length === 0) {
+            throw new Error("Failed to generate any views. Please try again.");
+        }
+
+        const loadImage = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => resolve(img);
+            img.onerror = reject;
+            img.src = src;
+        });
+
+        const canvasDimensions = canvasRef.current?.getCanvasDimensions();
+        if (!canvasDimensions || canvasDimensions.width === 0) {
+             throw new Error("Canvas is not ready.");
+        }
+
+        // Load all images to determine dimensions
+        const loadedImages = await Promise.all(successfulResults.map(async (r) => {
+             const src = `data:image/png;base64,${r.imageB64}`;
+             const img = await loadImage(src);
+             return { ...r, img, src };
+        }));
+
+        const firstImg = loadedImages[0].img;
+        const newPage: PageState = {
+            width: firstImg.width,
+            height: firstImg.height,
+            x: (canvasDimensions.width - firstImg.width) / 2,
+            y: (canvasDimensions.height - firstImg.height) / 2,
+            backgroundColor: 'rgb(var(--color-base-200))',
+        };
+        setPage(newPage);
+
+        const newLayers: Layer[] = loadedImages.map((item, index) => ({
+            id: `layer_${Date.now()}_${index}`,
+            name: item.name,
+            type: LayerType.IMAGE,
+            src: item.src,
+            isVisible: true,
+            opacity: 100,
+            x: newPage.x,
+            y: newPage.y,
+            width: newPage.width,
+            height: newPage.height,
+            rotation: 0,
+            blendMode: 'source-over',
+            scaleX: 1,
+            scaleY: 1,
+        }));
+
+        setLayers(newLayers);
+        setActiveLayerId(newLayers[newLayers.length - 1].id);
+        updateHistory(newLayers);
+        setActiveTab('edit');
+
+    } catch (e: any) {
+        console.error(e);
+        setError(e.message || 'Failed to generate 4 views. Please try again.');
+    } finally {
+        setIsLoading(false);
+        setLoadingMessage('');
+    }
+  }, [prompt, style, lighting, composition, technicalModifier, aspectRatio, aiEngine, updateHistory]);
+
   const handleImageUpload = useCallback((file: File) => {
     setError(null);
     setGeneratedImages([]);
-    setPage(null);
     setIsEditingMask(false);
     const reader = new FileReader();
     reader.onload = (e) => {
       const imageUrl = e.target?.result as string;
       if (!imageUrl) return;
-      addImageLayer(imageUrl, file.name);
-      setEditPrompt(''); // Clear prompt, let user analyze if they want
+
+      if (page && layers.length > 0) {
+        // If there's content on the canvas, add the new image as a layer
+        const img = new Image();
+        img.onload = () => {
+          const newLayer: Layer = {
+            id: `layer_${Date.now()}`,
+            name: file.name,
+            type: LayerType.IMAGE,
+            src: imageUrl,
+            isVisible: true,
+            opacity: 100,
+            x: page.x + (page.width - img.width) / 2,
+            y: page.y + (page.height - img.height) / 2,
+            width: img.width,
+            height: img.height,
+            rotation: 0,
+            blendMode: 'source-over',
+            scaleX: 1,
+            scaleY: 1,
+          };
+          const newLayers = [...layers, newLayer];
+          setLayers(newLayers);
+          setActiveLayerId(newLayer.id);
+          updateHistory(newLayers);
+          setActiveTab('edit');
+        };
+        img.crossOrigin = 'Anonymous';
+        img.src = imageUrl;
+      } else {
+        // Otherwise, initialize the canvas with this image
+        addImageLayer(imageUrl, file.name);
+      }
+      setEditPrompt('');
     };
     reader.readAsDataURL(file);
-  }, [addImageLayer]);
+  }, [addImageLayer, page, layers, updateHistory]);
 
   const handleSelectGalleryImage = useCallback((imageUrl: string) => {
     setLayers([]); // Start fresh with the selected image
@@ -429,6 +577,8 @@ const handleEdit = useCallback(async () => {
                 height: page.height,
                 rotation: 0,
                 blendMode: 'source-over',
+                scaleX: 1,
+                scaleY: 1,
             };
 
             const activeLayerIndex = layers.findIndex(l => l.id === activeLayerId);
@@ -486,6 +636,8 @@ const handleEdit = useCallback(async () => {
                 height: page.height,
                 rotation: 0,
                 blendMode: 'source-over',
+                scaleX: 1,
+                scaleY: 1,
             };
 
             const newLayers = [...layers, newLayer];
@@ -565,6 +717,8 @@ const handleEdit = useCallback(async () => {
                         height: dimensions.height,
                         rotation: 0,
                         blendMode: 'source-over',
+                        scaleX: 1,
+                        scaleY: 1,
                     };
                     const newLayers = [newLayer];
                     setLayers(newLayers);
@@ -602,6 +756,8 @@ const handleEdit = useCallback(async () => {
       x: page?.x || 0,
       y: page?.y || 0,
       rotation: 0,
+      scaleX: 1,
+      scaleY: 1,
       blendMode: 'source-over',
     };
     if (type === LayerType.PIXEL) {
@@ -752,6 +908,8 @@ const handleEdit = useCallback(async () => {
                       width: newWidth,
                       height: newHeight,
                       rotation: 0, // Rotation is now baked into the image
+                      scaleX: 1, // Flip is baked
+                      scaleY: 1, // Flip is baked
                   };
               }
               return l;
@@ -1378,6 +1536,8 @@ const handleApplyStyleTransfer = useCallback(async () => {
                 height: page.height,
                 rotation: 0,
                 blendMode: 'source-over',
+                scaleX: 1,
+                scaleY: 1,
             };
 
             const newLayers = [...layers, newLayer];
@@ -1577,7 +1737,7 @@ const handleApplyStyleTransfer = useCallback(async () => {
             editPrompt={editPrompt} setEditPrompt={setEditPrompt} style={style} setStyle={setStyle} lighting={lighting} setLighting={setLighting}
             composition={composition} setComposition={setComposition} technicalModifier={technicalModifier} setTechnicalModifier={setTechnicalModifier}
             aspectRatio={aspectRatio} setAspectRatio={setAspectRatio}
-            onGenerate={handleGenerate} onEdit={handleEdit} onAnalyzeImage={handleAnalyzeImage} onOutpaint={handleOutpaint} outpaintPrompt={outpaintPrompt} setOutpaintPrompt={setOutpaintPrompt}
+            onGenerate={handleGenerate} onGenerateFourViews={handleGenerateFourViews} onEdit={handleEdit} onAnalyzeImage={handleAnalyzeImage} onOutpaint={handleOutpaint} outpaintPrompt={outpaintPrompt} setOutpaintPrompt={setOutpaintPrompt}
             outpaintAmount={outpaintAmount} setOutpaintAmount={setOutpaintAmount} 
             onOpenOptionsClick={() => setIsOpenOptionsOpen(true)} isLoading={isLoading} hasImage={hasImage} editMode={editMode} setEditMode={setEditMode}
             brushSize={brushSize} setBrushSize={setBrushSize} brushColor={brushColor} setBrushColor={setBrushColor} onClear={clearCanvas}
@@ -1664,6 +1824,7 @@ const handleApplyStyleTransfer = useCallback(async () => {
                 isLoading={isLoading} loadingMessage={loadingMessage} editMode={editMode} brushSize={brushSize} brushColor={brushColor}
                 onUploadClick={handleOpenImageClick}
                 selectedShapeId={selectedShapeId} onAddStroke={handleAddStroke} onAddShape={handleAddShape}
+                // FIX: `onUpdateShape` was not defined. It should be `handleUpdateShape`.
                 onUpdateShape={handleUpdateShape} onSelectShape={setSelectedShapeId} 
                 onShapeInteractionEnd={handleShapeInteractionEnd}
                 onStrokeInteractionEnd={handleStrokeInteractionEnd}

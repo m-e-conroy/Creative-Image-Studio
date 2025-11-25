@@ -1,15 +1,13 @@
-
 import React, { useState, useEffect } from 'react';
 import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, ClipArtCategory, TechnicalModifier, ImageAdjustments, Layer, LayerType, Theme, PexelsPhoto, AIEngine, ComfyUIConnectionStatus, ComfyUIWorkflow, PageState } from '../types';
 import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, TECHNICAL_MODIFIERS } from '../constants';
-// FIX: Removed unused `CropIcon` import.
-import { BrushIcon, ClearIcon, DrawIcon, EditIcon, GenerateIcon, MaskIcon, ResetIcon, FilterIcon, RewriteIcon, RandomIcon, UploadIcon, OutpaintIcon, ArrowUpIcon, ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon, IdeaIcon, UndoIcon, SaveIcon, RotateIcon, SettingsIcon, CloseIcon, CopyIcon, CheckIcon, LogoIcon, AddIcon, OpenProjectIcon, PexelsIcon, ChevronDownIcon, SearchIcon, MoveIcon, PaletteIcon } from './Icons';
+import { BrushIcon, ClearIcon, DrawIcon, EditIcon, GenerateIcon, MaskIcon, ResetIcon, FilterIcon, RewriteIcon, RandomIcon, UploadIcon, OutpaintIcon, ArrowUpIcon, ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon, IdeaIcon, UndoIcon, SaveIcon, RotateIcon, SettingsIcon, CloseIcon, CopyIcon, CheckIcon, LogoIcon, AddIcon, OpenProjectIcon, PexelsIcon, ChevronDownIcon, SearchIcon, MoveIcon, PaletteIcon, ViewColumnsIcon, FlipHorizontalIcon, FlipVerticalIcon } from './Icons';
 import { ThemeSwitcher } from './ThemeSwitcher';
 import { LayersPanel } from './LayersPanel';
 
 type Tab = 'generate' | 'edit' | 'settings';
 
-interface ControlPanelProps {
+export interface ControlPanelProps {
   onClose: () => void;
   activeTab: Tab;
   setActiveTab: (tab: Tab) => void;
@@ -37,6 +35,7 @@ interface ControlPanelProps {
   aspectRatio: string;
   setAspectRatio: (value: string) => void;
   onGenerate: () => void;
+  onGenerateFourViews: () => void;
   onEdit: () => void;
   onAnalyzeImage: () => void;
   onOutpaint: (direction: 'up' | 'down' | 'left' | 'right') => void;
@@ -286,8 +285,8 @@ const InteractivePromptInput: React.FC<{
 };
 
 
-const GeminiGeneratePanel: React.FC<Pick<ControlPanelProps, 'prompt' | 'onPromptChange' | 'onRewritePrompt' | 'rewritingPrompt' | 'onRandomPrompt' | 'randomizingPrompt' | 'onGetSuggestions' | 'subjectSuggestions' | 'backgroundSuggestions' | 'negativePromptSuggestions' | 'suggestionsLoading' | 'style' | 'setStyle' | 'lighting' | 'setLighting' | 'composition' | 'setComposition' | 'technicalModifier' | 'setTechnicalModifier' | 'aspectRatio' | 'setAspectRatio' | 'onGenerate' | 'isLoading'>> = ({
-  prompt, onPromptChange, onRewritePrompt, rewritingPrompt, onRandomPrompt, randomizingPrompt, onGetSuggestions, subjectSuggestions, backgroundSuggestions, negativePromptSuggestions, suggestionsLoading, style, setStyle, lighting, setLighting, composition, setComposition, technicalModifier, setTechnicalModifier, aspectRatio, setAspectRatio, onGenerate, isLoading
+const GeminiGeneratePanel: React.FC<Pick<ControlPanelProps, 'prompt' | 'onPromptChange' | 'onRewritePrompt' | 'rewritingPrompt' | 'onRandomPrompt' | 'randomizingPrompt' | 'onGetSuggestions' | 'subjectSuggestions' | 'backgroundSuggestions' | 'negativePromptSuggestions' | 'suggestionsLoading' | 'style' | 'setStyle' | 'lighting' | 'setLighting' | 'composition' | 'setComposition' | 'technicalModifier' | 'setTechnicalModifier' | 'aspectRatio' | 'setAspectRatio' | 'onGenerate' | 'onGenerateFourViews' | 'isLoading'>> = ({
+  prompt, onPromptChange, onRewritePrompt, rewritingPrompt, onRandomPrompt, randomizingPrompt, onGetSuggestions, subjectSuggestions, backgroundSuggestions, negativePromptSuggestions, suggestionsLoading, style, setStyle, lighting, setLighting, composition, setComposition, technicalModifier, setTechnicalModifier, aspectRatio, setAspectRatio, onGenerate, onGenerateFourViews, isLoading
 }) => (
   <div className="flex flex-col space-y-4">
     <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2">1. Describe Your Image</h2>
@@ -375,9 +374,14 @@ const GeminiGeneratePanel: React.FC<Pick<ControlPanelProps, 'prompt' | 'onPrompt
       </select>
     </div>
 
-    <button onClick={onGenerate} disabled={isLoading || !prompt.subject || !!rewritingPrompt || !!randomizingPrompt} className="w-full flex items-center justify-center gap-2 bg-brand-primary hover:bg-brand-primary/80 disabled:bg-base-300 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition duration-200">
-      <GenerateIcon /> {isLoading ? 'Generating...' : 'Generate'}
-    </button>
+    <div className="flex gap-2">
+      <button onClick={onGenerate} disabled={isLoading || !prompt.subject || !!rewritingPrompt || !!randomizingPrompt} className="flex-1 flex items-center justify-center gap-2 bg-brand-primary hover:bg-brand-primary/80 disabled:bg-base-300 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition duration-200">
+        <GenerateIcon /> {isLoading ? 'Generating...' : 'Generate'}
+      </button>
+      <button onClick={onGenerateFourViews} disabled={isLoading || !prompt.subject || !!rewritingPrompt || !!randomizingPrompt} className="flex items-center justify-center gap-2 bg-brand-secondary hover:bg-brand-secondary/80 disabled:bg-base-300 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition duration-200" title="Generate Front, Back, Left, and Right views">
+        <ViewColumnsIcon /> 4 Views
+      </button>
+    </div>
   </div>
 );
 
@@ -629,517 +633,371 @@ const MaskingTools: React.FC<Pick<ControlPanelProps, 'brushSize' | 'setBrushSize
           <p className="text-xs text-text-secondary">Paint with black to hide parts of the layer, and white to reveal them.</p>
           <div>
               <label htmlFor="brush-size" className="block text-sm font-medium text-text-secondary mb-2">Brush Size</label>
-              <input id="brush-size" type="range" min="5" max="100" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer" disabled={isLoading} />
+              <input id="brush-size" type="range" min="5" max="100" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer" />
           </div>
           <div>
-              <label className="block text-sm font-medium text-text-secondary mb-2">Brush Color</label>
-              <div className="flex items-center gap-2">
-                  <button onClick={() => setBrushColor('#FFFFFF')} className={`w-10 h-10 rounded-md bg-white border-2 ${brushColor === '#FFFFFF' ? 'border-brand-secondary' : 'border-base-300'}`} disabled={isLoading} aria-label="Select white brush"></button>
-                  <button onClick={() => setBrushColor('#000000')} className={`w-10 h-10 rounded-md bg-black border-2 ${brushColor === '#000000' ? 'border-brand-secondary' : 'border-base-300'}`} disabled={isLoading} aria-label="Select black brush"></button>
-              </div>
-          </div>
-        </div>
-    </div>
-  )
-}
-
-const AdjustmentControls: React.FC<{
-    adjustments: ImageAdjustments;
-    onAdjustmentChange: (adjustment: keyof ImageAdjustments, value: number) => void;
-    onResetAdjustments: () => void;
-    onFilterChange: (filterName: string) => void;
-    isLoading: boolean;
-}> = ({ adjustments, onAdjustmentChange, onResetAdjustments, onFilterChange, isLoading }) => (
-    <div className="space-y-3 pt-4 border-t border-base-300">
-        <h3 className="text-md font-semibold text-text-primary">Adjustments</h3>
-        <div>
-            <label htmlFor="filter" className="block text-sm font-medium text-text-secondary mb-1">Preset Filter</label>
-            <select
-                id="filter"
-                value={adjustments.filter || 'None'}
-                onChange={(e) => onFilterChange(e.target.value)}
-                disabled={isLoading}
-                className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary focus:border-brand-primary transition"
-            >
-                {FILTERS.map(f => <option key={f.name} value={f.name}>{f.name}</option>)}
-            </select>
-        </div>
-        <div>
-            <label htmlFor="brightness" className="block text-sm font-medium text-text-secondary mb-1">
-                Brightness ({adjustments.brightness}%)
-            </label>
-            <input
-                id="brightness" type="range" min="50" max="150" value={adjustments.brightness}
-                onChange={(e) => onAdjustmentChange('brightness', parseInt(e.target.value, 10))}
-                disabled={isLoading} className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer"
-            />
-        </div>
-        <div>
-            <label htmlFor="contrast" className="block text-sm font-medium text-text-secondary mb-1">
-                Contrast ({adjustments.contrast}%)
-            </label>
-            <input
-                id="contrast" type="range" min="50" max="200" value={adjustments.contrast}
-                onChange={(e) => onAdjustmentChange('contrast', parseInt(e.target.value, 10))}
-                disabled={isLoading} className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer"
-            />
-        </div>
-        <div>
-            <label htmlFor="red" className="block text-sm font-medium text-text-secondary mb-1">
-                Red ({adjustments.red}%)
-            </label>
-            <input
-                id="red" type="range" min="0" max="200" value={adjustments.red}
-                onChange={(e) => onAdjustmentChange('red', parseInt(e.target.value, 10))}
-                disabled={isLoading} className="w-full h-2 bg-red-500/50 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:bg-red-500"
-            />
-        </div>
-        <div>
-            <label htmlFor="green" className="block text-sm font-medium text-text-secondary mb-1">
-                Green ({adjustments.green}%)
-            </label>
-            <input
-                id="green" type="range" min="0" max="200" value={adjustments.green}
-                onChange={(e) => onAdjustmentChange('green', parseInt(e.target.value, 10))}
-                disabled={isLoading} className="w-full h-2 bg-green-500/50 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:bg-green-500"
-            />
-        </div>
-        <div>
-            <label htmlFor="blue" className="block text-sm font-medium text-text-secondary mb-1">
-                Blue ({adjustments.blue}%)
-            </label>
-            <input
-                id="blue" type="range" min="0" max="200" value={adjustments.blue}
-                onChange={(e) => onAdjustmentChange('blue', parseInt(e.target.value, 10))}
-                disabled={isLoading} className="w-full h-2 bg-blue-500/50 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:bg-blue-500"
-            />
-        </div>
-        <button
-            onClick={onResetAdjustments} disabled={isLoading}
-            className="w-full flex items-center justify-center gap-2 bg-base-300 hover:bg-base-300/80 disabled:opacity-50 text-text-secondary font-bold py-2 px-3 rounded-md transition text-sm">
-            <ResetIcon /> Reset Adjustments
-        </button>
-    </div>
-);
-
-
-const EditTab: React.FC<Omit<ControlPanelProps, 'prompt' | 'onPromptChange' | 'onGetSuggestions' | 'subjectSuggestions' | 'backgroundSuggestions' | 'negativePromptSuggestions' | 'suggestionsLoading' | 'style' | 'setStyle' | 'lighting' | 'setLighting' | 'composition' | 'setComposition' | 'technicalModifier' | 'setTechnicalModifier' | 'aspectRatio' | 'setAspectRatio' | 'onGenerate' | 'onClose' | 'activeTab' | 'setActiveTab' | 'themes' | 'activeTheme' | 'onThemeChange' | 'isDarkMode' | 'onToggleThemeMode' | 'onClearCustomShapes' | 'onOpenOptionsClick' | 'pexelsApiKey' | 'onSetPexelsApiKey' | 'aiEngine' | 'onAiEngineChange' | 'comfyUIServerAddress' | 'onComfyUIServerAddressChange' | 'comfyUIConnectionStatus' | 'onConnectToComfyUI' | 'comfyUICheckpointModels' | 'comfyUILoraModels' | 'selectedComfyUICheckpoint' | 'onSelectedComfyUICheckpointChange' | 'selectedComfyUILora' | 'onSelectedComfyUILoraChange' | 'comfyUIWorkflows' | 'selectedComfyUIWorkflow' | 'onSelectedComfyUIWorkflowChange' | 'page' | 'onPageSizeChange'>> = (props) => {
-    const { editPrompt, setEditPrompt, editMode, setEditMode, brushSize, setBrushSize, brushColor, setBrushColor, onEdit, onAnalyzeImage, onClear, onReset, onUndo, canUndo, isLoading, onRandomPrompt, randomizingPrompt, onOutpaint, outpaintPrompt, setOutpaintPrompt, outpaintAmount, setOutpaintAmount, clipArtCategories, selectedClipArtCategoryName, setSelectedClipArtCategoryName, onSaveShape, selectedShapeId, onDeleteSelectedShape, isEditingMask, colorPresets, onAddColorPreset, hasImage, onLayerAdjustmentChange, onResetLayerAdjustments, onLayerFilterChange, onRemixImage, remixPreservation, setRemixPreservation } = props;
-    const [newShapeName, setNewShapeName] = useState('');
-    const [isPexelsOpen, setIsPexelsOpen] = useState(false);
-
-
-    const activeLayer = props.layers.find(l => l.id === props.activeLayerId);
-    const selectedShape = activeLayer?.type === LayerType.PIXEL ? activeLayer.placedShapes?.find(s => s.id === selectedShapeId) : null;
-    const selectedCategory = clipArtCategories.find(c => c.name === selectedClipArtCategoryName);
-
-    const handleSaveClick = () => {
-        if (newShapeName.trim()) {
-            onSaveShape(newShapeName);
-            setNewShapeName('');
-        }
-    };
-    
-    const handleDragStart = (e: React.DragEvent<HTMLImageElement>, shape: ClipArtShape) => {
-        e.dataTransfer.setData('text/plain', shape.dataUrl);
-    };
-
-    const isPixelLayerActive = activeLayer?.type === LayerType.PIXEL;
-    const isAdjustmentLayerActive = activeLayer?.type === LayerType.ADJUSTMENT;
-    const placeholderText = "Describe changes for a mask, sketch, or canvas remix...";
-
-
-    return (
-    <div className="flex flex-col space-y-4">
-        <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2">2. Edit Your Creation</h2>
-
-        <LayersPanel {...props} />
-
-        <div className="bg-base-100/50 rounded-md">
-            <button onClick={() => setIsPexelsOpen(!isPexelsOpen)} className="w-full flex justify-between items-center p-3 text-left">
-                <h3 className="text-md font-semibold text-text-primary flex items-center gap-2"><PexelsIcon/> Stock Photos</h3>
-                <ChevronDownIcon className={`transition-transform ${isPexelsOpen ? 'rotate-180' : ''}`} />
-            </button>
-            {isPexelsOpen && (
-                <div className="p-3 border-t border-base-300">
-                    <PexelsPanel {...props} />
-                </div>
-            )}
-        </div>
-
-        {isEditingMask ? (
-            <MaskingTools {...props} />
-        ) : isAdjustmentLayerActive && activeLayer.adjustments ? (
-            <AdjustmentControls 
-                adjustments={activeLayer.adjustments} 
-                onAdjustmentChange={onLayerAdjustmentChange}
-                onResetAdjustments={onResetLayerAdjustments}
-                onFilterChange={onLayerFilterChange}
-                isLoading={isLoading}
-            />
-        ) : (
-        <>
-          <div>
-              <label className="block text-sm font-medium text-text-secondary mb-2">Editing Mode</label>
-              <div className="grid grid-cols-3 gap-2">
-                  <button onClick={() => setEditMode(EditMode.MOVE)} disabled={isLoading || !hasImage} className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md transition text-sm ${editMode === EditMode.MOVE ? 'bg-brand-secondary text-white' : 'bg-base-100 hover:bg-base-300'}`}><MoveIcon /> Move</button>
-                  <button onClick={() => setEditMode(EditMode.SKETCH)} disabled={isLoading || !hasImage} className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md transition text-sm ${editMode === EditMode.SKETCH ? 'bg-brand-secondary text-white' : 'bg-base-100 hover:bg-base-300'}`}><DrawIcon /> Sketch</button>
-                  <button onClick={() => setEditMode(EditMode.OUTPAINT)} disabled={isLoading || !hasImage} className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md transition text-sm ${editMode === EditMode.OUTPAINT ? 'bg-brand-secondary text-white' : 'bg-base-100 hover:bg-base-300'}`}><OutpaintIcon /> Outpaint</button>
-              </div>
-          </div>
-          
-          {editMode === EditMode.OUTPAINT ? (
-              <OutpaintControls onOutpaint={onOutpaint} isLoading={isLoading} outpaintPrompt={outpaintPrompt} setOutpaintPrompt={setOutpaintPrompt} outpaintAmount={outpaintAmount} setOutpaintAmount={setOutpaintAmount} />
-          ) : editMode === EditMode.MOVE ? (
-                <div className="text-center text-sm text-text-secondary p-4 bg-base-100 rounded-md">
-                    <p className="font-semibold">Move Tool</p>
-                    <p>Select a layer and drag it on the canvas to change its position.</p>
-                </div>
-          ) : (
-          <>
-              <div className={`space-y-3 ${!isPixelLayerActive ? 'opacity-50' : ''}`}>
-                  <label htmlFor="brush-size" className="block text-sm font-medium text-text-secondary flex items-center gap-2"><BrushIcon/> Brush Options</label>
-                  <div className="flex items-center gap-4">
-                      <input id="brush-size" type="range" min="5" max="100" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer" disabled={isLoading || !isPixelLayerActive} />
-                      {editMode === EditMode.SKETCH && (<input type="color" value={brushColor} onChange={(e) => setBrushColor(e.target.value)} className="w-10 h-10 p-1 bg-base-100 border border-base-300 rounded-md cursor-pointer" disabled={isLoading || !isPixelLayerActive} />)}
-                  </div>
-                  {editMode === EditMode.SKETCH && (
-                    <div className="flex flex-wrap items-center gap-2">
-                      {colorPresets.map(color => (
-                        <button
-                          key={color}
-                          onClick={() => setBrushColor(color)}
-                          className={`w-6 h-6 rounded-full border-2 transition-transform hover:scale-110 ${brushColor.toLowerCase() === color.toLowerCase() ? 'border-brand-secondary' : 'border-base-300/50'}`}
-                          style={{ backgroundColor: color }}
-                          aria-label={`Set brush color to ${color}`}
-                          disabled={isLoading || !isPixelLayerActive}
-                        />
-                      ))}
-                      <button 
-                        onClick={onAddColorPreset}
-                        className="w-6 h-6 rounded-full border-2 border-dashed border-base-300 flex items-center justify-center text-text-secondary hover:bg-base-300 disabled:opacity-50"
-                        aria-label="Save current color as preset"
-                        title="Save current color as preset"
-                        disabled={isLoading || !isPixelLayerActive || colorPresets.includes(brushColor) || colorPresets.length >= 12}
-                      >
-                        <AddIcon />
-                      </button>
-                    </div>
-                  )}
-                  {!isPixelLayerActive && <p className="text-xs text-text-secondary mt-1">Select a Pixel layer to draw.</p>}
-              </div>
-              {editMode === EditMode.SKETCH && (
-                  <div className={`space-y-3 p-3 bg-base-200/50 rounded-md ${!isPixelLayerActive ? 'opacity-50' : ''}`}>
-                      <label className="block text-sm font-medium text-text-secondary">Clip Art Library</label>
-                      <div className="grid grid-cols-2 gap-2">
-                          <label htmlFor="clip-art-category" className="sr-only">Clip Art Category</label>
-                          <select id="clip-art-category" value={selectedClipArtCategoryName} onChange={(e) => setSelectedClipArtCategoryName(e.target.value)} className="col-span-2 w-full bg-base-100 border border-base-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-brand-secondary" disabled={isLoading || !isPixelLayerActive}>
-                              {clipArtCategories.map(cat => <option key={cat.name} value={cat.name}>{cat.name}</option>)}
-                          </select>
-                      </div>
-                      <div className="grid grid-cols-5 gap-2 max-h-32 overflow-y-auto p-1 bg-base-100 rounded">
-                          {selectedCategory?.shapes.map(shape => (
-                              <div key={shape.name} className={`aspect-square p-1 bg-base-200 rounded-md flex items-center justify-center ${isPixelLayerActive ? 'cursor-grab active:cursor-grabbing' : 'cursor-not-allowed'}`} title={shape.name}>
-                                  <img src={shape.dataUrl} alt={shape.name} draggable={isPixelLayerActive} onDragStart={(e) => handleDragStart(e, shape)} className="max-w-full max-h-full" />
-                              </div>
-                          ))}
-                      </div>
-                      <div className="flex items-center gap-2">
-                          <input type="text" value={newShapeName} onChange={(e) => setNewShapeName(e.target.value)} placeholder="Name your sketch" className="flex-grow bg-base-100 border border-base-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-brand-secondary" disabled={isLoading || !isPixelLayerActive}/>
-                          <button onClick={handleSaveClick} disabled={isLoading || !newShapeName.trim() || !isPixelLayerActive} className="p-2 bg-brand-secondary text-white rounded-md disabled:opacity-50 transition" title="Save current sketch to Custom library"><SaveIcon /></button>
-                      </div>
-                  </div>
-              )}
-              {editMode === EditMode.SKETCH && selectedShape && (
-                  <div className="space-y-3 p-3 bg-base-200/50 rounded-md">
-                      <label className="block text-sm font-medium text-text-secondary">Shape Properties</label>
-                      <button onClick={onDeleteSelectedShape} disabled={isLoading || !selectedShapeId} className="w-full flex items-center justify-center gap-2 p-2 bg-red-600 hover:bg-red-700 text-white rounded-md disabled:opacity-50 transition text-sm" title="Delete selected shape"><ClearIcon /> Delete</button>
-                  </div>
-              )}
-              <div>
-                <InteractivePromptInput
-                  part="edit"
-                  label="Editing Prompt"
-                  placeholder={placeholderText}
-                  prompt={editPrompt}
-                  onPromptChange={(part, value) => setEditPrompt(value)}
-                  onRewritePrompt={props.onRewritePrompt}
-                  rewritingPrompt={props.rewritingPrompt}
-                  onRandomPrompt={onRandomPrompt}
-                  randomizingPrompt={randomizingPrompt}
-                  isLoading={isLoading}
-                  rows={3}
-                />
-              </div>
-              <button onClick={onEdit} disabled={isLoading || !editPrompt} className="w-full flex items-center justify-center gap-2 bg-brand-secondary hover:bg-brand-secondary/80 disabled:bg-base-300 text-white font-bold py-2 px-4 rounded-md transition duration-200"><EditIcon /> Apply Masked Edit</button>
-          </>
-          )}
-        </>
-        )}
-        
-        {hasImage && !isEditingMask && (
-            <>
-                <div className="space-y-3 pt-4 border-t border-base-300">
-                    <h3 className="text-md font-semibold text-text-primary flex items-center gap-2"><GenerateIcon/> Canvas Remix</h3>
-                    <p className="text-xs text-text-secondary -mt-2">Reimagines the entire visible canvas based on your prompt.</p>
-                    <div>
-                        <label htmlFor="remix-preservation" className="block text-sm font-medium text-text-secondary mb-1">
-                            Image Preservation ({remixPreservation}%)
-                        </label>
-                        <input 
-                            id="remix-preservation" 
-                            type="range" 
-                            min="0" 
-                            max="100" 
-                            step="5"
-                            value={remixPreservation}
-                            onChange={(e) => setRemixPreservation(Number(e.target.value))}
-                            className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer"
-                            disabled={isLoading}
-                        />
-                        <p className="text-xs text-text-secondary mt-1">How much of the original image's structure to preserve. Higher values stick closer to the original.</p>
-                    </div>
-                    <button
-                        onClick={onRemixImage}
-                        disabled={isLoading || !editPrompt || !hasImage}
-                        className="w-full flex items-center justify-center gap-2 bg-brand-secondary hover:bg-brand-secondary/80 disabled:bg-base-300 text-white font-bold py-2 px-4 rounded-md transition duration-200"
-                        title={!hasImage ? "Generate or upload an image first" : !editPrompt ? "Please enter a prompt to remix the canvas" : "Remix the canvas"}
-                    >
-                        <RewriteIcon /> Remix Canvas
-                    </button>
-                </div>
-                <div className="space-y-3 pt-4 border-t border-base-300">
-                    <h3 className="text-md font-semibold text-text-primary flex items-center gap-2"><PaletteIcon /> Style Transfer</h3>
-                    <p className="text-xs text-text-secondary -mt-2">Apply the artistic style from one image to another.</p>
-                    
-                    {props.styleImage ? (
-                        <div className="flex items-center gap-2 p-2 bg-base-100 rounded-md">
-                            <img src={props.styleImage} alt="Style reference" className="w-16 h-16 object-cover rounded" />
-                            <div className="flex-grow">
-                                <p className="text-sm font-semibold">Style Image Loaded</p>
-                                <p className="text-xs text-text-secondary">Ready to apply style.</p>
-                            </div>
-                            <button onClick={props.onRemoveStyleImage} disabled={isLoading} className="p-2 bg-base-300 rounded-full hover:bg-red-500 hover:text-white transition"><ClearIcon /></button>
-                        </div>
-                    ) : (
-                        <button onClick={props.onStyleImageUpload} disabled={isLoading} className="w-full flex items-center justify-center gap-2 p-4 border-2 border-dashed border-base-300 rounded-lg hover:border-brand-secondary hover:text-brand-secondary transition">
-                            <UploadIcon />
-                            Upload Style Image
-                        </button>
-                    )}
-
-                    <div>
-                        <label htmlFor="style-strength" className="block text-sm font-medium text-text-secondary mb-1">
-                            Style Strength ({props.styleStrength}%)
-                        </label>
-                        <input 
-                            id="style-strength" 
-                            type="range" 
-                            min="10" 
-                            max="100" 
-                            step="5"
-                            value={props.styleStrength}
-                            onChange={(e) => props.setStyleStrength(Number(e.target.value))}
-                            className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer"
-                            disabled={isLoading || !props.styleImage}
-                        />
-                    </div>
-                    <button
-                        onClick={props.onApplyStyleTransfer}
-                        disabled={isLoading || !hasImage || !props.styleImage}
-                        className="w-full flex items-center justify-center gap-2 bg-brand-secondary hover:bg-brand-secondary/80 disabled:bg-base-300 text-white font-bold py-2 px-4 rounded-md transition duration-200"
-                        title={!hasImage ? "Add an image to the canvas first" : !props.styleImage ? "Upload a style image first" : "Apply Style"}
-                    >
-                        <RewriteIcon /> Apply Style
-                    </button>
-                </div>
-            </>
-        )}
-
-
-        <div className="grid grid-cols-3 gap-2 pt-4 border-t border-base-300">
-            <button onClick={onClear} disabled={isLoading || (!isPixelLayerActive && !isEditingMask) } className="w-full flex items-center justify-center gap-2 bg-base-300 hover:bg-base-300/80 disabled:bg-base-300/50 text-text-secondary font-bold py-2 px-4 rounded-md transition"><ClearIcon /> Clear</button>
-            <button onClick={onUndo} disabled={isLoading || !canUndo} className="w-full flex items-center justify-center gap-2 bg-base-300 hover:bg-base-300/80 disabled:bg-base-300/50 text-text-secondary font-bold py-2 px-4 rounded-md transition"><UndoIcon /> Undo</button>
-            <button onClick={onReset} disabled={isLoading} className="w-full flex items-center justify-center gap-2 bg-base-300 hover:bg-base-300/80 disabled:bg-base-300/50 text-text-secondary font-bold py-2 px-4 rounded-md transition"><ResetIcon /> Reset All</button>
-        </div>
-    </div>
-)};
-
-const SettingsTab: React.FC<Pick<ControlPanelProps, 'onClearCustomShapes' | 'themes' | 'activeTheme' | 'onThemeChange' | 'isDarkMode' | 'onToggleThemeMode' | 'pexelsApiKey' | 'onSetPexelsApiKey' | 'aiEngine' | 'onAiEngineChange' | 'comfyUIServerAddress' | 'onComfyUIServerAddressChange' | 'comfyUIConnectionStatus' | 'onConnectToComfyUI' | 'isLoading' | 'page' | 'onPageSizeChange'>> = (props) => {
-    const { onClearCustomShapes, themes, activeTheme, onThemeChange, isDarkMode, onToggleThemeMode, pexelsApiKey, onSetPexelsApiKey, aiEngine, onAiEngineChange, comfyUIServerAddress, onComfyUIServerAddressChange, comfyUIConnectionStatus, onConnectToComfyUI, isLoading, page, onPageSizeChange } = props;
-
-    const handleClearClick = () => {
-        if (window.confirm("Are you sure you want to delete all your saved custom clip art, colors, API keys and reset the theme? This action cannot be undone.")) {
-            onClearCustomShapes();
-        }
-    };
-
-    const statusIndicator = {
-        disconnected: { text: 'Disconnected', color: 'bg-gray-500' },
-        connecting: { text: 'Connecting...', color: 'bg-yellow-500 animate-pulse' },
-        connected: { text: 'Connected', color: 'bg-green-500' },
-        error: { text: 'Error', color: 'bg-red-500' },
-    };
-
-    return (
-        <div className="flex flex-col space-y-4">
-            <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2"><SettingsIcon /> Application Settings</h2>
-            
-            <div className="p-3 bg-base-100/50 rounded-md space-y-2">
-                <h3 className="text-md font-semibold text-text-primary">Page Setup</h3>
-                <div className="grid grid-cols-2 gap-2">
-                    <div>
-                        <label htmlFor="page-width" className="block text-sm font-medium text-text-secondary">Width (px)</label>
-                        <input
-                            id="page-width"
-                            type="number"
-                            value={page?.width || 0}
-                            onChange={(e) => onPageSizeChange(parseInt(e.target.value, 10), page?.height || 0)}
-                            className="mt-1 w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary text-sm"
-                            disabled={!page || isLoading}
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="page-height" className="block text-sm font-medium text-text-secondary">Height (px)</label>
-                        <input
-                            id="page-height"
-                            type="number"
-                            value={page?.height || 0}
-                            onChange={(e) => onPageSizeChange(page?.width || 0, parseInt(e.target.value, 10))}
-                            className="mt-1 w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary text-sm"
-                            disabled={!page || isLoading}
-                        />
-                    </div>
-                </div>
-                <p className="text-xs text-text-secondary">Controls the final output size of your image.</p>
-            </div>
-
-
-            <div className="p-3 bg-base-100/50 rounded-md space-y-3">
-                <div className="flex items-center justify-between">
-                    <label className="block text-sm font-medium text-text-secondary">Theme</label>
-                    <ThemeSwitcher isDarkMode={isDarkMode} onToggle={onToggleThemeMode} />
-                </div>
-                 <select
-                    id="theme-select"
-                    value={activeTheme}
-                    onChange={(e) => onThemeChange(e.target.value)}
-                    className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary focus:border-brand-primary transition text-sm"
+            <label className="block text-sm font-medium text-text-secondary mb-2">Brush Color (Mode)</label>
+            <div className="flex gap-2">
+                <button 
+                    onClick={() => setBrushColor('#000000')} 
+                    className={`flex-1 py-2 rounded-md border-2 ${brushColor === '#000000' ? 'border-brand-primary bg-gray-800 text-white' : 'border-base-300 bg-base-100 text-text-primary'}`}
                 >
-                    {themes.map(theme => (
-                        <option key={theme.name} value={theme.name}>{theme.name}</option>
-                    ))}
-                </select>
+                    Hide (Black)
+                </button>
+                <button 
+                    onClick={() => setBrushColor('#FFFFFF')} 
+                    className={`flex-1 py-2 rounded-md border-2 ${brushColor === '#FFFFFF' ? 'border-brand-primary bg-white text-black' : 'border-base-300 bg-base-100 text-text-primary'}`}
+                >
+                    Reveal (White)
+                </button>
             </div>
-             <div className="p-3 bg-base-100/50 rounded-md space-y-2">
-                <h3 className="text-md font-semibold text-text-primary">AI Engine</h3>
-                <select id="ai-engine" value={aiEngine} onChange={(e) => onAiEngineChange(e.target.value as AIEngine)} className="w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary" disabled={isLoading}>
-                    <option value="gemini">Google Gemini</option>
-                    <option value="comfyui">ComfyUI (Local)</option>
-                </select>
+          </div>
+        </div>
+    </div>
+  );
+};
+
+export const ControlPanel: React.FC<ControlPanelProps> = (props) => {
+    return (
+        <div className="flex flex-col h-full bg-base-200 text-text-primary shadow-xl overflow-hidden relative">
+            {/* Header */}
+            <div className="p-4 border-b border-base-300 flex items-center justify-between flex-shrink-0 bg-base-100">
+                 <div className="flex items-center gap-2">
+                    <LogoIcon />
+                    <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-brand-primary to-brand-secondary">Creative Studio</h1>
+                </div>
+                <button onClick={props.onClose} className="md:hidden p-2 text-text-secondary hover:text-text-primary"><CloseIcon/></button>
             </div>
 
-            {aiEngine === 'comfyui' && (
-                 <div className="p-3 bg-base-100/50 rounded-md space-y-2">
-                    <h3 className="text-md font-semibold text-text-primary">ComfyUI Settings</h3>
-                    <div>
-                        <label htmlFor="comfy-server-address" className="block text-sm font-medium text-text-secondary">Server Address</label>
-                        <input
-                            id="comfy-server-address"
-                            type="text"
-                            value={comfyUIServerAddress}
-                            onChange={(e) => onComfyUIServerAddressChange(e.target.value)}
-                            placeholder="http://127.0.0.1:8188"
-                            className="mt-1 w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary text-sm"
-                        />
+            {/* Tabs */}
+            <div className="flex p-2 gap-2 bg-base-200 border-b border-base-300 flex-shrink-0">
+                <TabButton label="Generate" icon={<GenerateIcon />} isActive={props.activeTab === 'generate'} onClick={() => props.setActiveTab('generate')} />
+                <TabButton label="Edit" icon={<EditIcon />} isActive={props.activeTab === 'edit'} onClick={() => props.setActiveTab('edit')} disabled={!props.hasImage && props.layers.length === 0} />
+                <TabButton label="Settings" icon={<SettingsIcon />} isActive={props.activeTab === 'settings'} onClick={() => props.setActiveTab('settings')} />
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
+                {props.activeTab === 'generate' && (
+                    <div className="space-y-6 animate-fade-in">
+                         {/* AI Engine Selector */}
+                         <div className="bg-base-100 p-3 rounded-lg shadow-sm border border-base-300">
+                            <label className="text-sm font-semibold text-text-secondary mb-2 block">AI Engine</label>
+                            <div className="flex bg-base-200 rounded-md p-1">
+                                <button 
+                                    onClick={() => props.onAiEngineChange('gemini')}
+                                    className={`flex-1 py-1 px-2 rounded text-sm font-medium transition-colors ${props.aiEngine === 'gemini' ? 'bg-brand-primary text-white shadow' : 'text-text-secondary hover:text-text-primary'}`}
+                                >
+                                    Gemini 2.5 (Fast)
+                                </button>
+                                <button 
+                                    onClick={() => props.onAiEngineChange('comfyui')}
+                                    className={`flex-1 py-1 px-2 rounded text-sm font-medium transition-colors ${props.aiEngine === 'comfyui' ? 'bg-brand-primary text-white shadow' : 'text-text-secondary hover:text-text-primary'}`}
+                                >
+                                    ComfyUI (Local)
+                                </button>
+                            </div>
+                         </div>
+
+                         {props.aiEngine === 'gemini' ? (
+                             <GeminiGeneratePanel {...props} />
+                         ) : (
+                             <ComfyUIGeneratePanel {...props} />
+                         )}
+                         
+                         <div className="border-t border-base-300 pt-4">
+                             <h3 className="text-md font-semibold text-text-primary mb-3 flex items-center gap-2"><PexelsIcon /> Stock Photos (Pexels)</h3>
+                             <PexelsPanel 
+                                onPexelsSearch={props.onPexelsSearch}
+                                pexelsPhotos={props.pexelsPhotos}
+                                isPexelsLoading={props.isPexelsLoading}
+                                pexelsError={props.pexelsError}
+                                onSelectPexelsImage={props.onSelectPexelsImage}
+                                isLoading={props.isLoading}
+                             />
+                         </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                         <button onClick={onConnectToComfyUI} disabled={isLoading || comfyUIConnectionStatus === 'connecting'} className="flex-grow flex items-center justify-center gap-2 bg-brand-secondary hover:bg-brand-secondary/80 disabled:opacity-50 text-white font-bold py-2 px-3 rounded-md transition text-sm">
-                           {comfyUIConnectionStatus === 'connecting' ? <MiniLoader/> : <CheckIcon />} Connect
-                        </button>
-                        <div className="flex items-center gap-2">
-                            <span className={`w-3 h-3 rounded-full ${statusIndicator[comfyUIConnectionStatus].color}`}></span>
-                            <span className="text-sm text-text-secondary">{statusIndicator[comfyUIConnectionStatus].text}</span>
+                )}
+
+                {props.activeTab === 'edit' && (
+                    <div className="space-y-6 animate-fade-in">
+                        <LayersPanel 
+                            layers={props.layers}
+                            activeLayerId={props.activeLayerId}
+                            onAddLayer={props.onAddLayer}
+                            onDeleteLayer={props.onDeleteLayer}
+                            onSelectLayer={props.onSelectLayer}
+                            onUpdateLayer={props.onUpdateLayer}
+                            onReorderLayers={props.onReorderLayers}
+                            onCollapseLayers={props.onCollapseLayers}
+                            onAddLayerMask={props.onAddLayerMask}
+                            onDeleteLayerMask={props.onDeleteLayerMask}
+                            onSelectLayerMask={props.onSelectLayerMask}
+                            onInvertLayerMask={props.onInvertLayerMask}
+                            isEditingMask={props.isEditingMask}
+                            isLoading={props.isLoading}
+                            onInteractionEndWithHistory={props.onInteractionEndWithHistory}
+                        />
+
+                        {/* Contextual Tools based on selection */}
+                         {props.isEditingMask ? (
+                            <div className="bg-base-100 p-4 rounded-lg shadow-sm border border-base-300">
+                                <MaskingTools 
+                                    brushSize={props.brushSize} setBrushSize={props.setBrushSize}
+                                    brushColor={props.brushColor} setBrushColor={props.setBrushColor}
+                                    isLoading={props.isLoading}
+                                    autoMaskPrompt={props.autoMaskPrompt} setAutoMaskPrompt={props.setAutoMaskPrompt} onAutoMask={props.onAutoMask}
+                                />
+                            </div>
+                        ) : props.activeLayerId && props.layers.find(l => l.id === props.activeLayerId)?.type === LayerType.ADJUSTMENT ? (
+                            <div className="bg-base-100 p-4 rounded-lg shadow-sm border border-base-300">
+                                <h3 className="text-md font-semibold text-text-primary mb-4 flex items-center gap-2"><FilterIcon/> Adjustments</h3>
+                                <div className="space-y-4">
+                                     <div>
+                                        <label className="block text-sm font-medium text-text-secondary mb-1">Preset Filter</label>
+                                        <select 
+                                            value={props.layers.find(l => l.id === props.activeLayerId)?.adjustments?.filter || 'None'} 
+                                            onChange={(e) => props.onLayerFilterChange(e.target.value)}
+                                            className="w-full bg-base-100 border border-base-300 rounded-md p-2 text-sm"
+                                        >
+                                            {FILTERS.map(f => <option key={f.name} value={f.name}>{f.name}</option>)}
+                                        </select>
+                                    </div>
+                                    {/* Sliders for brightness, contrast, color balance */}
+                                    {['brightness', 'contrast', 'red', 'green', 'blue'].map(adj => (
+                                        <div key={adj}>
+                                            <div className="flex justify-between text-xs text-text-secondary mb-1">
+                                                <span className="capitalize">{adj}</span>
+                                                <span>{props.layers.find(l => l.id === props.activeLayerId)?.adjustments?.[adj as keyof ImageAdjustments]}%</span>
+                                            </div>
+                                            <input 
+                                                type="range" min="0" max="200" 
+                                                value={props.layers.find(l => l.id === props.activeLayerId)?.adjustments?.[adj as keyof ImageAdjustments] || 100}
+                                                onChange={(e) => props.onLayerAdjustmentChange(adj as keyof ImageAdjustments, Number(e.target.value))}
+                                                className="w-full h-2 bg-base-300 rounded-lg appearance-none cursor-pointer"
+                                            />
+                                        </div>
+                                    ))}
+                                    <button onClick={props.onResetLayerAdjustments} className="w-full py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-base-200 rounded transition"><ResetIcon /> Reset Adjustments</button>
+                                </div>
+                            </div>
+                        ) : props.activeLayerId && props.layers.find(l => l.id === props.activeLayerId)?.type === LayerType.PIXEL ? (
+                             <div className="bg-base-100 p-4 rounded-lg shadow-sm border border-base-300 space-y-4">
+                                <h3 className="text-md font-semibold text-text-primary mb-2 flex items-center gap-2"><DrawIcon/> Drawing & Shapes</h3>
+                                <div className="flex gap-2 mb-2">
+                                     <button onClick={() => props.setEditMode(EditMode.MOVE)} className={`flex-1 py-2 rounded-md border-2 ${props.editMode === EditMode.MOVE ? 'border-brand-primary bg-brand-primary/10 text-brand-primary' : 'border-base-300 hover:bg-base-200'}`} title="Move Tool"><MoveIcon /></button>
+                                     <button onClick={() => props.setEditMode(EditMode.SKETCH)} className={`flex-1 py-2 rounded-md border-2 ${props.editMode === EditMode.SKETCH ? 'border-brand-primary bg-brand-primary/10 text-brand-primary' : 'border-base-300 hover:bg-base-200'}`} title="Draw Tool"><BrushIcon /></button>
+                                </div>
+                                {props.editMode === EditMode.SKETCH && (
+                                    <>
+                                        <div>
+                                            <label className="block text-sm font-medium text-text-secondary mb-1">Brush Size</label>
+                                            <input type="range" min="1" max="50" value={props.brushSize} onChange={(e) => props.setBrushSize(Number(e.target.value))} className="w-full" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-text-secondary mb-1">Color</label>
+                                            <div className="flex flex-wrap gap-2 mb-2">
+                                                {props.colorPresets.map(color => (
+                                                    <button key={color} onClick={() => props.setBrushColor(color)} className={`w-6 h-6 rounded-full border border-base-300 ${props.brushColor === color ? 'ring-2 ring-brand-primary ring-offset-1' : ''}`} style={{backgroundColor: color}} />
+                                                ))}
+                                                <button onClick={props.onAddColorPreset} className="w-6 h-6 rounded-full bg-base-200 flex items-center justify-center text-text-secondary hover:bg-base-300"><AddIcon /></button>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <input type="color" value={props.brushColor} onChange={(e) => props.setBrushColor(e.target.value)} className="h-8 w-full cursor-pointer rounded border border-base-300" />
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
+                                <div className="border-t border-base-300 pt-4 mt-2">
+                                     <h4 className="text-sm font-medium text-text-secondary mb-2">Clip Art & Shapes</h4>
+                                     <select value={props.selectedClipArtCategoryName} onChange={(e) => props.setSelectedClipArtCategoryName(e.target.value)} className="w-full mb-3 p-2 rounded bg-base-200 border border-base-300 text-sm">
+                                         {props.clipArtCategories.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                                     </select>
+                                     <div className="grid grid-cols-4 gap-2">
+                                         {props.clipArtCategories.find(c => c.name === props.selectedClipArtCategoryName)?.shapes.map((shape, i) => (
+                                             <div key={i} draggable onDragStart={(e) => { e.dataTransfer.setData('text/plain', shape.dataUrl); }} className="aspect-square bg-base-200 rounded p-1 cursor-grab hover:bg-base-300 flex items-center justify-center border border-transparent hover:border-brand-primary">
+                                                 <img src={shape.dataUrl} alt={shape.name} className="max-w-full max-h-full" />
+                                             </div>
+                                         ))}
+                                     </div>
+                                     <p className="text-xs text-text-secondary mt-2">Drag and drop shapes onto the canvas.</p>
+                                </div>
+                                {props.selectedShapeId && (
+                                    <button onClick={props.onDeleteSelectedShape} className="w-full mt-2 py-2 bg-red-100 text-red-600 rounded hover:bg-red-200 transition">Delete Selected Shape</button>
+                                )}
+                                {props.selectedClipArtCategoryName === 'Custom' && (
+                                     <button onClick={props.onClearCustomShapes} className="w-full mt-2 py-2 text-xs text-red-500 hover:text-red-700 underline">Clear Saved Shapes</button>
+                                )}
+                                {props.layers.find(l => l.id === props.activeLayerId)?.strokes?.length ? (
+                                    <div className="mt-4 pt-2 border-t border-base-300">
+                                        <p className="text-xs text-text-secondary mb-2">Save current drawing as custom shape</p>
+                                        <button onClick={() => {
+                                            const name = prompt("Enter a name for your shape:");
+                                            if(name) props.onSaveShape(name);
+                                        }} className="w-full py-2 bg-base-200 text-text-primary rounded hover:bg-base-300 text-sm font-medium">Save as Clip Art</button>
+                                    </div>
+                                ) : null}
+                             </div>
+                        ) : (
+                             // Image Layer Tools (General)
+                            <div className="space-y-6">
+                                <div className="bg-base-100 p-4 rounded-lg shadow-sm border border-base-300">
+                                    <h3 className="text-md font-semibold text-text-primary mb-3 flex items-center gap-2"><EditIcon /> Smart Edit</h3>
+                                    <InteractivePromptInput 
+                                        part="edit" label="Instruction" placeholder="e.g., Change the hair color to blue"
+                                        prompt={props.editPrompt} onPromptChange={(_p, v) => props.setEditPrompt(v)}
+                                        onRewritePrompt={props.onRewritePrompt} rewritingPrompt={props.rewritingPrompt}
+                                        onRandomPrompt={props.onRandomPrompt} randomizingPrompt={props.randomizingPrompt}
+                                        isLoading={props.isLoading}
+                                    />
+                                    <button onClick={props.onEdit} disabled={props.isLoading || !props.editPrompt} className="w-full mt-3 bg-brand-primary text-white py-2 rounded-md hover:bg-brand-primary/80 disabled:bg-base-300 transition flex items-center justify-center gap-2">
+                                        <EditIcon /> Apply Edit
+                                    </button>
+                                    <button onClick={props.onAnalyzeImage} disabled={props.isLoading} className="w-full mt-2 bg-base-200 text-text-secondary py-2 rounded-md hover:bg-base-300 transition text-sm">
+                                        Analyze Image to Prompt
+                                    </button>
+                                </div>
+                                
+                                <div className="bg-base-100 p-4 rounded-lg shadow-sm border border-base-300">
+                                    <h3 className="text-md font-semibold text-text-primary mb-3 flex items-center gap-2"><OutpaintIcon /> Outpainting</h3>
+                                    <OutpaintControls 
+                                        onOutpaint={props.onOutpaint} isLoading={props.isLoading}
+                                        outpaintPrompt={props.outpaintPrompt} setOutpaintPrompt={props.setOutpaintPrompt}
+                                        outpaintAmount={props.outpaintAmount} setOutpaintAmount={props.setOutpaintAmount}
+                                    />
+                                </div>
+                                
+                                <div className="bg-base-100 p-4 rounded-lg shadow-sm border border-base-300">
+                                    <h3 className="text-md font-semibold text-text-primary mb-3 flex items-center gap-2"><PaletteIcon /> Style Transfer</h3>
+                                    <div className="space-y-3">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-16 h-16 bg-base-200 rounded border border-base-300 flex-shrink-0 flex items-center justify-center overflow-hidden">
+                                                {props.styleImage ? <img src={props.styleImage} className="w-full h-full object-cover" alt="Style"/> : <span className="text-xs text-gray-400">No Image</span>}
+                                            </div>
+                                            <div className="flex-grow">
+                                                <button onClick={props.onStyleImageUpload} className="text-sm bg-base-200 px-3 py-1 rounded hover:bg-base-300 transition">Upload Style Ref</button>
+                                                {props.styleImage && <button onClick={props.onRemoveStyleImage} className="ml-2 text-xs text-red-500 hover:text-red-700">Remove</button>}
+                                            </div>
+                                        </div>
+                                        {props.styleImage && (
+                                            <>
+                                                <div>
+                                                    <label className="text-xs text-text-secondary block mb-1">Style Strength ({props.styleStrength}%)</label>
+                                                    <input type="range" min="10" max="100" value={props.styleStrength} onChange={(e) => props.setStyleStrength(Number(e.target.value))} className="w-full" />
+                                                </div>
+                                                <button onClick={props.onApplyStyleTransfer} disabled={props.isLoading} className="w-full bg-brand-secondary text-white py-2 rounded-md hover:bg-brand-secondary/80 transition">Apply Style</button>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="bg-base-100 p-4 rounded-lg shadow-sm border border-base-300">
+                                    <h3 className="text-md font-semibold text-text-primary mb-3 flex items-center gap-2"><RandomIcon /> Remix (Img2Img)</h3>
+                                    <div className="space-y-3">
+                                        <p className="text-sm text-text-secondary">Regenerate the image using the current canvas and your prompt.</p>
+                                        <div>
+                                            <label className="text-xs text-text-secondary block mb-1">Preservation ({props.remixPreservation}%)</label>
+                                            <input type="range" min="10" max="100" value={props.remixPreservation} onChange={(e) => props.setRemixPreservation(Number(e.target.value))} className="w-full" />
+                                            <div className="flex justify-between text-xs text-text-secondary px-1">
+                                                <span>Creative</span>
+                                                <span>Balanced</span>
+                                                <span>Faithful</span>
+                                            </div>
+                                        </div>
+                                        <button onClick={props.onRemixImage} disabled={props.isLoading || !props.editPrompt} className="w-full bg-brand-primary text-white py-2 rounded-md hover:bg-brand-primary/80 transition">
+                                            Remix
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+                
+                {props.activeTab === 'settings' && (
+                    <div className="space-y-6 animate-fade-in">
+                        <div className="bg-base-100 p-4 rounded-lg shadow-sm border border-base-300">
+                            <h3 className="text-lg font-semibold text-text-primary mb-4 flex items-center gap-2"><SettingsIcon /> App Settings</h3>
+                            
+                            <div className="mb-4">
+                                <label className="block text-sm font-medium text-text-secondary mb-2">Theme</label>
+                                <div className="flex items-center gap-2">
+                                    <select value={props.activeTheme} onChange={(e) => props.onThemeChange(e.target.value)} className="flex-grow bg-base-100 border border-base-300 rounded-md p-2">
+                                        {props.themes.map(t => <option key={t.name} value={t.name}>{t.name}</option>)}
+                                    </select>
+                                    <ThemeSwitcher isDarkMode={props.isDarkMode} onToggle={props.onToggleThemeMode} />
+                                </div>
+                            </div>
+                            
+                            <div className="mb-4">
+                                <label className="block text-sm font-medium text-text-secondary mb-2">Page Size</label>
+                                <div className="grid grid-cols-2 gap-2">
+                                     <button onClick={() => props.onPageSizeChange(512, 512)} className="py-2 bg-base-200 rounded hover:bg-base-300 text-sm">Square (512x512)</button>
+                                     <button onClick={() => props.onPageSizeChange(1024, 1024)} className="py-2 bg-base-200 rounded hover:bg-base-300 text-sm">Large (1024x1024)</button>
+                                     <button onClick={() => props.onPageSizeChange(768, 512)} className="py-2 bg-base-200 rounded hover:bg-base-300 text-sm">Landscape (768x512)</button>
+                                     <button onClick={() => props.onPageSizeChange(512, 768)} className="py-2 bg-base-200 rounded hover:bg-base-300 text-sm">Portrait (512x768)</button>
+                                </div>
+                            </div>
+
+                            <div className="mb-4 pt-4 border-t border-base-300">
+                                <h4 className="text-md font-medium text-text-primary mb-2">API Keys</h4>
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className="block text-sm font-medium text-text-secondary mb-1">Pexels API Key</label>
+                                        <input 
+                                            type="password" 
+                                            value={props.pexelsApiKey} 
+                                            onChange={(e) => props.onSetPexelsApiKey(e.target.value)} 
+                                            placeholder="Enter Pexels API Key"
+                                            className="w-full bg-base-100 border border-base-300 rounded-md p-2 text-sm"
+                                        />
+                                        <a href="https://www.pexels.com/api/" target="_blank" rel="noreferrer" className="text-xs text-brand-secondary hover:underline mt-1 block">Get a free key</a>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="mb-4 pt-4 border-t border-base-300">
+                                <h4 className="text-md font-medium text-text-primary mb-2">ComfyUI Integration</h4>
+                                <div className="space-y-3">
+                                     <div>
+                                        <label className="block text-sm font-medium text-text-secondary mb-1">Server Address</label>
+                                        <input 
+                                            type="text" 
+                                            value={props.comfyUIServerAddress} 
+                                            onChange={(e) => props.onComfyUIServerAddressChange(e.target.value)} 
+                                            placeholder="http://127.0.0.1:8188"
+                                            className="w-full bg-base-100 border border-base-300 rounded-md p-2 text-sm"
+                                        />
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <span className={`text-sm font-medium ${props.comfyUIConnectionStatus === 'connected' ? 'text-green-500' : props.comfyUIConnectionStatus === 'error' ? 'text-red-500' : 'text-yellow-500'}`}>
+                                            Status: {props.comfyUIConnectionStatus.charAt(0).toUpperCase() + props.comfyUIConnectionStatus.slice(1)}
+                                        </span>
+                                        <button onClick={props.onConnectToComfyUI} disabled={props.isLoading} className="px-3 py-1 bg-brand-primary text-white rounded text-sm hover:bg-brand-primary/80 disabled:opacity-50">
+                                            {props.comfyUIConnectionStatus === 'connected' ? 'Refresh' : 'Connect'}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div className="mt-8 pt-4 border-t border-base-300">
+                                <button onClick={props.onClearCustomShapes} className="text-red-500 text-sm hover:underline">Reset All App Data</button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
-
-
-            <div className="p-3 bg-base-100/50 rounded-md space-y-2">
-                <h3 className="text-md font-semibold text-text-primary">API Keys</h3>
-                <div>
-                    <label htmlFor="pexels-api-key" className="block text-sm font-medium text-text-secondary">Pexels API Key</label>
-                    <input
-                        id="pexels-api-key"
-                        type="password"
-                        value={pexelsApiKey}
-                        onChange={(e) => onSetPexelsApiKey(e.target.value)}
-                        placeholder="Enter your Pexels API key"
-                        className="mt-1 w-full bg-base-100 border border-base-300 rounded-md p-2 focus:ring-2 focus:ring-brand-primary focus:border-brand-primary transition text-sm"
-                    />
-                    <p className="mt-1 text-xs text-text-secondary">
-                        Used for the "Stock Photos" feature. Get a free key from <a href="https://www.pexels.com/api/" target="_blank" rel="noopener noreferrer" className="underline hover:text-brand-primary">pexels.com/api</a>.
-                    </p>
-                </div>
+                )}
             </div>
             
-            <div className="p-3 bg-base-100/50 rounded-md">
-                <label className="block text-sm font-medium text-text-secondary">Manage Data</label>
-                <div className="mt-2 flex items-center justify-between">
-                    <p className="text-sm text-text-primary">Clear custom data & settings.</p>
-                    <button 
-                        onClick={handleClearClick}
-                        className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-3 rounded-md transition text-sm">
-                        <ClearIcon /> Clear All
-                    </button>
-                </div>
+            {/* Global Actions Footer (Undo/Redo/Clear) */}
+            <div className="p-3 bg-base-100 border-t border-base-300 flex justify-between items-center gap-2 flex-shrink-0">
+                <button onClick={props.onUndo} disabled={!props.canUndo || props.isLoading} className="p-2 rounded-md bg-base-200 text-text-secondary hover:bg-base-300 disabled:opacity-50" title="Undo"><UndoIcon /></button>
+                <button onClick={props.onClear} disabled={props.isLoading || (!props.hasImage && props.layers.length === 0)} className="p-2 rounded-md bg-base-200 text-text-secondary hover:bg-red-100 hover:text-red-600 disabled:opacity-50" title="Clear Canvas"><ClearIcon /></button>
+                <button onClick={props.onReset} disabled={props.isLoading} className="p-2 rounded-md bg-base-200 text-text-secondary hover:bg-red-100 hover:text-red-600 disabled:opacity-50" title="Reset All"><ResetIcon /></button>
+                <div className="flex-grow"></div>
+                <button onClick={props.onOpenOptionsClick} className="flex items-center gap-2 px-3 py-2 bg-base-200 hover:bg-base-300 rounded-md text-sm font-medium text-text-primary transition-colors">
+                     <OpenProjectIcon /> <span className="hidden sm:inline">Open</span>
+                </button>
             </div>
         </div>
     );
-};
-
-
-export const ControlPanel: React.FC<ControlPanelProps> = (props) => {
-  const { activeTab, setActiveTab, hasImage, onOpenOptionsClick, isLoading, onClose, aiEngine } = props;
-
-  return (
-    <div className="flex flex-col space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-3">
-          <LogoIcon />
-          <h1 className="text-xl md:text-2xl font-bold text-text-primary">Creative Image Studio</h1>
-        </div>
-        <button
-          onClick={onClose}
-          className="md:hidden p-1 -mr-2 rounded-full text-text-secondary hover:bg-base-300"
-          aria-label="Close panel"
-        >
-          <CloseIcon />
-        </button>
-      </div>
-
-      <div className="grid grid-cols-3 gap-2 p-1 bg-base-100 rounded-lg">
-        <TabButton label="Generate" icon={<GenerateIcon />} isActive={activeTab === 'generate'} onClick={() => setActiveTab('generate')} />
-        <TabButton label="Edit" icon={<EditIcon />} isActive={activeTab === 'edit'} onClick={() => setActiveTab('edit')} />
-        <TabButton label="Settings" icon={<SettingsIcon />} isActive={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
-      </div>
-      
-      <div className="px-1">
-          <button 
-            onClick={onOpenOptionsClick}
-            disabled={isLoading}
-            className="w-full flex items-center justify-center gap-2 bg-base-100 hover:bg-base-300 disabled:opacity-50 text-text-secondary font-bold py-2 px-4 rounded-md transition duration-200 border border-base-300"
-          >
-            <OpenProjectIcon /> Open...
-          </button>
-        </div>
-
-      <div className="p-4 bg-base-100/50 rounded-lg relative">
-        {activeTab === 'generate' && (aiEngine === 'gemini' ? <GeminiGeneratePanel {...props} /> : <ComfyUIGeneratePanel {...props} />)}
-        {activeTab === 'edit' && <EditTab {...props} />}
-        {activeTab === 'settings' && <SettingsTab {...props} />}
-      </div>
-    </div>
-  );
 };

@@ -1,4 +1,7 @@
 
+
+
+
 import React from 'react';
 
 export const LogoIcon: React.FC = () => (
@@ -120,7 +123,7 @@ export const MoonIcon: React.FC = () => (
 
 export const UploadIcon: React.FC = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4 4m0 0L8 8m4-4v12" />
     </svg>
 );
 
@@ -188,6 +191,21 @@ export const RotateIcon: React.FC = () => (
         <path d="M4.5 9.75a5.25 5.25 0 1010.5 0 5.25 5.25 0 00-10.5 0zm5.25-6.75a6.75 6.75 0 100 13.5 6.75 6.75 0 000-13.5z" />
     </svg>
 );
+
+export const FlipHorizontalIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h8a2 2 0 012 2v6a2 2 0 01-2 2H8a2 2 0 01-2-2V9a2 2 0 012-2zm8-2l2-2m-2 2l-2-2m-8 2l-2-2m2 2l2-2" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16" />
+    </svg>
+);
+
+export const FlipVerticalIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M7 8v8a2 2 0 002 2h6a2 2 0 002-2V8a2 2 0 00-2-2H9a2 2 0 00-2 2zm-2 8l-2 2m2-2l-2-2m2-8l-2 2m2-2l-2-2" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 12h16" />
+    </svg>
+);
+
 
 export const SettingsIcon: React.FC = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
@@ -320,5 +338,13 @@ export const PaletteIcon: React.FC = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
         <path d="M10 2a1 1 0 00-1 1v1a1 1 0 002 0V3a1 1 0 00-1-1zM4 9a1 1 0 011-1h1.586l1.707-1.707a1 1 0 011.414 0L11.414 8H13a1 1 0 110 2h-1.586l-1.707 1.707a1 1 0 01-1.414 0L6.586 10H5a1 1 0 01-1-1z" />
         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM3.172 6.172a4 4 0 015.656 0L10 7.343l1.172-1.171a4 4 0 115.656 5.656L10 12.657l-6.828-6.828a4 4 0 010-5.656z" clipRule="evenodd" />
+    </svg>
+);
+
+export const ViewColumnsIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+        <line x1="12" y1="3" x2="12" y2="21" />
+        <line x1="3" y1="12" x2="21" y2="12" />
     </svg>
 );

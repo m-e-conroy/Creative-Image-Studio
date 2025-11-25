@@ -1,3 +1,4 @@
+
 export type AspectRatioValue = "1:1" | "4:3" | "3:4" | "16:9" | "9:16";
 
 export enum EditMode {
@@ -98,6 +99,8 @@ export interface Layer {
   width?: number;
   height?: number;
   rotation?: number;
+  scaleX?: number;
+  scaleY?: number;
   src?: string; // For IMAGE layers
   strokes?: Stroke[]; // For PIXEL layers
   placedShapes?: PlacedShape[]; // For PIXEL layers

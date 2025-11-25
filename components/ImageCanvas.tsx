@@ -1,3 +1,5 @@
+
+
 import React, { useRef, useEffect, useState, useImperativeHandle, forwardRef, useCallback } from 'react';
 import { EditMode, PlacedShape, Stroke, Point, ImageAdjustments, Layer, LayerType, PageState } from '../types';
 import { Loader } from './Loader';
@@ -322,7 +324,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                     }
                 }
                 
-                const { x=0, y=0, width, height, rotation=0 } = layer;
+                const { x=0, y=0, width, height, rotation=0, scaleX: layerScaleX = 1, scaleY: layerScaleY = 1 } = layer;
                 const finalWidth = width ?? layerContentCanvas.width;
                 const finalHeight = height ?? layerContentCanvas.height;
                 const finalX = x;
@@ -336,6 +338,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
     
                 ctx.translate(transformedCenterX, transformedCenterY);
                 ctx.rotate(rotation);
+                ctx.scale(layerScaleX, layerScaleY);
                 
                 ctx.drawImage(layerContentCanvas, - (finalWidth * scaleX) / 2, - (finalHeight * scaleY) / 2, finalWidth * scaleX, finalHeight * scaleY);
     
@@ -527,7 +530,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
 
             const maskImage = (layer.maskSrc && layer.maskEnabled) ? await loadImage(layer.maskSrc) : null;
             
-            const { width = imageToRasterize.width, height = imageToRasterize.height, rotation = 0 } = layer;
+            const { width = imageToRasterize.width, height = imageToRasterize.height, rotation = 0, scaleX = 1, scaleY = 1 } = layer;
             const rad = rotation;
             const cos = Math.cos(rad);
             const sin = Math.sin(rad);
@@ -544,6 +547,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
 
                 ctx.translate(targetWidth / 2, targetHeight / 2);
                 ctx.rotate(rad);
+                ctx.scale(scaleX, scaleY);
                 ctx.drawImage(img, -width / 2, -height / 2, width, height);
                 return canvas.toDataURL('image/png');
             };
@@ -579,7 +583,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
               maskImg.src = layer.maskSrc;
               await new Promise(resolve => maskImg.onload = resolve);
 
-              const { x = 0, y = 0, width = 0, height = 0, rotation = 0 } = layer;
+              const { x = 0, y = 0, width = 0, height = 0, rotation = 0, scaleX = 1, scaleY = 1 } = layer;
               if (width === 0 || height === 0) return null;
               
               const centerX = (x - page.x) + width / 2;
@@ -588,6 +592,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
               ctx.save();
               ctx.translate(centerX, centerY);
               ctx.rotate(rotation);
+              ctx.scale(scaleX, scaleY);
               ctx.translate(-centerX, -centerY);
               ctx.drawImage(maskImg, x - page.x, y - page.y, width, height); 
               ctx.restore();
@@ -834,7 +839,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                 renderLayerToOffscreen(layer);
             }
             
-            const { x = 0, y = 0, width, height, rotation = 0, opacity = 100, blendMode = 'source-over' } = layer;
+            const { x = 0, y = 0, width, height, rotation = 0, opacity = 100, blendMode = 'source-over', scaleX = 1, scaleY = 1 } = layer;
             const sourceCanvas = offscreen?.canvas;
             
             tempCtx.save();
@@ -850,9 +855,9 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
 
                     tempCtx.translate(centerX, centerY);
                     tempCtx.rotate(rotation);
-                    tempCtx.translate(-centerX, -centerY);
-                    
-                    tempCtx.drawImage(sourceCanvas, x, y, layerWidth, layerHeight);
+                    tempCtx.scale(scaleX, scaleY);
+
+                    tempCtx.drawImage(sourceCanvas, -layerWidth / 2, -layerHeight / 2, layerWidth, layerHeight);
                 }
             } else if (layer.type === LayerType.ADJUSTMENT && layer.adjustments) {
                 const { brightness, contrast, red, green, blue, filter: filterName } = layer.adjustments;
@@ -951,7 +956,7 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
     };
 
     const getLocalPointForMasking = (point: Point, layer: Layer): Point | null => {
-        const { x = 0, y = 0, width, height, rotation = 0 } = layer;
+        const { x = 0, y = 0, width, height, rotation = 0, scaleX = 1, scaleY = 1 } = layer;
         if (!width || !height) return null;
     
         const centerX = x + width / 2;
@@ -964,18 +969,22 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         const sin = Math.sin(-rotation);
         const rotatedX = translatedX * cos - translatedY * sin;
         const rotatedY = translatedX * sin + translatedY * cos;
+        
+        // Un-scale the coordinates
+        const unscaledX = rotatedX / scaleX;
+        const unscaledY = rotatedY / scaleY;
     
         const maskData = offscreenMasksRef.current.get(layer.id);
         const maskWidth = maskData?.canvas.width;
         const maskHeight = maskData?.canvas.height;
         if (!maskWidth || !maskHeight) return null;
     
-        const unscaledX = rotatedX * (maskWidth / width);
-        const unscaledY = rotatedY * (maskHeight / height);
+        const finalX = unscaledX * (maskWidth / width);
+        const finalY = unscaledY * (maskHeight / height);
     
         return {
-            x: unscaledX + maskWidth / 2,
-            y: unscaledY + maskHeight / 2,
+            x: finalX + maskWidth / 2,
+            y: finalY + maskHeight / 2,
         };
     };
 
