@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, ClipArtCategory, TechnicalModifier, ImageAdjustments, Layer, LayerType, Theme, PexelsPhoto, AIEngine, ComfyUIConnectionStatus, ComfyUIWorkflow, PageState } from '../types';
 import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, TECHNICAL_MODIFIERS } from '../constants';
@@ -658,6 +659,15 @@ const MaskingTools: React.FC<Pick<ControlPanelProps, 'brushSize' | 'setBrushSize
 };
 
 export const ControlPanel: React.FC<ControlPanelProps> = (props) => {
+    const handleFlip = (axis: 'h' | 'v') => {
+        if (!props.activeLayerId) return;
+        props.onUpdateLayer(props.activeLayerId, (l) => ({
+            scaleX: axis === 'h' ? (l.scaleX || 1) * -1 : (l.scaleX || 1),
+            scaleY: axis === 'v' ? (l.scaleY || 1) * -1 : (l.scaleY || 1),
+        }));
+        props.onInteractionEndWithHistory();
+    };
+
     return (
         <div className="flex flex-col h-full bg-base-200 text-text-primary shadow-xl overflow-hidden relative">
             {/* Header */}
@@ -787,6 +797,9 @@ export const ControlPanel: React.FC<ControlPanelProps> = (props) => {
                                 <div className="flex gap-2 mb-2">
                                      <button onClick={() => props.setEditMode(EditMode.MOVE)} className={`flex-1 py-2 rounded-md border-2 ${props.editMode === EditMode.MOVE ? 'border-brand-primary bg-brand-primary/10 text-brand-primary' : 'border-base-300 hover:bg-base-200'}`} title="Move Tool"><MoveIcon /></button>
                                      <button onClick={() => props.setEditMode(EditMode.SKETCH)} className={`flex-1 py-2 rounded-md border-2 ${props.editMode === EditMode.SKETCH ? 'border-brand-primary bg-brand-primary/10 text-brand-primary' : 'border-base-300 hover:bg-base-200'}`} title="Draw Tool"><BrushIcon /></button>
+                                     <div className="w-px bg-base-300 mx-1"></div>
+                                     <button onClick={() => handleFlip('h')} className="p-2 rounded-md border border-base-300 hover:bg-base-200" title="Flip Horizontal"><FlipHorizontalIcon /></button>
+                                     <button onClick={() => handleFlip('v')} className="p-2 rounded-md border border-base-300 hover:bg-base-200" title="Flip Vertical"><FlipVerticalIcon /></button>
                                 </div>
                                 {props.editMode === EditMode.SKETCH && (
                                     <>
@@ -841,6 +854,18 @@ export const ControlPanel: React.FC<ControlPanelProps> = (props) => {
                         ) : (
                              // Image Layer Tools (General)
                             <div className="space-y-6">
+                                <div className="bg-base-100 p-4 rounded-lg shadow-sm border border-base-300">
+                                    <h3 className="text-md font-semibold text-text-primary mb-3 flex items-center gap-2"><MoveIcon /> Transform</h3>
+                                    <div className="flex gap-2 mb-2">
+                                         <button onClick={() => props.setEditMode(EditMode.MOVE)} className={`flex-1 py-2 rounded-md border-2 ${props.editMode === EditMode.MOVE ? 'border-brand-primary bg-brand-primary/10 text-brand-primary' : 'border-base-300 hover:bg-base-200'}`} title="Move Tool">
+                                            <div className="flex items-center justify-center gap-1"><MoveIcon /> Move</div>
+                                         </button>
+                                         <button onClick={() => handleFlip('h')} className="p-2 rounded-md border border-base-300 hover:bg-base-200" title="Flip Horizontal"><FlipHorizontalIcon /></button>
+                                         <button onClick={() => handleFlip('v')} className="p-2 rounded-md border border-base-300 hover:bg-base-200" title="Flip Vertical"><FlipVerticalIcon /></button>
+                                    </div>
+                                    <p className="text-xs text-text-secondary">Drag the layer on the canvas to move it. Use corner handles to resize/rotate.</p>
+                                </div>
+
                                 <div className="bg-base-100 p-4 rounded-lg shadow-sm border border-base-300">
                                     <h3 className="text-md font-semibold text-text-primary mb-3 flex items-center gap-2"><EditIcon /> Smart Edit</h3>
                                     <InteractivePromptInput 
