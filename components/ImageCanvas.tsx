@@ -1,7 +1,6 @@
 
-
 import React, { useRef, useEffect, useState, useImperativeHandle, forwardRef, useCallback } from 'react';
-import { EditMode, PlacedShape, Stroke, Point, ImageAdjustments, Layer, LayerType, PageState } from '../types';
+import { EditMode, Stroke, Point, ImageAdjustments, Layer, LayerType, PageState } from '../types';
 import { Loader } from './Loader';
 import { UploadIcon } from './Icons';
 import { FILTERS } from '../constants';
@@ -16,11 +15,12 @@ interface ImageCanvasProps {
   editMode: EditMode;
   brushSize: number;
   brushColor: string;
+  zoom: number;
   onUploadClick: () => void;
   selectedShapeId: string | null;
   onAddStroke: (stroke: Stroke) => void;
-  onAddShape: (shape: Omit<PlacedShape, 'id' | 'rotation' | 'color'>) => void;
-  onUpdateShape: (id: string, updates: Partial<Omit<PlacedShape, 'id'>>) => void;
+  onAddShape: (shape: any) => void; // Deprecated but kept for type compat if needed
+  onUpdateShape: (id: string, updates: any) => void;
   onSelectShape: (id: string | null) => void;
   onStrokeInteractionEnd: (stroke: Stroke) => void;
   onShapeInteractionEnd: () => void;
@@ -40,9 +40,7 @@ interface InteractionState {
   mode: InteractionMode;
   startPoint?: Point;
   prevPoint?: Point;
-  shapeStart?: PlacedShape;
   handle?: Handle;
-  originalShape?: PlacedShape;
   layerStart?: { x: number; y: number; width: number; height: number, rotation: number };
   layerCenter?: Point;
   startAngle?: number;
@@ -97,19 +95,6 @@ const getTransformHandles = (layer: Layer): Record<Handle, Point> => {
     };
 };
 
-const getHandleAtPointForLayer = (point: Point, layer: Layer): Handle | null => {
-    const handles = getTransformHandles(layer);
-    const size = HANDLE_SIZE;
-    for (const key in handles) {
-        const handlePoint = handles[key as Handle];
-        const handleRect = { x: handlePoint.x - size/2, y: handlePoint.y - size/2, width: size, height: size };
-        if (isPointInRect(point, handleRect)) {
-            return key as Handle;
-        }
-    }
-    return null;
-};
-
 const isPointInRect = (point: Point, rect: Rect) => {
     return point.x >= rect.x && point.x <= rect.x + rect.width &&
            point.y >= rect.y && point.y <= rect.y + rect.height;
@@ -118,7 +103,7 @@ const isPointInRect = (point: Point, rect: Rect) => {
 
 export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
   (props, ref) => {
-    const { layers, page, activeLayerId, isEditingMask, isLoading, loadingMessage, editMode, brushSize, brushColor, onUploadClick, selectedShapeId, onAddStroke, onAddShape, onUpdateShape, onSelectShape, onStrokeInteractionEnd, onShapeInteractionEnd, onUpdateLayerMask, onUpdateLayer, onInteractionEndWithHistory, onLayerTransformEnd } = props;
+    const { layers, page, activeLayerId, isEditingMask, isLoading, loadingMessage, editMode, brushSize, brushColor, zoom, onUploadClick, onAddStroke, onStrokeInteractionEnd, onUpdateLayerMask, onUpdateLayer, onInteractionEndWithHistory, onLayerTransformEnd } = props;
     
     const mainCanvasRef = useRef<HTMLCanvasElement>(null);
     const interactionCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -136,6 +121,28 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
     const getInteractionCanvas = () => interactionCanvasRef.current;
     const getInteractionCtx = () => getInteractionCanvas()?.getContext('2d');
 
+    const worldToScreen = useCallback((point: Point, canvas: HTMLCanvasElement): Point => {
+        const cx = canvas.width / 2;
+        const cy = canvas.height / 2;
+        return {
+            x: (point.x - cx) * zoom + cx,
+            y: (point.y - cy) * zoom + cy
+        };
+    }, [zoom]);
+
+    const getHandleAtPointForLayer = (point: Point, layer: Layer): Handle | null => {
+        const handles = getTransformHandles(layer);
+        const size = HANDLE_SIZE / zoom; // Adjust handle hit area for zoom
+        for (const key in handles) {
+            const handlePoint = handles[key as Handle];
+            const handleRect = { x: handlePoint.x - size/2, y: handlePoint.y - size/2, width: size, height: size };
+            if (isPointInRect(point, handleRect)) {
+                return key as Handle;
+            }
+        }
+        return null;
+    };
+
     const drawInteractionLayer = useCallback(() => {
         const ctx = getInteractionCtx();
         const canvas = getInteractionCanvas();
@@ -146,27 +153,28 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         const activeLayer = layers.find(l => l.id === activeLayerId);
         const isPixelLayerActive = activeLayer?.type === LayerType.PIXEL;
     
-        const showBrushCursor = (editMode === EditMode.SKETCH && isPixelLayerActive && !selectedShapeId) || isEditingMask;
+        const showBrushCursor = (editMode === EditMode.SKETCH && isPixelLayerActive) || isEditingMask;
         if (showBrushCursor) {
-            const { x, y } = interactionStateRef.current.startPoint || { x: -1000, y: -1000 };
-            const radius = brushSize / 2;
+            // startPoint in interactionState is in World coordinates
+            const worldPoint = interactionStateRef.current.startPoint || { x: -1000, y: -1000 };
+            const { x, y } = worldToScreen(worldPoint, canvas);
+            
+            const radius = (brushSize * zoom) / 2;
             ctx.lineWidth = 1;
             ctx.beginPath();
             ctx.arc(x, y, radius, 0, 2 * Math.PI);
     
             if (isEditingMask && brushColor === '#000000') {
-                // Erasing: black fill, white outline
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
                 ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
             } else {
-                // Drawing: current color fill, black outline
                 try {
                     const r = parseInt(brushColor.slice(1, 3), 16);
                     const g = parseInt(brushColor.slice(3, 5), 16);
                     const b = parseInt(brushColor.slice(5, 7), 16);
                     ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.5)`;
                 } catch {
-                    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)'; // Fallback for invalid color
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)'; 
                 }
                 ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
             }
@@ -177,33 +185,45 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         if (editMode === EditMode.MOVE && activeLayer && (activeLayer.type === LayerType.IMAGE) && activeLayer.width && activeLayer.height) {
             const { x = 0, y = 0, width = 0, height = 0, rotation = 0 } = activeLayer;
             const center = { x: x + width / 2, y: y + height / 2 };
-            const handles = getTransformHandles(activeLayer);
             
-            ctx.save();
-            ctx.translate(center.x, center.y);
-            ctx.rotate(rotation);
-            ctx.translate(-center.x, -center.y);
-            
+            // Draw box in screen space
+            // We transform the corners
+            const tl = worldToScreen(rotatePoint({x, y}, center, rotation), canvas);
+            const tr = worldToScreen(rotatePoint({x: x+width, y}, center, rotation), canvas);
+            const br = worldToScreen(rotatePoint({x: x+width, y: y+height}, center, rotation), canvas);
+            const bl = worldToScreen(rotatePoint({x, y: y+height}, center, rotation), canvas);
+
             ctx.strokeStyle = 'rgba(47, 159, 208, 0.9)';
             ctx.lineWidth = 2;
-            ctx.strokeRect(x, y, width, height);
-            ctx.restore();
+            ctx.beginPath();
+            ctx.moveTo(tl.x, tl.y);
+            ctx.lineTo(tr.x, tr.y);
+            ctx.lineTo(br.x, br.y);
+            ctx.lineTo(bl.x, bl.y);
+            ctx.closePath();
+            ctx.stroke();
             
+            const handles = getTransformHandles(activeLayer);
             ctx.fillStyle = 'rgba(47, 159, 208, 0.9)';
-            Object.values(handles).forEach(handle => {
-                ctx.fillRect(handle.x - HANDLE_SIZE / 2, handle.y - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE);
+            
+            Object.values(handles).forEach(handleWorldPos => {
+                const handleScreenPos = worldToScreen(handleWorldPos, canvas);
+                ctx.fillRect(handleScreenPos.x - HANDLE_SIZE / 2, handleScreenPos.y - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE);
             });
 
-            // Draw line to rotation handle
-            const topMiddle = rotatePoint({x: x + width/2, y: y}, center, rotation);
+            // Rotate Handle Line
+            const topMiddleWorld = rotatePoint({x: x + width/2, y: y}, center, rotation);
+            const topMiddleScreen = worldToScreen(topMiddleWorld, canvas);
+            const rotateHandleScreen = worldToScreen(handles.rotate, canvas);
+
             ctx.beginPath();
-            ctx.moveTo(topMiddle.x, topMiddle.y);
-            ctx.lineTo(handles.rotate.x, handles.rotate.y);
+            ctx.moveTo(topMiddleScreen.x, topMiddleScreen.y);
+            ctx.lineTo(rotateHandleScreen.x, rotateHandleScreen.y);
             ctx.strokeStyle = 'rgba(47, 159, 208, 0.9)';
             ctx.stroke();
         }
 
-    }, [editMode, brushSize, brushColor, selectedShapeId, isEditingMask, layers, activeLayerId]);
+    }, [editMode, brushSize, brushColor, isEditingMask, layers, activeLayerId, zoom, worldToScreen]);
     
     const getFlattenedCanvas = (): HTMLCanvasElement | null => {
         const canvas = getCanvas();
@@ -293,15 +313,6 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                             layerContentCtx.stroke();
                         }
                     });
-                    
-                    for (const shape of (layer.placedShapes || [])) {
-                        const shapeImg = await loadImage(shape.dataUrl);
-                        layerContentCtx.save();
-                        layerContentCtx.translate(shape.x, shape.y);
-                        layerContentCtx.rotate(shape.rotation);
-                        layerContentCtx.drawImage(shapeImg, -shape.width/2, -shape.height/2, shape.width, shape.height);
-                        layerContentCtx.restore();
-                    }
                 }
     
                 if (layer.maskSrc && layer.maskEnabled) {
@@ -613,35 +624,6 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                       ctx.stroke();
                   }
               });
-              
-              const shapeImages = await Promise.all(
-                  (layer.placedShapes || []).map(shape => new Promise<HTMLImageElement>((resolve, reject) => {
-                      const img = new Image();
-                      img.onload = () => resolve(img);
-                      img.onerror = reject;
-                      img.src = shape.dataUrl;
-                  }))
-              );
-
-              layer.placedShapes?.forEach((shape, index) => {
-                  ctx.save();
-                  ctx.translate(shape.x - page.x, shape.y - page.y);
-                  ctx.rotate(shape.rotation);
-                  
-                  const shapeImg = shapeImages[index];
-                  const tempShapeCanvas = document.createElement('canvas');
-                  tempShapeCanvas.width = shape.width;
-                  tempShapeCanvas.height = shape.height;
-                  const tempCtx = tempShapeCanvas.getContext('2d');
-                  if (tempCtx) {
-                      tempCtx.drawImage(shapeImg, 0, 0, shape.width, shape.height);
-                      tempCtx.globalCompositeOperation = 'source-in';
-                      tempCtx.fillStyle = 'white';
-                      tempCtx.fillRect(0, 0, shape.width, shape.height);
-                      ctx.drawImage(tempShapeCanvas, -shape.width/2, -shape.height/2);
-                  }
-                  ctx.restore();
-              });
           }
 
           return maskCanvas.toDataURL('image/png');
@@ -706,19 +688,6 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                     ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
                 }
                 ctx.stroke();
-            }
-        });
-        layer.placedShapes?.forEach(shape => {
-            const shapeImg = new Image();
-            shapeImg.src = shape.dataUrl;
-            if (shapeImg.complete) {
-                ctx.save();
-                ctx.translate(shape.x, shape.y);
-                ctx.rotate(shape.rotation);
-                ctx.drawImage(shapeImg, -shape.width / 2, -shape.height / 2, shape.width, shape.height);
-                ctx.restore();
-            } else {
-                shapeImg.onload = () => { drawLayersRef.current(); };
             }
         });
       }
@@ -822,6 +791,14 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
         }
 
+        // Apply Zoom Transform
+        tempCtx.save();
+        const cx = tempCanvas.width / 2;
+        const cy = tempCanvas.height / 2;
+        tempCtx.translate(cx, cy);
+        tempCtx.scale(zoom, zoom);
+        tempCtx.translate(-cx, -cy);
+
         if (page) {
             const pageBg = getComputedStyle(document.documentElement).getPropertyValue('--color-base-200').trim();
             tempCtx.fillStyle = `rgb(${pageBg})`;
@@ -860,6 +837,9 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                     tempCtx.drawImage(sourceCanvas, -layerWidth / 2, -layerHeight / 2, layerWidth, layerHeight);
                 }
             } else if (layer.type === LayerType.ADJUSTMENT && layer.adjustments) {
+                // Adjustments apply to everything below, so we need to snapshot the zoomed result so far.
+                // However, adjustments like brightness apply to screen pixels. 
+                // Since we are already zoomed in 'tempCtx', applying filters here works on the zoomed image.
                 const { brightness, contrast, red, green, blue, filter: filterName } = layer.adjustments;
                 const filterPreset = FILTERS.find(f => f.name === filterName);
                 const presetFilterValue = filterPreset && filterPreset.name !== 'None' ? filterPreset.value : '';
@@ -872,12 +852,25 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                     matrixElement.setAttribute('values', matrix);
                 }
 
+                // To apply filter correctly we need to snapshot what's drawn so far on tempCanvas (which is zoomed)
+                // But we are inside a transform stack. 
+                // We must temporarily undo the transform to copy the full canvas, or draw the canvas onto itself?
+                // Actually, CSS filters on context apply to subsequent drawing commands.
+                // For 'backdrop-filter' behavior (adjustment layer affecting what's behind), we usually grab the canvas state.
+                
+                // Let's restore transform to grab full pixel buffer
+                tempCtx.restore(); 
+                
                 const snapshotCanvas = document.createElement('canvas');
                 snapshotCanvas.width = tempCanvas.width;
                 snapshotCanvas.height = tempCanvas.height;
                 const snapshotCtx = snapshotCanvas.getContext('2d');
                 if (!snapshotCtx) {
-                    tempCtx.restore();
+                    // re-apply transform if failed
+                    tempCtx.save();
+                    tempCtx.translate(cx, cy);
+                    tempCtx.scale(zoom, zoom);
+                    tempCtx.translate(-cx, -cy);
                     continue;
                 };
                 snapshotCtx.drawImage(tempCanvas, 0, 0);
@@ -886,15 +879,22 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
                 tempCtx.filter = `${cssFilters} url(#adjustment-filter)`;
                 tempCtx.drawImage(snapshotCanvas, 0, 0);
                 tempCtx.filter = 'none';
+                
+                // Re-apply transform for next layers
+                tempCtx.save();
+                tempCtx.translate(cx, cy);
+                tempCtx.scale(zoom, zoom);
+                tempCtx.translate(-cx, -cy);
             }
             
             tempCtx.restore();
         }
+        tempCtx.restore(); // Restore the initial zoom transform
         
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(tempCanvas, 0, 0);
 
-    }, [layers, renderLayerToOffscreen, page]);
+    }, [layers, renderLayerToOffscreen, page, zoom]);
 
 
     useEffect(() => {
@@ -949,9 +949,20 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
         const canvas = getCanvas();
         if (!canvas) return { x: 0, y: 0 };
         const rect = canvas.getBoundingClientRect();
+        
+        const screenX = e.clientX - rect.left;
+        const screenY = e.clientY - rect.top;
+        
+        const cx = canvas.width / 2;
+        const cy = canvas.height / 2;
+        
+        // Inverse Zoom Transform
+        // Screen = (World - Center) * Zoom + Center
+        // World = (Screen - Center) / Zoom + Center
+        
         return {
-            x: e.clientX - rect.left,
-            y: e.clientY - rect.top,
+            x: (screenX - cx) / zoom + cx,
+            y: (screenY - cy) / zoom + cy,
         };
     };
 
@@ -1229,45 +1240,11 @@ export const ImageCanvas = forwardRef<ImageCanvasMethods, ImageCanvasProps>(
             handleMouseUp();
         }
     };
-    
-    const handleDrop = useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-
-        const activeLayer = layers.find(l => l.id === activeLayerId);
-        if (!activeLayer || activeLayer.type !== LayerType.PIXEL || editMode !== EditMode.SKETCH || isEditingMask) return;
-
-        const dataUrl = e.dataTransfer.getData('text/plain');
-        if (dataUrl.startsWith('data:image')) {
-            const layerX = activeLayer.x || 0;
-            const layerY = activeLayer.y || 0;
-            const point = getCanvasCoordinates(e);
-            const img = new Image();
-            img.onload = () => {
-                const size = 100;
-                const newShape: Omit<PlacedShape, 'id' | 'rotation' | 'color'> = {
-                    dataUrl,
-                    x: point.x - layerX,
-                    y: point.y - layerY,
-                    width: size,
-                    height: size * (img.height / img.width),
-                };
-                onAddShape(newShape);
-            };
-            img.src = dataUrl;
-        }
-    }, [layers, activeLayerId, editMode, onAddShape, isEditingMask]);
-
-    const handleDragOver = (e: React.DragEvent) => {
-        e.preventDefault();
-    };
 
     return (
         <div 
           ref={containerRef} 
           className="w-full h-full flex items-center justify-center rounded-lg overflow-hidden relative bg-base-300" 
-          onDrop={handleDrop} 
-          onDragOver={handleDragOver}
         >
             <svg width="0" height="0" style={{ position: 'absolute' }}>
                 <defs>

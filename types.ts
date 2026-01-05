@@ -40,16 +40,6 @@ export interface PromptState {
 
 export type PromptPart = keyof PromptState;
 
-export interface ClipArtShape {
-  name:string;
-  dataUrl: string;
-}
-
-export interface ClipArtCategory {
-  name: string;
-  shapes: ClipArtShape[];
-}
-
 export interface Point {
   x: number;
   y: number;
@@ -60,17 +50,6 @@ export interface Stroke {
   points: Point[];
   color: string;
   size: number;
-}
-
-export interface PlacedShape {
-  id: string;
-  dataUrl: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  rotation: number;
-  color: string;
 }
 
 export interface ImageAdjustments {
@@ -103,7 +82,6 @@ export interface Layer {
   scaleY?: number;
   src?: string; // For IMAGE layers
   strokes?: Stroke[]; // For PIXEL layers
-  placedShapes?: PlacedShape[]; // For PIXEL layers
   adjustments?: ImageAdjustments; // For ADJUSTMENT layers
   blendMode?: string;
   maskSrc?: string;

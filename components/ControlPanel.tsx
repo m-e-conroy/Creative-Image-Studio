@@ -1,8 +1,7 @@
-
 import React, { useState, useEffect } from 'react';
-import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, ClipArtCategory, TechnicalModifier, ImageAdjustments, Layer, LayerType, Theme, PexelsPhoto, AIEngine, ComfyUIConnectionStatus, ComfyUIWorkflow, PageState } from '../types';
-import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, TECHNICAL_MODIFIERS } from '../constants';
-import { BrushIcon, ClearIcon, DrawIcon, EditIcon, GenerateIcon, MaskIcon, ResetIcon, FilterIcon, RewriteIcon, RandomIcon, UploadIcon, OutpaintIcon, ArrowUpIcon, ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon, IdeaIcon, UndoIcon, SaveIcon, RotateIcon, SettingsIcon, CloseIcon, CopyIcon, CheckIcon, LogoIcon, AddIcon, OpenProjectIcon, PexelsIcon, ChevronDownIcon, SearchIcon, MoveIcon, PaletteIcon, ViewColumnsIcon, FlipHorizontalIcon, FlipVerticalIcon } from './Icons';
+import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, TechnicalModifier, ImageAdjustments, Layer, LayerType, Theme, PexelsPhoto, AIEngine, ComfyUIConnectionStatus, ComfyUIWorkflow, PageState } from '../types';
+import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, TECHNICAL_MODIFIERS, INITIAL_COLOR_PRESETS } from '../constants';
+import { BrushIcon, ClearIcon, DrawIcon, EditIcon, GenerateIcon, MaskIcon, ResetIcon, FilterIcon, RewriteIcon, RandomIcon, UploadIcon, OutpaintIcon, ArrowUpIcon, ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon, IdeaIcon, UndoIcon, SaveIcon, RotateIcon, SettingsIcon, CloseIcon, CopyIcon, CheckIcon, LogoIcon, AddIcon, OpenProjectIcon, PexelsIcon, ChevronDownIcon, SearchIcon, MoveIcon, PaletteIcon, ViewColumnsIcon, FlipHorizontalIcon, FlipVerticalIcon, TrashIcon } from './Icons';
 import { ThemeSwitcher } from './ThemeSwitcher';
 import { LayersPanel } from './LayersPanel';
 
@@ -57,12 +56,6 @@ export interface ControlPanelProps {
   onReset: () => void;
   onUndo: () => void;
   canUndo: boolean;
-  clipArtCategories: ClipArtCategory[];
-  selectedClipArtCategoryName: string;
-  setSelectedClipArtCategoryName: (name: string) => void;
-  onSaveShape: (name: string) => void;
-  selectedShapeId: string | null;
-  onDeleteSelectedShape: () => void;
   onClearCustomShapes: () => void;
   colorPresets: string[];
   onAddColorPreset: () => void;
@@ -85,6 +78,7 @@ export interface ControlPanelProps {
   onResetLayerAdjustments: () => void;
   onLayerFilterChange: (filterName: string) => void;
   onInteractionEndWithHistory: () => void;
+  onTransformPixelLayer: (prompt: string, fidelity: number) => void;
   // Mask props
   isEditingMask: boolean;
   onSelectLayerMask: (id: string) => void;
@@ -793,7 +787,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = (props) => {
                             </div>
                         ) : props.activeLayerId && props.layers.find(l => l.id === props.activeLayerId)?.type === LayerType.PIXEL ? (
                              <div className="bg-base-100 p-4 rounded-lg shadow-sm border border-base-300 space-y-4">
-                                <h3 className="text-md font-semibold text-text-primary mb-2 flex items-center gap-2"><DrawIcon/> Drawing & Shapes</h3>
+                                <h3 className="text-md font-semibold text-text-primary mb-2 flex items-center gap-2"><DrawIcon/> Drawing</h3>
                                 <div className="flex gap-2 mb-2">
                                      <button onClick={() => props.setEditMode(EditMode.MOVE)} className={`flex-1 py-2 rounded-md border-2 ${props.editMode === EditMode.MOVE ? 'border-brand-primary bg-brand-primary/10 text-brand-primary' : 'border-base-300 hover:bg-base-200'}`} title="Move Tool"><MoveIcon /></button>
                                      <button onClick={() => props.setEditMode(EditMode.SKETCH)} className={`flex-1 py-2 rounded-md border-2 ${props.editMode === EditMode.SKETCH ? 'border-brand-primary bg-brand-primary/10 text-brand-primary' : 'border-base-300 hover:bg-base-200'}`} title="Draw Tool"><BrushIcon /></button>
@@ -821,35 +815,29 @@ export const ControlPanel: React.FC<ControlPanelProps> = (props) => {
                                         </div>
                                     </>
                                 )}
+                                
                                 <div className="border-t border-base-300 pt-4 mt-2">
-                                     <h4 className="text-sm font-medium text-text-secondary mb-2">Clip Art & Shapes</h4>
-                                     <select value={props.selectedClipArtCategoryName} onChange={(e) => props.setSelectedClipArtCategoryName(e.target.value)} className="w-full mb-3 p-2 rounded bg-base-200 border border-base-300 text-sm">
-                                         {props.clipArtCategories.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-                                     </select>
-                                     <div className="grid grid-cols-4 gap-2">
-                                         {props.clipArtCategories.find(c => c.name === props.selectedClipArtCategoryName)?.shapes.map((shape, i) => (
-                                             <div key={i} draggable onDragStart={(e) => { e.dataTransfer.setData('text/plain', shape.dataUrl); }} className="aspect-square bg-base-200 rounded p-1 cursor-grab hover:bg-base-300 flex items-center justify-center border border-transparent hover:border-brand-primary">
-                                                 <img src={shape.dataUrl} alt={shape.name} className="max-w-full max-h-full" />
-                                             </div>
-                                         ))}
+                                     <h3 className="text-md font-semibold text-text-primary mb-3 flex items-center gap-2"><GenerateIcon /> AI Transform</h3>
+                                     <InteractivePromptInput 
+                                        part="edit" label="Instruction" placeholder="e.g., Turn this sketch into a realistic photo of a cat"
+                                        prompt={props.editPrompt} onPromptChange={(_p, v) => props.setEditPrompt(v)}
+                                        onRewritePrompt={props.onRewritePrompt} rewritingPrompt={props.rewritingPrompt}
+                                        onRandomPrompt={props.onRandomPrompt} randomizingPrompt={props.randomizingPrompt}
+                                        isLoading={props.isLoading}
+                                     />
+                                     <div className="mt-2">
+                                        <label className="text-xs text-text-secondary block mb-1">Fidelity ({props.remixPreservation}%)</label>
+                                        <input type="range" min="10" max="100" value={props.remixPreservation} onChange={(e) => props.setRemixPreservation(Number(e.target.value))} className="w-full" />
+                                        <div className="flex justify-between text-xs text-text-secondary px-1">
+                                            <span>Creative</span>
+                                            <span>Balanced</span>
+                                            <span>Faithful</span>
+                                        </div>
                                      </div>
-                                     <p className="text-xs text-text-secondary mt-2">Drag and drop shapes onto the canvas.</p>
+                                     <button onClick={() => props.onTransformPixelLayer(props.editPrompt, props.remixPreservation)} disabled={props.isLoading || !props.editPrompt} className="w-full mt-3 bg-brand-primary text-white py-2 rounded-md hover:bg-brand-primary/80 disabled:bg-base-300 transition flex items-center justify-center gap-2">
+                                        <GenerateIcon /> Transform Layer
+                                     </button>
                                 </div>
-                                {props.selectedShapeId && (
-                                    <button onClick={props.onDeleteSelectedShape} className="w-full mt-2 py-2 bg-red-100 text-red-600 rounded hover:bg-red-200 transition">Delete Selected Shape</button>
-                                )}
-                                {props.selectedClipArtCategoryName === 'Custom' && (
-                                     <button onClick={props.onClearCustomShapes} className="w-full mt-2 py-2 text-xs text-red-500 hover:text-red-700 underline">Clear Saved Shapes</button>
-                                )}
-                                {props.layers.find(l => l.id === props.activeLayerId)?.strokes?.length ? (
-                                    <div className="mt-4 pt-2 border-t border-base-300">
-                                        <p className="text-xs text-text-secondary mb-2">Save current drawing as custom shape</p>
-                                        <button onClick={() => {
-                                            const name = prompt("Enter a name for your shape:");
-                                            if(name) props.onSaveShape(name);
-                                        }} className="w-full py-2 bg-base-200 text-text-primary rounded hover:bg-base-300 text-sm font-medium">Save as Clip Art</button>
-                                    </div>
-                                ) : null}
                              </div>
                         ) : (
                              // Image Layer Tools (General)
@@ -1006,7 +994,9 @@ export const ControlPanel: React.FC<ControlPanelProps> = (props) => {
                             </div>
                             
                             <div className="mt-8 pt-4 border-t border-base-300">
-                                <button onClick={props.onClearCustomShapes} className="text-red-500 text-sm hover:underline">Reset All App Data</button>
+                                <button onClick={props.onClearCustomShapes} className="w-full text-red-500 text-sm hover:underline flex items-center justify-center gap-2">
+                                    <TrashIcon /> Reset All App Data
+                                </button>
                             </div>
                         </div>
                     </div>

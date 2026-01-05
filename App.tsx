@@ -1,17 +1,14 @@
 
-
-
-
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { ControlPanel } from './components/ControlPanel';
 import { ImageCanvas } from './components/ImageCanvas';
 import * as geminiService from './services/geminiService';
 import * as comfyuiService from './services/comfyuiService';
 import { ImageCanvasMethods } from './components/ImageCanvas';
-import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, ClipArtShape, PlacedShape, Stroke, ClipArtCategory, TechnicalModifier, ImageAdjustments, Layer, LayerType, PexelsPhoto, AIEngine, ComfyUIConnectionStatus, ComfyUIWorkflow, PageState } from './types';
-import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, CLIP_ART_CATEGORIES, TECHNICAL_MODIFIERS, INITIAL_COLOR_PRESETS, DEFAULT_ADJUSTMENTS, COMFYUI_WORKFLOWS } from './constants';
+import { EditMode, ImageStyle, Filter, PromptState, PromptPart, LightingStyle, CompositionRule, Stroke, TechnicalModifier, ImageAdjustments, Layer, LayerType, PexelsPhoto, AIEngine, ComfyUIConnectionStatus, ComfyUIWorkflow, PageState } from './types';
+import { INITIAL_STYLES, SUPPORTED_ASPECT_RATIOS, FILTERS, LIGHTING_STYLES, COMPOSITION_RULES, TECHNICAL_MODIFIERS, INITIAL_COLOR_PRESETS, DEFAULT_ADJUSTMENTS, COMFYUI_WORKFLOWS } from './constants';
 import { THEMES, DEFAULT_THEME } from './themes';
-import { DownloadIcon, SettingsIcon, SaveProjectIcon, OpenProjectIcon, UploadIcon } from './components/Icons';
+import { DownloadIcon, SettingsIcon, SaveProjectIcon, OpenProjectIcon, UploadIcon, ZoomInIcon, ZoomOutIcon } from './components/Icons';
 import { ImageGallery } from './components/ImageGallery';
 
 type Tab = 'generate' | 'edit' | 'settings';
@@ -45,9 +42,6 @@ const App: React.FC = () => {
   
   const [generatedImages, setGeneratedImages] = useState<string[]>([]);
   
-  const [clipArtCategories, setClipArtCategories] = useState<ClipArtCategory[]>(CLIP_ART_CATEGORIES);
-  const [selectedClipArtCategoryName, setSelectedClipArtCategoryName] = useState<string>(CLIP_ART_CATEGORIES[0].name);
-
   // Layer-based state
   const [layers, setLayers] = useState<Layer[]>([]);
   const [activeLayerId, setActiveLayerId] = useState<string | null>(null);
@@ -55,9 +49,6 @@ const App: React.FC = () => {
   const [isEditingMask, setIsEditingMask] = useState<boolean>(false);
   const [page, setPage] = useState<PageState | null>(null);
 
-
-  const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null);
-  
   const [aspectRatio, setAspectRatio] = useState<string>(SUPPORTED_ASPECT_RATIOS[0].value);
   
   const [editMode, setEditMode] = useState<EditMode>(EditMode.MOVE);
@@ -85,6 +76,9 @@ const App: React.FC = () => {
   const [jpegQuality, setJpegQuality] = useState<number>(92);
   const [isOpenOptionsOpen, setIsOpenOptionsOpen] = useState<boolean>(false);
   const [isMergeConfirmModalOpen, setIsMergeConfirmModalOpen] = useState<boolean>(false);
+
+  // Zoom State
+  const [zoom, setZoom] = useState<number>(1);
 
   // Theme state
   const [themeName, setThemeName] = useState(() => localStorage.getItem('themeName') || DEFAULT_THEME.name);
@@ -160,7 +154,7 @@ const App: React.FC = () => {
   const styleImageFileInputRef = useRef<HTMLInputElement>(null);
 
   const canUndo = history.length > 1;
-  const hasImage = layers.some(l => l.type === LayerType.IMAGE || (l.type === LayerType.PIXEL && (l.strokes?.length || l.placedShapes?.length)));
+  const hasImage = layers.some(l => l.type === LayerType.IMAGE || (l.type === LayerType.PIXEL && (l.strokes?.length ?? 0) > 0));
 
   useEffect(() => {
     // Centralized theme management
@@ -183,20 +177,6 @@ const App: React.FC = () => {
   }, [themeName, isDarkMode]);
 
   useEffect(() => {
-    // Load custom clip art
-    const categories = [...CLIP_ART_CATEGORIES];
-    let customShapes: ClipArtShape[] = [];
-    try {
-      const savedShapesJSON = localStorage.getItem('userClipArtShapes');
-      if (savedShapesJSON) customShapes = JSON.parse(savedShapesJSON);
-    } catch (e) { console.error("Failed to load user clip art shapes:", e); }
-    const hasCustomCategory = categories.some(c => c.name === 'Custom');
-    if (customShapes.length > 0 && !hasCustomCategory) {
-      categories.push({ name: 'Custom', shapes: customShapes });
-      setSelectedClipArtCategoryName('Custom');
-    }
-    setClipArtCategories(categories);
-    
     // Load custom color presets
     try {
       const savedColorsJSON = localStorage.getItem('colorPresets');
@@ -253,14 +233,15 @@ const App: React.FC = () => {
         const newLayers = [newLayer];
         setLayers(newLayers);
         setActiveLayerId(newLayer.id);
-        // FIX: Pass Layer[] directly, not Layer[][], to updateHistory.
-        updateHistory(newLayers); // Set history with the new state
+        updateHistory(newLayers);
         setActiveTab('edit');
+        setZoom(1); // Reset zoom on new image load
     };
     img.crossOrigin = "Anonymous";
     img.src = imageUrl;
   }, [updateHistory]);
   
+  // ... (generate functions omitted for brevity, no changes) ...
   const handleGenerate = useCallback(async () => {
     if (aiEngine === 'gemini' && !prompt.subject) {
       setError('Please enter a subject to generate an image.');
@@ -431,6 +412,7 @@ const App: React.FC = () => {
         setActiveLayerId(newLayers[newLayers.length - 1].id);
         updateHistory(newLayers);
         setActiveTab('edit');
+        setZoom(1);
 
     } catch (e: any) {
         console.error(e);
@@ -487,6 +469,7 @@ const App: React.FC = () => {
     reader.readAsDataURL(file);
   }, [addImageLayer, page, layers, updateHistory]);
 
+  // ... (Other handlers unchanged) ...
   const handleSelectGalleryImage = useCallback((imageUrl: string) => {
     setLayers([]); // Start fresh with the selected image
     addImageLayer(imageUrl, 'Background');
@@ -517,9 +500,10 @@ const App: React.FC = () => {
         setIsLoading(false);
         setLoadingMessage('');
     }
-}, [page]);
+  }, [page]);
 
-const handleEdit = useCallback(async () => {
+  // ... (edit/remix/outpaint handlers unchanged) ...
+  const handleEdit = useCallback(async () => {
     if (!editPrompt || !canvasRef.current || !activeLayerId) {
       setError('Please enter an editing prompt and select a layer.');
       return;
@@ -534,7 +518,7 @@ const handleEdit = useCallback(async () => {
         return;
     }
 
-    const isPixelLayerWithContent = activeLayer.type === LayerType.PIXEL && ((activeLayer.strokes?.length ?? 0) > 0 || (activeLayer.placedShapes?.length ?? 0) > 0);
+    const isPixelLayerWithContent = activeLayer.type === LayerType.PIXEL && ((activeLayer.strokes?.length ?? 0) > 0);
     const isImageLayerWithMask = activeLayer.type === LayerType.IMAGE && activeLayer.maskSrc && activeLayer.maskEnabled;
 
     if (!isPixelLayerWithContent && !isImageLayerWithMask) {
@@ -656,7 +640,68 @@ const handleEdit = useCallback(async () => {
         setIsLoading(false);
         setLoadingMessage('');
     }
-}, [editPrompt, layers, remixPreservation, updateHistory, hasImage, page]);
+  }, [editPrompt, layers, remixPreservation, updateHistory, hasImage, page]);
+
+  const handleTransformPixelLayer = useCallback(async (transformPrompt: string, fidelity: number) => {
+    if (!activeLayerId || !canvasRef.current) return;
+    const layer = layers.find(l => l.id === activeLayerId);
+    if (!layer || layer.type !== LayerType.PIXEL) return;
+
+    setIsLoading(true);
+    setLoadingMessage('Transforming layer...');
+    setError(null);
+
+    try {
+        const rasterResult = await canvasRef.current.rasterizeLayer(activeLayerId);
+        if (!rasterResult) throw new Error("Failed to rasterize layer content.");
+
+        const { newImageDataUrl, newWidth, newHeight } = rasterResult;
+        const [meta, data] = newImageDataUrl.split(',');
+        const mimeType = meta.split(';')[0].split(':')[1];
+
+        const result = await geminiService.remixImage(data, mimeType, transformPrompt, fidelity);
+
+        if (result.image) {
+            const transformedImageSrc = `data:${mimeType};base64,${result.image}`;
+            
+            // Load image to get true dimensions
+            const img = new Image();
+            img.onload = () => {
+                 const newLayer: Layer = {
+                    ...layer,
+                    id: `layer_${Date.now()}`, 
+                    type: LayerType.IMAGE,
+                    name: `Transformed: ${layer.name}`,
+                    src: transformedImageSrc,
+                    strokes: undefined,
+                    width: img.width,
+                    height: img.height,
+                    // Keep original position approximately
+                    x: layer.x,
+                    y: layer.y
+                 };
+                 
+                 // Replace old layer
+                 const layerIndex = layers.findIndex(l => l.id === activeLayerId);
+                 const newLayers = [...layers];
+                 newLayers[layerIndex] = newLayer;
+                 setLayers(newLayers);
+                 setActiveLayerId(newLayer.id);
+                 updateHistory(newLayers);
+            };
+            img.src = transformedImageSrc;
+
+        } else {
+             setError(result.text || 'Transformation failed.');
+        }
+
+    } catch (e: any) {
+        setError(e.message || "Error transforming layer.");
+    } finally {
+        setIsLoading(false);
+        setLoadingMessage('');
+    }
+  }, [activeLayerId, layers, updateHistory]);
 
   const handleOutpaint = useCallback(async (direction: 'up' | 'down' | 'left' | 'right') => {
     if (!canvasRef.current) return;
@@ -686,8 +731,7 @@ const handleEdit = useCallback(async () => {
     }
   }, [outpaintPrompt, outpaintAmount, layers, updateHistory, addImageLayer]);
 
-  // --- Cropping ---
-  
+  // ... (cropping, layer mgmt, mask mgmt, undo/reset, handlers mostly unchanged) ...
   useEffect(() => {
     if (collapseRequest === 0) return;
 
@@ -762,7 +806,6 @@ const handleEdit = useCallback(async () => {
     };
     if (type === LayerType.PIXEL) {
         newLayer.strokes = [];
-        newLayer.placedShapes = [];
     }
     if (type === LayerType.ADJUSTMENT) {
         newLayer.adjustments = { ...DEFAULT_ADJUSTMENTS };
@@ -788,7 +831,6 @@ const handleEdit = useCallback(async () => {
     if (!activeLayerId) return;
     setLayers(currentLayers => currentLayers.map(l => {
       if (l.id === activeLayerId && l.type === LayerType.ADJUSTMENT) {
-        // Using a manual slider implies a custom filter, so 'None' is selected.
         return { ...l, adjustments: { ...l.adjustments!, [adjustment]: value, filter: 'None' } };
       }
       return l;
@@ -800,7 +842,6 @@ const handleEdit = useCallback(async () => {
     setLayers(currentLayers => {
         const newLayers = currentLayers.map(l => {
           if (l.id === activeLayerId && l.type === LayerType.ADJUSTMENT) {
-            // When a preset is chosen, reset sliders to default and set the filter name
             return { ...l, adjustments: { ...DEFAULT_ADJUSTMENTS, filter: filterName } };
           }
           return l;
@@ -831,22 +872,21 @@ const handleEdit = useCallback(async () => {
     setHistory([]);
     setEditPrompt('');
     setPage(null);
-    setSelectedShapeId(null);
     setIsEditingMask(false);
+    setZoom(1);
   }, []);
 
   const handleDeleteLayer = useCallback((id: string) => {
     const newLayers = layers.filter(l => l.id !== id);
     if (newLayers.length > 0) {
       setLayers(newLayers);
-      // If the active layer was deleted, select the top-most one
       if (activeLayerId === id) {
         setActiveLayerId(newLayers[newLayers.length - 1].id);
         setIsEditingMask(false);
       }
       updateHistory(newLayers);
     } else {
-      resetImage(); // Reset if last layer is deleted
+      resetImage();
     }
   }, [layers, activeLayerId, updateHistory, resetImage]);
 
@@ -870,7 +910,6 @@ const handleEdit = useCallback(async () => {
         }
         return l;
       }));
-      // Do not add to history for continuous updates like opacity change or movement
   }, []);
 
   const handleReorderLayers = useCallback((dragId: string, dropId: string) => {
@@ -902,14 +941,13 @@ const handleEdit = useCallback(async () => {
                       ...l,
                       src: newImageDataUrl,
                       maskSrc: newMaskDataUrl,
-                      // Adjust position to keep the center of the new bounding box where the old center was
                       x: l.x + ((l.width ?? newWidth) - newWidth) / 2,
                       y: l.y + ((l.height ?? newHeight) - newHeight) / 2,
                       width: newWidth,
                       height: newHeight,
-                      rotation: 0, // Rotation is now baked into the image
-                      scaleX: 1, // Flip is baked
-                      scaleY: 1, // Flip is baked
+                      rotation: 0,
+                      scaleX: 1, 
+                      scaleY: 1, 
                   };
               }
               return l;
@@ -921,7 +959,6 @@ const handleEdit = useCallback(async () => {
       } catch(e: any) {
           console.error("Failed to rasterize layer:", e);
           setError(e.message || "An error occurred while finalizing the transformation.");
-          // If it fails, at least save the pre-rasterization state to history
           updateHistory(layers);
       } finally {
           setIsLoading(false);
@@ -929,7 +966,7 @@ const handleEdit = useCallback(async () => {
       }
   }, [layers, updateHistory]);
 
-  // --- Mask Management ---
+  // --- Mask Management, Undo/Reset, Stroke interactions... (unchanged) ---
   const handleAddLayerMask = useCallback((layerId: string) => {
     const whiteMask = canvasRef.current?.getCanvasAsDataURL({ fillStyle: 'white' });
     if (!whiteMask) return;
@@ -971,14 +1008,13 @@ const handleEdit = useCallback(async () => {
             const data = imageData.data;
 
             for (let i = 0; i < data.length; i += 4) {
-                // Invert the alpha channel: transparent becomes opaque white, and anything visible becomes transparent.
-                if (data[i + 3] > 0) { // If pixel is visible (not fully transparent)
-                    data[i + 3] = 0; // Make it fully transparent
-                } else { // If pixel is fully transparent
-                    data[i] = 255;     // R
-                    data[i + 1] = 255; // G
-                    data[i + 2] = 255; // B
-                    data[i + 3] = 255; // Make it fully opaque (white)
+                if (data[i + 3] > 0) { 
+                    data[i + 3] = 0; 
+                } else { 
+                    data[i] = 255;     
+                    data[i + 1] = 255; 
+                    data[i + 2] = 255; 
+                    data[i + 3] = 255; 
                 }
             }
 
@@ -1002,7 +1038,6 @@ const handleEdit = useCallback(async () => {
   }, [layers, updateHistory]);
 
   const handleUpdateLayerMask = useCallback((layerId: string, maskDataUrl: string) => {
-    // This updates without adding to history, as it's part of a continuous drawing action.
     setLayers(currentLayers => currentLayers.map(l => l.id === layerId ? { ...l, maskSrc: maskDataUrl } : l));
   }, []);
 
@@ -1062,7 +1097,6 @@ const handleEdit = useCallback(async () => {
     }
 }, [activeLayerId, autoMaskPrompt, layers, updateHistory, handleSelectLayerMask]);
   
-  // --- Undo/Reset ---
   const handleUndo = useCallback(() => {
     if (!canUndo) return;
     const newHistory = [...history];
@@ -1070,8 +1104,6 @@ const handleEdit = useCallback(async () => {
     const previousState = newHistory[newHistory.length - 1];
     setHistory(newHistory);
     setLayers(previousState);
-    
-    // If active layer doesn't exist in previous state, select the new top one
     if (previousState && !previousState.find(l => l.id === activeLayerId)) {
         setActiveLayerId(previousState[previousState.length - 1]?.id || null);
         setIsEditingMask(false);
@@ -1086,19 +1118,15 @@ const handleEdit = useCallback(async () => {
           const whiteMask = canvasRef.current?.getCanvasAsDataURL({ fillStyle: 'white' });
           return { ...l, maskSrc: whiteMask };
         } else if (l.type === LayerType.PIXEL) {
-          return { ...l, strokes: [], placedShapes: [] };
+          return { ...l, strokes: [] };
         }
       }
       return l;
     });
     setLayers(newLayers);
     updateHistory(newLayers);
-    if (!isEditingMask) {
-      setSelectedShapeId(null);
-    }
   }, [layers, activeLayerId, isEditingMask, updateHistory]);
 
-  // --- Handlers passed to children that modify layer state ---
   const handleAddStroke = useCallback((stroke: Stroke) => {
     if (!activeLayerId) return;
     setLayers(currentLayers => currentLayers.map(l => {
@@ -1108,34 +1136,6 @@ const handleEdit = useCallback(async () => {
         return l;
     }));
   }, [activeLayerId]);
-
-  const handleAddShape = useCallback((shape: Omit<PlacedShape, 'id' | 'rotation' | 'color'>) => {
-    if (!activeLayerId) return;
-    const newShape: PlacedShape = { id: `shape_${Date.now()}`, ...shape, rotation: 0, color: brushColor };
-    const newLayers = layers.map(l => {
-        if (l.id === activeLayerId && l.type === LayerType.PIXEL) {
-            return { ...l, placedShapes: [...(l.placedShapes || []), newShape] };
-        }
-        return l;
-    });
-    setLayers(newLayers);
-    updateHistory(newLayers);
-    setSelectedShapeId(newShape.id);
-  }, [layers, activeLayerId, brushColor, updateHistory]);
-
-  const handleUpdateShape = useCallback((id: string, updates: Partial<Omit<PlacedShape, 'id'>>) => {
-      setLayers(currentLayers => currentLayers.map(l => {
-          if (l.id === activeLayerId && l.type === LayerType.PIXEL) {
-              const updatedShapes = l.placedShapes?.map(s => s.id === id ? { ...s, ...updates } : s);
-              return { ...l, placedShapes: updatedShapes };
-          }
-          return l;
-      }));
-  }, [activeLayerId]);
-  
-  const handleShapeInteractionEnd = useCallback(() => {
-    updateHistory(layers);
-  }, [layers, updateHistory]);
 
   const handleStrokeInteractionEnd = useCallback((completedStroke: Stroke) => {
     if (!activeLayerId) return;
@@ -1152,494 +1152,16 @@ const handleEdit = useCallback(async () => {
     });
   }, [activeLayerId, updateHistory]);
   
-  const handleDeleteSelectedShape = useCallback(() => {
-    if (!selectedShapeId || !activeLayerId) return;
-    const newLayers = layers.map(l => {
-      if (l.id === activeLayerId && l.type === LayerType.PIXEL) {
-        return { ...l, placedShapes: l.placedShapes?.filter(s => s.id !== selectedShapeId) };
-      }
-      return l;
-    });
-    setLayers(newLayers);
-    updateHistory(newLayers);
-    setSelectedShapeId(null);
-  }, [selectedShapeId, activeLayerId, layers, updateHistory]);
-
-  const handleSaveShape = useCallback((name: string) => {
-    if (!activeLayerId) return;
-    const activeLayer = layers.find(l => l.id === activeLayerId);
-
-    if (!activeLayer || activeLayer.type !== LayerType.PIXEL) {
-        setError("Please select a pixel layer to save as clip art.");
-        return;
-    }
-
-    const { strokes = [], placedShapes = [] } = activeLayer;
-    if (strokes.length === 0 && placedShapes.length === 0) {
-        setError("The selected layer is empty. Please draw something to save.");
-        return;
-    }
-    
-    setIsLoading(true);
-    setLoadingMessage('Saving clip art...');
-    setError(null);
-
-    // This async block allows us to load images for placed shapes before calculating bounds.
-    const saveAsync = async () => {
-        try {
-            // 1. Calculate bounding box of all elements on the layer
-            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-
-            strokes.forEach(stroke => {
-                stroke.points.forEach(point => {
-                    const buffer = stroke.size / 2;
-                    minX = Math.min(minX, point.x - buffer);
-                    minY = Math.min(minY, point.y - buffer);
-                    maxX = Math.max(maxX, point.x + buffer);
-                    maxY = Math.max(maxY, point.y + buffer);
-                });
-            });
-
-            // Asynchronously load images to get their dimensions for accurate bounding box
-            const shapeImages = await Promise.all(
-                placedShapes.map(shape => new Promise<HTMLImageElement>((resolve, reject) => {
-                    const img = new Image();
-                    img.onload = () => resolve(img);
-                    img.onerror = () => reject(new Error('Could not load shape image.'));
-                    img.src = shape.dataUrl;
-                }))
-            );
-
-            placedShapes.forEach((shape) => {
-                const halfWidth = shape.width / 2;
-                const halfHeight = shape.height / 2;
-                const corners = [
-                    { x: -halfWidth, y: -halfHeight }, { x: halfWidth, y: -halfHeight },
-                    { x: halfWidth, y: halfHeight }, { x: -halfWidth, y: halfHeight },
-                ];
-                
-                const cosR = Math.cos(shape.rotation);
-                const sinR = Math.sin(shape.rotation);
-
-                corners.forEach(corner => {
-                    const rotatedX = shape.x + corner.x * cosR - corner.y * sinR;
-                    const rotatedY = shape.y + corner.x * sinR + corner.y * cosR;
-                    minX = Math.min(minX, rotatedX);
-                    minY = Math.min(minY, rotatedY);
-                    maxX = Math.max(maxX, rotatedX);
-                    maxY = Math.max(maxY, rotatedY);
-                });
-            });
-
-            if (minX === Infinity) { // This case handles empty layers
-                throw new Error("Cannot save an empty drawing.");
-            }
-
-            const padding = 10; // Add some padding around the content
-            const width = Math.round(maxX - minX) + padding * 2;
-            const height = Math.round(maxY - minY) + padding * 2;
-            const offsetX = -minX + padding;
-            const offsetY = -minY + padding;
-
-            if (width <= 0 || height <= 0) {
-              throw new Error("Cannot save content with no dimensions.");
-            }
-
-            // 2. Create a temporary canvas and draw the layer's content onto it
-            const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = width;
-            tempCanvas.height = height;
-            const ctx = tempCanvas.getContext('2d');
-            if (!ctx) throw new Error("Could not create canvas to save shape.");
-
-            strokes.forEach(stroke => {
-                ctx.strokeStyle = stroke.color;
-                ctx.lineWidth = stroke.size;
-                ctx.lineCap = 'round';
-                ctx.lineJoin = 'round';
-                ctx.beginPath();
-                if (stroke.points.length > 0) {
-                    ctx.moveTo(stroke.points[0].x + offsetX, stroke.points[0].y + offsetY);
-                    for (let i = 1; i < stroke.points.length; i++) {
-                        ctx.lineTo(stroke.points[i].x + offsetX, stroke.points[i].y + offsetY);
-                    }
-                    ctx.stroke();
-                }
-            });
-
-            placedShapes.forEach((shape, index) => {
-                ctx.save();
-                ctx.translate(shape.x + offsetX, shape.y + offsetY);
-                ctx.rotate(shape.rotation);
-                ctx.drawImage(shapeImages[index], -shape.width / 2, -shape.height / 2, shape.width, shape.height);
-                ctx.restore();
-            });
-
-            // 3. Get the dataURL from the temporary canvas
-            const dataUrl = tempCanvas.toDataURL('image/png');
-
-            // 4. Update the clip art categories state and save to localStorage
-            const newShape: ClipArtShape = { name, dataUrl };
-
-            setClipArtCategories(prevCategories => {
-                const newCategories = JSON.parse(JSON.stringify(prevCategories));
-                let customCategory = newCategories.find((c: ClipArtCategory) => c.name === 'Custom');
-
-                if (customCategory) {
-                    customCategory.shapes.push(newShape);
-                } else {
-                    customCategory = { name: 'Custom', shapes: [newShape] };
-                    newCategories.push(customCategory);
-                }
-                
-                try {
-                    localStorage.setItem('userClipArtShapes', JSON.stringify(customCategory.shapes));
-                } catch (e) {
-                    console.error("Failed to save custom clip art:", e);
-                    setError("Could not save the custom shape due to a browser storage issue.");
-                }
-
-                return newCategories;
-            });
-            
-            setSelectedClipArtCategoryName('Custom');
-
-        } catch (err: any) {
-            console.error("Error saving shape:", err);
-            setError(err.message || "An unexpected error occurred while saving the shape.");
-        } finally {
-            setIsLoading(false);
-            setLoadingMessage('');
-        }
-    };
-
-    saveAsync();
-  }, [layers, activeLayerId]);
-
-  // --- Save / Open / Export ---
-  const handleSaveProject = useCallback(() => {
-    if (layers.length === 0) {
-      setError("There's nothing to save yet. Create or upload an image first.");
-      return;
-    }
-    const projectState = {
-      version: '1.0.0',
-      layers,
-      page,
-      themeName,
-      isDarkMode
-    };
-    const blob = new Blob([JSON.stringify(projectState, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    const projectName = layers.find(l => l.type === LayerType.IMAGE)?.name.replace(/\s+/g, '-') || 'creative-studio-project';
-    link.download = `${projectName}.csp`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  }, [layers, page, themeName, isDarkMode]);
-
-  const handleExportImage = useCallback(async () => {
-    if (!canvasRef.current || !page) return;
-
-    setIsLoading(true);
-    setLoadingMessage('Preparing export...');
-    setError(null);
+  const handleResetAppData = useCallback(() => {
     try {
-        const dataUrl = await canvasRef.current.getPageContentAsDataURL({
-            format: exportFormat,
-            quality: jpegQuality / 100,
-            includeBackground: false,
-        });
-
-        if (dataUrl) {
-            const link = document.createElement('a');
-            link.href = dataUrl;
-            link.download = `creative-studio-export-${Date.now()}.${exportFormat}`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        } else {
-            setError("Failed to export image.");
-        }
-    } catch (e: any) {
-        console.error("Export failed:", e);
-        setError(e.message || "An error occurred during export.");
-    } finally {
-        setIsLoading(false);
-        setLoadingMessage('');
-        setIsExportModalOpen(false);
-    }
-  }, [exportFormat, jpegQuality, page]);
-
-  const handleProjectFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const projectState = JSON.parse(e.target?.result as string);
-        if (projectState && projectState.version && Array.isArray(projectState.layers)) {
-          // A very basic validation passed, load the project.
-          setLayers(projectState.layers);
-          setPage(projectState.page || null);
-          setThemeName(projectState.themeName || DEFAULT_THEME.name);
-          setIsDarkMode(projectState.isDarkMode || false);
-          
-          // Reset relevant state
-          updateHistory([projectState.layers]);
-          const newActiveId = projectState.layers[projectState.layers.length - 1]?.id || null;
-          setActiveLayerId(newActiveId);
-          setIsEditingMask(false);
-          setActiveTab('edit');
-        } else {
-          setError("Invalid or corrupted project file.");
-        }
-      } catch (err) {
-        console.error("Failed to load project:", err);
-        setError("Failed to read the project file. It may be corrupted.");
-      }
-    };
-    reader.readAsText(file);
-    if (event.target) event.target.value = ''; // Reset input
-    setIsOpenOptionsOpen(false);
-  };
-  
-  const handleImageFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) handleImageUpload(file);
-    if (event.target) event.target.value = '';
-    setIsOpenOptionsOpen(false);
-  };
-  
-  const handleOpenImageClick = () => imageFileInputRef.current?.click();
-  const handleOpenProjectClick = () => projectFileInputRef.current?.click();
-
-  // --- Pexels Handlers ---
-  const handlePexelsSearch = useCallback(async (query: string, mode: 'new' | 'more') => {
-    if (!pexelsApiKey) {
-        setPexelsError("Pexels API Key is not set. Please add it in the Settings tab.");
-        return;
-    }
-    setIsPexelsLoading(true);
-    setPexelsError(null);
-    const pageToFetch = mode === 'new' ? 1 : pexelsPage + 1;
-    if (mode === 'new') {
-        setCurrentPexelsQuery(query);
-        setPexelsPhotos([]);
-    }
-
-    try {
-        const results = await geminiService.searchPexelsPhotos(pexelsApiKey, query, pageToFetch);
-        setPexelsPhotos(prev => mode === 'new' ? results : [...prev, ...results]);
-        setPexelsPage(pageToFetch);
-    } catch (e: any) {
-        console.error("Pexels search failed:", e);
-        setPexelsError(e.message || "Failed to search for photos.");
-    } finally {
-        setIsPexelsLoading(false);
-    }
-  }, [pexelsPage, pexelsApiKey]);
-
-  const handleSelectPexelsImage = useCallback(async (photo: PexelsPhoto) => {
-    setIsLoading(true);
-    setLoadingMessage('Importing image...');
-    setError(null);
-    try {
-        const img = new Image();
-        img.crossOrigin = "Anonymous"; // Important for CORS
-        img.src = photo.src.large2x; // Using a high-quality version
-
-        await new Promise((resolve, reject) => {
-            img.onload = resolve;
-            img.onerror = () => reject(new Error("Could not load image due to network or CORS issue."));
-        });
-
-        const canvas = document.createElement('canvas');
-        canvas.width = img.width;
-        canvas.height = img.height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) throw new Error("Could not create canvas context to import image.");
-        
-        ctx.drawImage(img, 0, 0);
-        const dataUrl = canvas.toDataURL('image/png');
-        
-        addImageLayer(dataUrl, photo.alt || `Pexels Image ${photo.id}`);
-
-    } catch (e: any) {
-        console.error("Failed to import Pexels image:", e);
-        setError(e.message || 'An unexpected error occurred while importing the image.');
-    } finally {
-        setIsLoading(false);
-        setLoadingMessage('');
-    }
-}, [addImageLayer]);
-
-// --- Style Transfer Handlers ---
-const handleStyleImageUpload = useCallback((file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-        const imageUrl = e.target?.result as string;
-        if (imageUrl) {
-            setStyleImage(imageUrl);
-        }
-    };
-    reader.onerror = () => {
-        setError("Failed to read the style image file.");
-    };
-    reader.readAsDataURL(file);
-}, []);
-
-const handleRemoveStyleImage = useCallback(() => {
-    setStyleImage(null);
-    if(styleImageFileInputRef.current) styleImageFileInputRef.current.value = '';
-}, []);
-
-const handleApplyStyleTransfer = useCallback(async () => {
-    if (!styleImage || !canvasRef.current || !hasImage || !page) {
-        setError('Please ensure you have an image on the artboard and have uploaded a style image.');
-        return;
-    }
-
-    setIsLoading(true);
-    setLoadingMessage('Applying new style...');
-    setError(null);
-
-    try {
-        const contentImageDataUrl = await canvasRef.current.getPageContentAsDataURL({ includeBackground: false });
-        if (!contentImageDataUrl) throw new Error("Could not get page data for style transfer.");
-
-        const [contentMeta, contentData] = contentImageDataUrl.split(',');
-        const contentMime = contentMeta.split(';')[0].split(':')[1];
-
-        const [styleMeta, styleData] = styleImage.split(',');
-        const styleMime = styleMeta.split(';')[0].split(':')[1];
-        
-        const result = await geminiService.applyStyleTransfer(contentData, contentMime, styleData, styleMime, styleStrength);
-
-        if (result.image) {
-            const newImageSrc = `data:${contentMime};base64,${result.image}`;
-            
-            const newLayer: Layer = {
-                id: `layer_${Date.now()}`,
-                name: `Style Transfer`,
-                type: LayerType.IMAGE,
-                src: newImageSrc,
-                isVisible: true,
-                opacity: 100,
-                x: page.x,
-                y: page.y,
-                width: page.width,
-                height: page.height,
-                rotation: 0,
-                blendMode: 'source-over',
-                scaleX: 1,
-                scaleY: 1,
-            };
-
-            const newLayers = [...layers, newLayer];
-            setLayers(newLayers);
-            setActiveLayerId(newLayer.id);
-            updateHistory(newLayers);
-            setIsEditingMask(false);
-        } else {
-            setError(result.text || 'The model did not return a styled image. Try a different style or strength.');
-        }
-
-    } catch (e: any) {
-        console.error(e);
-        setError(e.message || 'Failed to apply style. Please try again.');
-    } finally {
-        setIsLoading(false);
-        setLoadingMessage('');
-    }
-}, [styleImage, layers, styleStrength, updateHistory, hasImage, page]);
-
-  // --- Other handlers ---
-  const handleAddColorPreset = useCallback(() => {
-    if (!colorPresets.includes(brushColor) && colorPresets.length < 12) {
-      const newPresets = [...colorPresets, brushColor];
-      setColorPresets(newPresets);
-      try {
-        localStorage.setItem('colorPresets', JSON.stringify(newPresets));
-      } catch (e) {
-        console.error("Failed to save color presets:", e);
-      }
-    }
-  }, [brushColor, colorPresets]);
-
-  const handleRewritePrompt = useCallback(async (part: PromptPart | 'edit') => {
-    const currentPrompt = part === 'edit' ? editPrompt : prompt[part];
-    if (!currentPrompt.trim()) return;
-
-    setRewritingPrompt(part);
-    setError(null);
-    try {
-      const rewritten = await geminiService.rewritePrompt(currentPrompt, part);
-      if (part === 'edit') {
-        setEditPrompt(rewritten);
-      } else {
-        setPrompt(prev => ({ ...prev, [part]: rewritten }));
-      }
-    } catch (e: any) {
-      console.error(e);
-      setError(e.message || `Failed to enhance the ${part} prompt. Please try again.`);
-    } finally { setRewritingPrompt(null); }
-  }, [prompt, editPrompt]);
-  const handleGetSuggestions = useCallback(async (part: PromptPart, value: string) => {
-    if (!value.trim() || value.length < 4) {
-      if (part === 'subject') setSubjectSuggestions([]);
-      else if (part === 'background') setBackgroundSuggestions([]);
-      else setNegativePromptSuggestions([]);
-      return;
-    }
-    setSuggestionsLoading(part);
-    try {
-      const suggestions = await geminiService.getPromptSuggestions(value, part);
-      if (part === 'subject') setSubjectSuggestions(suggestions);
-      else if (part === 'background') setBackgroundSuggestions(suggestions);
-      else setNegativePromptSuggestions(suggestions);
-    } catch (e: any) {
-      console.error("Failed to get suggestions", e);
-      setError(e.message || "Failed to fetch prompt suggestions.");
-      if (part === 'subject') setSubjectSuggestions([]);
-      else if (part === 'background') setBackgroundSuggestions([]);
-      else setNegativePromptSuggestions([]);
-    } finally { setSuggestionsLoading(null); }
-  }, []);
-  const handleRandomPrompt = useCallback(async (part: PromptPart | 'edit') => {
-    setRandomizingPrompt(part);
-    setError(null);
-    try {
-      const randomText = await geminiService.generateRandomPrompt(part);
-      if (part === 'edit') setEditPrompt(randomText);
-      else setPrompt(prev => ({ ...prev, [part]: randomText }));
-    } catch (e: any) {
-      console.error(e);
-      setError(e.message || `Failed to generate a random ${part} prompt. Please try again.`);
-    } finally { setRandomizingPrompt(null); }
-  }, []);
-  
-  const handleClearCustomShapes = useCallback(() => {
-    try {
-      localStorage.removeItem('userClipArtShapes');
       localStorage.removeItem('colorPresets');
       localStorage.removeItem('pexelsApiKey');
       localStorage.removeItem('comfyUIServerAddress');
-      // Also reset theme to default
       setThemeName(DEFAULT_THEME.name);
-      
-      const defaultCategories = [...CLIP_ART_CATEGORIES];
-      setClipArtCategories(defaultCategories);
-      setSelectedClipArtCategoryName(defaultCategories[0].name);
       setColorPresets(INITIAL_COLOR_PRESETS);
       setPexelsApiKey('');
       setComfyUIServerAddress('http://127.0.0.1:8188');
       setComfyUIConnectionStatus('disconnected');
-
     } catch (e) {
       console.error("Failed to clear custom data:", e);
       setError("Could not clear custom data. There might be a browser issue.");
@@ -1664,6 +1186,235 @@ const handleApplyStyleTransfer = useCallback(async () => {
   const handlePromptChange = (part: PromptPart, value: string) => setPrompt(prev => ({ ...prev, [part]: value }));
   const handleToggleThemeMode = useCallback(() => setIsDarkMode(prev => !prev), []);
 
+  const handleImageFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      handleImageUpload(e.target.files[0]);
+    }
+    e.target.value = '';
+  }, [handleImageUpload]);
+
+  const handleProjectFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+        const file = e.target.files[0];
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            try {
+                const content = ev.target?.result as string;
+                const projectData = JSON.parse(content);
+                if (projectData.layers) setLayers(projectData.layers);
+                if (projectData.prompt) setPrompt(projectData.prompt);
+                if (projectData.page) setPage(projectData.page);
+                if (projectData.style) setStyle(projectData.style);
+                if (projectData.lighting) setLighting(projectData.lighting);
+                if (projectData.composition) setComposition(projectData.composition);
+                
+                setHistory([]);
+                setActiveLayerId(projectData.layers && projectData.layers.length > 0 ? projectData.layers[projectData.layers.length-1].id : null);
+                setGeneratedImages([]);
+                setIsOpenOptionsOpen(false);
+                setZoom(1);
+            } catch (err) {
+                setError("Failed to load project file.");
+            }
+        };
+        reader.readAsText(file);
+    }
+    e.target.value = '';
+  }, []);
+
+  const handleStyleImageUpload = useCallback((file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        if (e.target?.result) {
+            setStyleImage(e.target.result as string);
+            setActiveTab('edit');
+        }
+    };
+    reader.readAsDataURL(file);
+  }, []);
+
+  const handleOpenProjectClick = useCallback(() => {
+    projectFileInputRef.current?.click();
+  }, []);
+
+  const handleOpenImageClick = useCallback(() => {
+    imageFileInputRef.current?.click();
+    setIsOpenOptionsOpen(false);
+  }, []);
+
+  const handleExportImage = useCallback(() => {
+    if (!canvasRef.current) return;
+    const dataUrl = canvasRef.current.getCanvasAsDataURL({ format: exportFormat, quality: jpegQuality / 100 });
+    if (dataUrl) {
+        const link = document.createElement('a');
+        link.download = `image-export.${exportFormat}`;
+        link.href = dataUrl;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+    setIsExportModalOpen(false);
+  }, [exportFormat, jpegQuality]);
+
+  const handleSaveProject = useCallback(() => {
+    const projectData = {
+        layers,
+        prompt,
+        page,
+        style,
+        lighting,
+        composition,
+        date: new Date().toISOString()
+    };
+    const json = JSON.stringify(projectData, null, 2);
+    const blob = new Blob([json], { type: "application/csp" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.download = "project.csp";
+    link.href = url;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, [layers, prompt, page, style, lighting, composition]);
+
+  const handleRewritePrompt = useCallback(async (part: PromptPart | 'edit') => {
+    if (rewritingPrompt || randomizingPrompt) return;
+    const currentPrompt = part === 'edit' ? editPrompt : prompt[part];
+    if (!currentPrompt) return;
+    
+    setRewritingPrompt(part);
+    try {
+        const rewritten = await geminiService.rewritePrompt(currentPrompt, part);
+        if (part === 'edit') setEditPrompt(rewritten);
+        else setPrompt(prev => ({ ...prev, [part]: rewritten }));
+    } catch (e: any) {
+        setError(e.message || "Failed to rewrite prompt.");
+    } finally {
+        setRewritingPrompt(null);
+    }
+  }, [prompt, editPrompt, rewritingPrompt, randomizingPrompt]);
+
+  const handleRandomPrompt = useCallback(async (part: PromptPart | 'edit') => {
+    if (rewritingPrompt || randomizingPrompt) return;
+    setRandomizingPrompt(part);
+    try {
+        const random = await geminiService.generateRandomPrompt(part);
+        if (part === 'edit') setEditPrompt(random);
+        else setPrompt(prev => ({ ...prev, [part]: random }));
+    } catch (e: any) {
+        setError(e.message || "Failed to generate random prompt.");
+    } finally {
+        setRandomizingPrompt(null);
+    }
+  }, [rewritingPrompt, randomizingPrompt]);
+
+  const handleGetSuggestions = useCallback(async (part: PromptPart, value: string) => {
+    setSuggestionsLoading(part);
+    try {
+        const suggestions = await geminiService.getPromptSuggestions(value, part);
+        if (part === 'subject') setSubjectSuggestions(suggestions);
+        else if (part === 'background') setBackgroundSuggestions(suggestions);
+        else if (part === 'negativePrompt') setNegativePromptSuggestions(suggestions);
+    } catch (e) {
+        console.error("Failed to get suggestions", e);
+    } finally {
+        setSuggestionsLoading(null);
+    }
+  }, []);
+
+  const handleAddColorPreset = useCallback(() => {
+    if (!colorPresets.includes(brushColor)) {
+        const newPresets = [...colorPresets, brushColor];
+        setColorPresets(newPresets);
+        localStorage.setItem('colorPresets', JSON.stringify(newPresets));
+    }
+  }, [colorPresets, brushColor]);
+
+  const handlePexelsSearch = useCallback(async (query: string, mode: 'new' | 'more') => {
+    if (!pexelsApiKey) {
+        setError("Please add a Pexels API Key in Settings.");
+        return;
+    }
+    
+    setIsPexelsLoading(true);
+    setPexelsError(null);
+    try {
+        const pageToFetch = mode === 'new' ? 1 : pexelsPage + 1;
+        const photos = await geminiService.searchPexelsPhotos(pexelsApiKey, query, pageToFetch);
+        if (mode === 'new') {
+            setPexelsPhotos(photos);
+            setPexelsPage(1);
+        } else {
+            setPexelsPhotos(prev => [...prev, ...photos]);
+            setPexelsPage(pageToFetch);
+        }
+    } catch (e: any) {
+        setPexelsError(e.message);
+    } finally {
+        setIsPexelsLoading(false);
+    }
+  }, [pexelsApiKey, pexelsPage]);
+
+  const handleSelectPexelsImage = useCallback((photo: PexelsPhoto) => {
+    addImageLayer(photo.src.large2x, `Pexels: ${photo.alt || 'Photo'}`);
+  }, [addImageLayer]);
+
+  const handleRemoveStyleImage = useCallback(() => {
+    setStyleImage(null);
+  }, []);
+
+  const handleApplyStyleTransfer = useCallback(async () => {
+    if (!canvasRef.current || !styleImage || !hasImage || !page) return;
+    setIsLoading(true);
+    setLoadingMessage('Applying style transfer...');
+    setError(null);
+    
+    try {
+        const contentDataUrl = await canvasRef.current.getPageContentAsDataURL({ includeBackground: true });
+        if (!contentDataUrl) throw new Error("Could not capture canvas content.");
+        
+        const [cMeta, cData] = contentDataUrl.split(',');
+        const cMime = cMeta.split(';')[0].split(':')[1];
+        
+        const [sMeta, sData] = styleImage.split(',');
+        const sMime = sMeta.split(';')[0].split(':')[1];
+        
+        const result = await geminiService.applyStyleTransfer(cData, cMime, sData, sMime, styleStrength);
+        
+        if (result.image) {
+             const newImageSrc = `data:${cMime};base64,${result.image}`;
+             const newLayer: Layer = {
+                id: `layer_${Date.now()}`,
+                name: `Style Transfer`,
+                type: LayerType.IMAGE,
+                src: newImageSrc,
+                isVisible: true,
+                opacity: 100,
+                x: page.x,
+                y: page.y,
+                width: page.width,
+                height: page.height,
+             };
+             const newLayers = [...layers, newLayer];
+             setLayers(newLayers);
+             setActiveLayerId(newLayer.id);
+             updateHistory(newLayers);
+             setActiveTab('edit');
+        } else {
+            setError(result.text || "Failed to transfer style.");
+        }
+    } catch (e: any) {
+        setError(e.message || "Failed to transfer style.");
+    } finally {
+        setIsLoading(false);
+        setLoadingMessage('');
+    }
+  }, [styleImage, hasImage, styleStrength, layers, page, updateHistory]);
+
+  const handleZoomIn = () => setZoom(prev => Math.min(prev + 0.1, 5));
+  const handleZoomOut = () => setZoom(prev => Math.max(prev - 0.1, 0.1));
+
   return (
     <>
       <input type="file" ref={imageFileInputRef} onChange={handleImageFileChange} accept="image/png, image/jpeg, image/webp" className="hidden" />
@@ -1671,7 +1422,7 @@ const handleApplyStyleTransfer = useCallback(async () => {
       <input type="file" ref={styleImageFileInputRef} onChange={(e) => { e.target.files && handleStyleImageUpload(e.target.files[0])}} accept="image/png, image/jpeg, image/webp" className="hidden" />
 
 
-      {/* Modals */}
+      {/* Modals ... (Unchanged) ... */}
       {isOpenOptionsOpen && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={() => setIsOpenOptionsOpen(false)}>
           <div className="bg-base-200 p-6 rounded-lg shadow-xl space-y-4 w-full max-w-sm" onClick={e => e.stopPropagation()}>
@@ -1742,9 +1493,7 @@ const handleApplyStyleTransfer = useCallback(async () => {
             onOpenOptionsClick={() => setIsOpenOptionsOpen(true)} isLoading={isLoading} hasImage={hasImage} editMode={editMode} setEditMode={setEditMode}
             brushSize={brushSize} setBrushSize={setBrushSize} brushColor={brushColor} setBrushColor={setBrushColor} onClear={clearCanvas}
             onReset={resetImage} onUndo={handleUndo} canUndo={canUndo}
-            clipArtCategories={clipArtCategories} selectedClipArtCategoryName={selectedClipArtCategoryName} setSelectedClipArtCategoryName={setSelectedClipArtCategoryName}
-            onSaveShape={handleSaveShape} selectedShapeId={selectedShapeId} onDeleteSelectedShape={handleDeleteSelectedShape}
-            onClearCustomShapes={handleClearCustomShapes}
+            onClearCustomShapes={handleResetAppData}
             colorPresets={colorPresets} onAddColorPreset={handleAddColorPreset}
             // Theme props
             themes={THEMES} activeTheme={themeName} onThemeChange={setThemeName} isDarkMode={isDarkMode} onToggleThemeMode={handleToggleThemeMode}
@@ -1755,6 +1504,7 @@ const handleApplyStyleTransfer = useCallback(async () => {
             onLayerAdjustmentChange={handleLayerAdjustmentChange} onResetLayerAdjustments={handleResetLayerAdjustments}
             onLayerFilterChange={handleLayerFilterChange}
             onInteractionEndWithHistory={() => updateHistory(layers)}
+            onTransformPixelLayer={handleTransformPixelLayer}
             // Mask props
             isEditingMask={isEditingMask} onSelectLayerMask={handleSelectLayerMask} onAddLayerMask={handleAddLayerMask}
             onDeleteLayerMask={handleDeleteLayerMask} onAutoMask={handleAutoMask}
@@ -1802,7 +1552,7 @@ const handleApplyStyleTransfer = useCallback(async () => {
           />
           {error && (<div className="bg-red-500/20 border border-red-500 text-red-300 p-3 rounded-md text-sm"><p className="font-semibold">Error</p><p>{error}</p></div>)}
         </aside>
-        <main className="flex-1 flex items-center justify-center bg-base-100/50 relative">
+        <main className="flex-1 flex items-center justify-center bg-base-100/50 relative overflow-hidden">
           <button onClick={() => setIsPanelOpen(true)} className="md:hidden fixed bottom-4 left-4 z-30 bg-brand-primary text-white p-3 rounded-full shadow-lg hover:bg-brand-primary/80 transition-colors" aria-label="Open controls panel"><SettingsIcon /></button>
           <div className="w-full h-full flex items-center justify-center relative">
             {hasImage && !isLoading && (
@@ -1812,6 +1562,15 @@ const handleApplyStyleTransfer = useCallback(async () => {
                  {page && (<div className="absolute top-full right-0 mt-2 bg-black/60 text-white text-xs px-2 py-1 rounded-md pointer-events-none">{page.width} x {page.height}px</div>)}
               </div>
             )}
+            
+            {hasImage && !isLoading && (
+                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-base-200/80 p-2 rounded-full shadow-md backdrop-blur-sm">
+                    <button onClick={handleZoomOut} className="p-1 hover:text-brand-primary transition-colors text-text-secondary"><ZoomOutIcon /></button>
+                    <span className="text-xs font-semibold w-12 text-center text-text-primary">{Math.round(zoom * 100)}%</span>
+                    <button onClick={handleZoomIn} className="p-1 hover:text-brand-primary transition-colors text-text-secondary"><ZoomInIcon /></button>
+                </div>
+            )}
+
             {generatedImages.length > 0 ? (
               <ImageGallery images={generatedImages} onSelectImage={handleSelectGalleryImage} />
             ) : (
@@ -1823,15 +1582,16 @@ const handleApplyStyleTransfer = useCallback(async () => {
                 isEditingMask={isEditingMask}
                 isLoading={isLoading} loadingMessage={loadingMessage} editMode={editMode} brushSize={brushSize} brushColor={brushColor}
                 onUploadClick={handleOpenImageClick}
-                selectedShapeId={selectedShapeId} onAddStroke={handleAddStroke} onAddShape={handleAddShape}
-                // FIX: `onUpdateShape` was not defined. It should be `handleUpdateShape`.
-                onUpdateShape={handleUpdateShape} onSelectShape={setSelectedShapeId} 
-                onShapeInteractionEnd={handleShapeInteractionEnd}
+                selectedShapeId={null} onAddStroke={handleAddStroke} 
+                onAddShape={() => {}}
+                onUpdateShape={() => {}} onSelectShape={() => {}} 
+                onShapeInteractionEnd={() => {}}
                 onStrokeInteractionEnd={handleStrokeInteractionEnd}
                 onUpdateLayerMask={handleUpdateLayerMask}
                 onUpdateLayer={handleUpdateLayer}
                 onInteractionEndWithHistory={() => updateHistory(layers)}
                 onLayerTransformEnd={handleLayerTransformEnd}
+                zoom={zoom}
               />
             )}
           </div>
