@@ -42,6 +42,7 @@ export const INITIAL_STYLES: ImageStyle[] = [
     { name: "Impressionism", prompt: "impressionist painting, visible brushstrokes, soft light, Claude Monet style" },
     { name: "Illustration", prompt: "digital illustration, detailed, clean lines, vibrant color palette" },
     { name: "Kinetic Art", prompt: "kinetic art, op art, creates an impression of movement, geometric abstraction" },
+    { name: "Low-poly", prompt: "low-poly style, geometric shapes, polygons, minimalist, 3d render" },
     { name: "Mid-Century Modern", prompt: "mid-century modern illustration, clean lines, organic shapes, retro color palette" },
     { name: "Minimalist", prompt: "minimalist design, clean lines, simple color palette, vector art" },
     { name: "Modern Design", prompt: "modern design, sleek, simple forms, functional, contemporary" },
